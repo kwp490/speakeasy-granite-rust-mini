@@ -2,13 +2,7 @@
   "bundle": {
     "active": false,
     "resources": {
-      "proof-stage/inference-worker.exe": "proof/inference-worker.exe",
       "proof-stage/granite-worker.exe": "proof/granite-worker.exe",
-      "proof-stage/onnxruntime.dll": "proof/onnxruntime.dll",
-      "proof-stage/onnxruntime_providers_shared.dll": "proof/onnxruntime_providers_shared.dll",
-      "proof-stage/sherpa-onnx-c-api.dll": "proof/sherpa-onnx-c-api.dll",
-      "proof-stage/sherpa-onnx-cxx-api.dll": "proof/sherpa-onnx-cxx-api.dll",
-      "proof-stage/cargs.dll": "proof/cargs.dll",
       "proof-stage/speakeasy-bootstrapper.exe": "speakeasy-bootstrapper.exe",
       "proof-stage/THIRD-PARTY-NOTICES.txt": "notices/THIRD-PARTY-NOTICES.txt",
       "proof-stage/MODEL-NOTICES.md": "notices/MODEL-NOTICES.md",

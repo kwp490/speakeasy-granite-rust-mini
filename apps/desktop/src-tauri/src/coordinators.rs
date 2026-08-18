@@ -526,7 +526,7 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
             .state::<RuntimeWizardCoordinator>()
             .paths()
             .ok()
-            .and_then(|paths| paths.granite_worker);
+            .map(|paths| paths.granite_worker);
         let models = app.state::<ModelCoordinator>();
         let outcome = warm_granite_if_configured(
             GraniteEnvironment {

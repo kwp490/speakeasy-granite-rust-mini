@@ -260,15 +260,16 @@ const PROOF: &str = "proof";
 /// Pinned against `tauri.proof.conf.json`'s `bundle.resources` by
 /// `apps/desktop/tests/scaffold.test.mjs`, so a payload file added without a
 /// line here fails the gate instead of surviving every uninstall.
-const INSTALLED_PROOF_FILES: &[&str] = &[
-    "inference-worker.exe",
-    "granite-worker.exe",
-    "onnxruntime.dll",
-    "onnxruntime_providers_shared.dll",
-    "sherpa-onnx-c-api.dll",
-    "sherpa-onnx-cxx-api.dll",
-    "cargs.dll",
-];
+///
+/// One entry, because this product installs one engine. The streaming
+/// worker and the five native libraries it linked — `inference-worker.exe`,
+/// both ONNX Runtime DLLs, both sherpa APIs and `cargs.dll` — were listed
+/// here until the fork removed the engine. They are *not* moved to
+/// `KNOWN_PROOF_ORPHANS`: an orphan is a file some earlier build of this
+/// product left behind, and no build of `ai.speakeasy.mini` ever staged one
+/// of these. Naming them there would have the uninstaller hunt for files only
+/// a *different* product's install root can hold.
+const INSTALLED_PROOF_FILES: &[&str] = &["granite-worker.exe"];
 
 /// Files a previous layout left in `proof/` that nothing places any more.
 ///

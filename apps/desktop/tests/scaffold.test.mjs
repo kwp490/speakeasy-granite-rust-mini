@@ -777,14 +777,22 @@ test("a dev launch stages the native runtime it will need", async () => {
   assert.equal(packageJson.scripts.dev, "vite");
 
   // The script reads the installed layout out of the bundle config rather than
-  // restating it, so the file list cannot drift — but the two executables in
-  // it are built by cargo under different names, and *that* mapping is
-  // restated. Adding or renaming a worker has to update it.
+  // restating it, so the file list cannot drift — but the executable in it is
+  // built by cargo under a different name, and *that* mapping is restated.
+  // Adding or renaming a worker has to update it.
+  //
+  // One executable, because one engine. `inference-worker.exe` was the second
+  // until the fork removed the streaming engine, and this list is the reason
+  // that removal is worth pinning: the payload manifest kept naming it, so
+  // `Stage-DevRuntime.ps1` kept trying to `cargo build -p` a package that no
+  // longer exists, and every `npm run tauri -- dev` threw before Vite started.
+  // A dev launch is the one path with no test of its own, so this assertion is
+  // what stands in for it.
   const installedExecutables = Object.values(proofConfig.bundle.resources)
     .filter((destination) => destination.startsWith("proof/") && destination.endsWith(".exe"))
     .map((destination) => destination.slice("proof/".length))
     .sort();
-  assert.deepEqual(installedExecutables, ["granite-worker.exe", "inference-worker.exe"]);
+  assert.deepEqual(installedExecutables, ["granite-worker.exe"]);
   for (const executable of installedExecutables) {
     assert.match(
       script,

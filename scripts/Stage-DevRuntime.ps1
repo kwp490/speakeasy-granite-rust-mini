@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 Stages the native runtime into the dev target directory, so a `tauri dev` build
 can actually transcribe.
@@ -16,7 +16,7 @@ script exists rather than a line in a README. The app starts normally, the UI
 works, capture runs, the level meter moves -- and then finalization fails with
 the transcriber's *generic* error text. It is indistinguishable from a real
 transcription regression until someone reads
-`%APPDATA%\ai.speakeasy.desktop\logs\speakeasy.log`, and it cost a debugging
+`%APPDATA%\ai.speakeasy.mini\logs\speakeasy.log`, and it cost a debugging
 round on 2026-08-10 doing exactly that.
 
 `tauri.conf.json`'s `beforeDevCommand` runs this, so `npm run tauri -- dev`
@@ -42,8 +42,8 @@ they are not there yet, rather than staging a partial `proof/`.
 
 .PARAMETER AllowMissingRuntime
 Stage what is available and warn about the rest instead of failing. For
-frontend-only work on a clone that has not fetched the native runtime, where
-paying for `Get-GpuRuntime.ps1` to look at a stylesheet is disproportionate.
+frontend-only work on a clone that has not built the worker yet, where
+paying for a llama.cpp compile to look at a stylesheet is disproportionate.
 
 Dictation will fail under this flag. That is the whole point of the default
 being a hard failure -- the alternative is the silent version of this problem,
@@ -107,19 +107,18 @@ if ($wanted.Count -eq 0) {
     throw "No proof/ resources in $proofConfigPath -- has the bundle layout changed?"
 }
 
-# The two `proof/` entries cargo produces. Everything else in there comes out
-# of the fetched sherpa-onnx archive. Keyed by the *installed* name, which is
-# not the cargo target name for either of them.
+# The one `proof/` entry cargo produces. Keyed by the *installed* name, which
+# is not the cargo target name.
+#
+# This map used to carry `inference-worker.exe` as well, and everything else in
+# `proof/` came out of a fetched sherpa-onnx archive. The fork removed both, and
+# left this script pointing at a package that no longer exists: every
+# `npm run tauri -- dev` ran `cargo build -p speakeasy-inference-worker`, which
+# fails, so `beforeDevCommand` threw and the app could not be launched at all.
+# Nothing caught it, because no test runs the dev launcher.
 $workerCrates = @{
-    'inference-worker.exe' = @{ Package = 'speakeasy-inference-worker'; Output = 'speakeasy-inference-worker.exe' }
-    'granite-worker.exe'   = @{ Package = 'speakeasy-granite-worker'; Output = 'speakeasy-granite-worker.exe' }
+    'granite-worker.exe' = @{ Package = 'speakeasy-granite-worker'; Output = 'speakeasy-granite-worker.exe' }
 }
-
-# Where `Get-GpuRuntime.ps1` extracts what it fetched and hash-verified. Not
-# re-verified here for the same reason `Invoke-ProofPackage.ps1` does not:
-# it was verified against `models/trusted-manifest.json` on download, and
-# re-hashing on every dev launch would buy no new information.
-$sherpaLib = Join-Path $repositoryRoot '.tools\sherpa-onnx\current\lib'
 
 $destination = Join-Path $repositoryRoot "target\$TargetProfile\proof"
 $workerBin = Join-Path $repositoryRoot 'target\release'
@@ -183,8 +182,14 @@ foreach ($resource in $wanted) {
             "cargo reported success but did not produce it -- check the build output above"
         }
     } else {
-        $source = Join-Path $sherpaLib $resource.Name
-        $hint = 'run .\scripts\Get-GpuRuntime.ps1 to fetch the native runtime'
+        # Every `proof/` entry is now a cargo output. The other branch used to
+        # source native libraries from a fetched sherpa-onnx archive; with that
+        # engine gone, a `proof/` name this script cannot build is a mismatch
+        # between the payload manifest and this map, not a missing download --
+        # so say that, rather than pointing at a fetch script the fork deleted.
+        throw ("Stage-DevRuntime: proof/$($resource.Name) is declared in " +
+            "tauri.proof.conf.json but no crate in `$workerCrates builds it. " +
+            'Add it there, or drop it from the payload manifest.')
     }
 
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {

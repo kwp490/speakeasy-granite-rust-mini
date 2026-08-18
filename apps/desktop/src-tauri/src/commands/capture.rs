@@ -651,7 +651,7 @@ async fn run_retained_transcription(
     // to fall through to, so a rejected pass ends the dictation and its reason
     // becomes the error the user is shown rather than a footnote on a delivery.
     let outcome: Result<FinalTranscript, &'static str> = {
-        let granite_worker_exe = runtime.paths().ok().and_then(|paths| paths.granite_worker);
+        let granite_worker_exe = runtime.paths().ok().map(|paths| paths.granite_worker);
         let pass = run_granite_final_pass(
             GraniteEnvironment {
                 granite_worker_exe: granite_worker_exe.as_deref(),

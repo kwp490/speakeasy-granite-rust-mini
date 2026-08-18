@@ -57,24 +57,23 @@ pub struct RuntimePaths {
     /// dynamically loaded DLL's dependencies against the process search order,
     /// so cuBLAS and cuDNN must be in the worker's own directory.
     pub proof: PathBuf,
-    pub worker: PathBuf,
-    pub onnx_runtime: PathBuf,
-    /// sherpa-onnx's own shared library. Its presence stands in for the whole
-    /// sherpa runtime the worker links against, and is required on every
-    /// install — this is what makes the CPU pack work.
-    pub sherpa_c_api: PathBuf,
-    /// The CUDA execution provider, when this install staged it. Optional
-    /// rather than required: the CUDA and cuDNN redistributables are large
-    /// enough that bundling them unconditionally is its own distribution
-    /// problem (see the GPU migration handoff's "Runtime pack" decision), so
-    /// an install without them is CPU-only rather than broken.
-    pub onnxruntime_providers_cuda: Option<PathBuf>,
-    /// The Granite worker binary, when this install staged it. Optional and
-    /// never in `required`: Granite is a second, independent final-pass
-    /// engine, not a dependency of ordinary dictation, so its absence must
-    /// never break a install that never asked for it (see
-    /// `docs/handoff/granite-final-pass.md`, Phase 6).
-    pub granite_worker: Option<PathBuf>,
+    /// The Granite worker binary. **Required**, and the inversion is the whole
+    /// point of the fork: this was `Option`, "never in `required`", because
+    /// Granite used to be a second final-pass engine layered over a streaming
+    /// one that ordinary dictation actually depended on. It is now the only
+    /// engine, so its absence is not a declined second pass — it is no
+    /// dictation at all, and saying so here is what makes the failure legible.
+    ///
+    /// The three fields that were required alongside it — the streaming
+    /// worker, ONNX Runtime and sherpa's C API — went with that engine. They
+    /// outlived it in this struct, and because they are resolved before
+    /// `granite_worker` and no longer exist to resolve, `paths()` returned
+    /// `runtime_resources_unavailable` on every call: every dictation would
+    /// have failed, in the one code path no test covers and the app had never
+    /// been launched to exercise. ONNX Runtime's CUDA provider left with them;
+    /// Granite's GPU support is llama.cpp's, and needs cudart and cuBLAS in
+    /// `proof` rather than an execution-provider DLL.
+    pub granite_worker: PathBuf,
 }
 
 pub struct RuntimeWizardCoordinator {
@@ -174,25 +173,13 @@ impl RuntimeWizardCoordinator {
         let root = canonical_directory(&self.resource_root)?;
         let paths = RuntimePaths {
             proof: canonical_directory(&root.join("proof"))?,
-            worker: canonical_file(&root, "proof/inference-worker.exe")?,
-            onnx_runtime: canonical_file(&root, "proof/onnxruntime.dll")?,
-            sherpa_c_api: canonical_file(&root, "proof/sherpa-onnx-c-api.dll")?,
-            onnxruntime_providers_cuda: canonical_file(
-                &root,
-                "proof/onnxruntime_providers_cuda.dll",
-            )
-            .ok(),
-            granite_worker: canonical_file(&root, "proof/granite-worker.exe").ok(),
+            granite_worker: canonical_file(&root, "proof/granite-worker.exe")?,
             root: root.clone(),
         };
-        let mut required = vec![&paths.worker, &paths.onnx_runtime, &paths.sherpa_c_api];
-        if let Some(cuda) = &paths.onnxruntime_providers_cuda {
-            required.push(cuda);
-        }
-        if let Some(granite_worker) = &paths.granite_worker {
-            required.push(granite_worker);
-        }
-        if required.iter().any(|path| !path.starts_with(&root)) {
+        // Canonicalization resolves symlinks and `..`, so this is asked after
+        // it rather than of the joined path: the check is whether the file the
+        // OS would actually open still lies under the resource root.
+        if !paths.granite_worker.starts_with(&root) {
             return Err("runtime_resource_escape");
         }
         Ok(paths)
@@ -273,6 +260,57 @@ mod tests {
     fn missing_runtime_resources_fail_closed() {
         let scheduler = RuntimeWizardCoordinator::new(PathBuf::from("missing-runtime-root"));
         assert_eq!(scheduler.paths(), Err("runtime_resources_unavailable"));
+    }
+
+    /// The regression this module shipped with, and the reason it survived:
+    /// every existing `paths()` test passed a root that does not exist, so
+    /// they all asserted the error and none of them asserted the success. The
+    /// struct went on requiring the streaming engine's three binaries after
+    /// the fork deleted them, and `paths()` therefore failed for a *staged*
+    /// root too — every dictation would have ended in
+    /// `runtime_resources_unavailable`, which no test and no launch had ever
+    /// exercised.
+    ///
+    /// So this asserts the positive case against a root laid out the way
+    /// `Stage-DevRuntime.ps1` and the installer's payload both lay it out, and
+    /// pins that the Granite worker is what makes the difference: present, it
+    /// resolves; absent, it fails closed. A file that is merely *named* is not
+    /// enough — `canonical_file` requires it to exist on disk.
+    #[test]
+    fn a_staged_root_resolves_and_the_granite_worker_is_what_makes_it_one() {
+        let root = tempfile::tempdir().expect("resource root");
+        let proof = root.path().join("proof");
+        std::fs::create_dir_all(&proof).expect("proof directory");
+
+        // A `proof/` with no worker in it is the shape an interrupted install
+        // leaves behind, and it must not resolve.
+        let scheduler = RuntimeWizardCoordinator::new(root.path().to_path_buf());
+        assert_eq!(
+            scheduler.paths(),
+            Err("runtime_resources_unavailable"),
+            "a proof directory without the worker must fail closed"
+        );
+
+        std::fs::write(proof.join("granite-worker.exe"), b"not a real binary")
+            .expect("staged worker");
+
+        let paths = scheduler.paths().expect("a staged root must resolve");
+        assert!(
+            paths.granite_worker.is_file(),
+            "granite_worker must name a file that exists"
+        );
+        assert_eq!(
+            paths
+                .granite_worker
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("granite-worker.exe")
+        );
+        assert!(
+            paths.granite_worker.starts_with(&paths.root),
+            "the worker must resolve under the resource root"
+        );
+        assert_eq!(paths.granite_worker.parent(), Some(paths.proof.as_path()));
     }
 
     #[test]
