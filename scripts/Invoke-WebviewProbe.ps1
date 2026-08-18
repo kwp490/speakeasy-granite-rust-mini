@@ -29,7 +29,8 @@ neighbouring control looks identical to a broken control. `-Click` dispatches a
 real click on a real element or fails loudly because the selector matched nothing.
 
 .PARAMETER Window
-Document title substring identifying the target: "settings" or "transcriber".
+Which window to talk to: "settings", "dock" or "log". Not a title substring --
+they all share one document title -- but the root element each one renders.
 
 .PARAMETER Expression
 JavaScript to evaluate. The value is returned as JSON.
@@ -73,13 +74,19 @@ function Get-DebugTarget {
         throw ("No DevTools endpoint on port $Port. Start the app with " +
             "`$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=$Port'.")
     }
-    # Both windows load the same bundle, so both report the same document title.
-    # They are told apart by the root element each one renders (§20.1).
+    # Every window loads the same bundle, so they all report the same document
+    # title. They are told apart by the root element each one renders (§20.1).
+    #
+    # `transcriber` was the large 420x280 HUD and left with the fork; `log` --
+    # the pinned transcript window -- was never added, so `CLAUDE.md` documented
+    # a `-Window log` this script would have rejected. Corrected 2026-08-18,
+    # after driving the pin control by text because the log could not be
+    # addressed.
     $marker = switch ($Window) {
         'settings' { 'desktop-scaffold' }
-        'transcriber' { 'capture-hud' }
         'dock' { 'capture-hud-dock' }
-        default { throw "Window must be 'settings', 'transcriber', or 'dock'; got '$Window'." }
+        'log' { 'pinned-log' }
+        default { throw "Window must be 'settings', 'dock', or 'log'; got '$Window'." }
     }
 
     $check = @{

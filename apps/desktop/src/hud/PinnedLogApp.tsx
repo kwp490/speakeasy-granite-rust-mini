@@ -50,7 +50,7 @@ export function PinnedLogApp() {
   );
 
   return (
-    <main className="pinned-log" onContextMenu={onContextMenu}>
+    <main className="pinned-log" data-testid="pinned-log" onContextMenu={onContextMenu}>
       <div className="pinned-log-chrome" data-drag-region>
         <span className="pinned-log-title">{messages.settingsGroups.log}</span>
         <button
