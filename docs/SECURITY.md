@@ -31,7 +31,7 @@ key, or endpoint is active.
 ## Reporting a vulnerability
 
 Report suspected vulnerabilities privately to [kwp490 through GitHub's private
-vulnerability reporting](https://github.com/kwp490/speakeasy-granite-rust/security/advisories/new).
+vulnerability reporting](https://github.com/kwp490/speakeasy-granite-rust-mini/security/advisories/new).
 This is the project's security-report address; there is no backup maintainer.
 Include the version, Windows version, impact, and the smallest safe
 reproduction steps. Don't attach real recordings, transcripts, credentials,

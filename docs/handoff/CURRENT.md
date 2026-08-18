@@ -5,6 +5,62 @@ cost you an afternoon if you rediscover them yourself.
 
 Read `CLAUDE.md` first. This file assumes it.
 
+## Start here
+
+**Read in this order:** `CLAUDE.md`, then this file, then `docs/ARCHITECTURE.md`
+if you need the shape of the system.
+
+**Prove the tree is where this file says it is**, before believing anything
+below. Two commands, about six minutes cold:
+
+```powershell
+. .\scripts\Enter-DevEnvironment.ps1
+.\scripts\Invoke-ScaffoldChecks.ps1 -SkipNpmInstall
+```
+
+That should end with `no leaks found` and exit 0. If it does not, something has
+changed since 2026-08-18 and the rest of this file is describing a tree you do
+not have.
+
+**What is true as of the last commit**, all of it measured rather than
+predicted:
+
+| | |
+| --- | --- |
+| Full gate | passes end to end |
+| A real dictation | delivered, `hotkey_delivery result=committed` |
+| Installer lifecycle | `Test-InstallerLifecycle.ps1` passes |
+| `speakeasy-granite` | compiles, ~2 min cold |
+| Branch | `main`, pushed to `kwp490/speakeasy-granite-rust-mini` |
+
+**The four things most worth doing next**, in the order I would do them:
+
+1. **Pin `install_root()`'s leaf to the product identity.** The worst defect
+   found on 2026-08-18 was `probe::install_root()` defaulting to
+   `%LOCALAPPDATA%\SpeakEasy` — setup would have installed over the parent
+   product and uninstall would have deleted it. The lifecycle test passes
+   `--install-root` explicitly, so **it does not exercise that default** and
+   nothing pins it. This is a handful of lines and it is the cheapest insurance
+   in the repository. Do it before anything else touches the installer.
+2. **Build the engine smoke-test runner** (item 2 below). The clip is committed
+   and its ground truth verified; only the runner is missing. Decided
+   2026-08-18: lift the worker spawning out of the desktop crate's
+   `process_worker.rs` into somewhere both it and `apps/bootstrapper` can reach,
+   rather than writing a second spawn — that function is where
+   `CREATE_NO_WINDOW` lives, and its comment says it is the only place the flag
+   is needed.
+3. **The remaining two installer pieces**: the retention question and recording
+   which configuration was installed.
+4. **Delete the dead onboarding plumbing** (item 5).
+
+**Two things need you rather than an agent**: publishing the CUDA worker
+(item 3, needs the CUDA Toolkit and Hugging Face credentials), and any decision
+about what setup *says*, since its copy is reviewable by rule.
+
+**Before running the installer lifecycle test**, kill any `ai-speakeasy-mini`.
+An aborted run leaves the app it launched for the running-app check alive, and
+the pre-flight guard then refuses every retry.
+
 ## Where the project is
 
 SpeakEasy Mini was forked from SpeakEasy in one session and reduced to two
@@ -434,6 +490,32 @@ install", never as a fault worth a quarantine strike.
 single-engine fallback" run. There is no fallback. The behaviour was already
 right — `judge_granite_pass` maps it to `FinalSourceReason::GraniteUnavailable`,
 checked rather than assumed — so this was a comment fix.
+
+### 7. Documentation debt the fork left behind
+Found while bringing the markdown up to date on 2026-08-18. None of it breaks a
+build; all of it misleads a reader.
+
+- **25 comments across 21 source and script files cite deleted handoff
+  documents** — `docs/handoff/granite-final-pass.md`,
+  `setup-wizard-redesign.md`, `docs/archive/UI-REDESIGN.md`. `docs/handoff/`
+  holds only this file now, so every one of those citations dead-ends. They were
+  left alone deliberately rather than stripped in bulk: the comments around them
+  are load-bearing, and each needs deciding individually between dropping the
+  citation and rewriting it against something that still exists.
+- **`models/huggingface/nemotron-3.5-streaming-en-cuda/`** is publishing
+  material — README, NOTICE, licence, checksums — for a model this fork no
+  longer ships, references or lists in `models/trusted-manifest.json`. Nothing
+  in the workspace points at it. It is a candidate for deletion, left in place
+  because removing licence text is a decision rather than a tidy-up.
+  `packaging/licenses/OpenMDW-1.1.txt` exists for the same removed model and is
+  now unreferenced by any shipped notice.
+- **The shipped notices were describing a different product.**
+  `THIRD-PARTY-NOTICES.txt` declared sherpa-onnx, ONNX Runtime and the CUDA
+  redistributables as bundled, and `MODEL-NOTICES.md` described two Nemotron
+  packs as the models in use. Both are corrected — a legal notice claiming to
+  distribute something it does not is worse than one that is merely stale — but
+  they are worth re-reading whenever the payload changes, because nothing checks
+  them against `Build-LocalInstaller.ps1`'s actual output.
 
 ## Decisions already made — do not re-open without new evidence
 

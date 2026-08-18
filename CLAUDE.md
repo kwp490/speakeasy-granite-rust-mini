@@ -56,19 +56,37 @@ frontend test/lint/typecheck) does its own env setup:
 .\scripts\Invoke-ScaffoldChecks.ps1 -SkipNpmInstall
 ```
 
-**`speakeasy-granite` has not been compiled since the fork.** It compiles
-llama.cpp from source, so every check this session excluded it:
+**`speakeasy-granite` compiles, and the gate runs.** Both were open questions
+until 2026-08-18: the crate had not been built since the fork, and the gate
+itself threw on its own second step, so every "green" claim came from running
+sub-commands by hand. `cargo build --release -p speakeasy-granite-worker` takes
+about two minutes cold. Two prerequisites are easy to miss —
+`git config --global core.longpaths true` (the llama.cpp fetch exceeds
+`MAX_PATH` without it) and CMake plus libclang, which
+`Enter-DevEnvironment.ps1` warns about rather than fails on.
 
-```powershell
-cargo test --workspace --exclude speakeasy-granite --exclude speakeasy-granite-worker --lib
-```
-
-Nothing in that crate changed, so it should build — but that is a prediction.
-Run the full gate once and find out before trusting anything downstream.
+**Run the gate, not `cargo test --workspace --lib`.** `--lib` builds no `--bin`
+targets, so it silently skips the bootstrapper's binary tests — one of which had
+been failing since the fork without anyone seeing it. That is the recorded
+"a whole crate went red unnoticed" lesson one level down: a target filter rather
+than a crate list.
 
 Frontend-only, from `apps/desktop`: `npm run typecheck`, `npm run lint`,
 `npm test`, `npm run build`. Rust: `cargo test -p <crate> --lib`,
 `cargo clippy --all-targets`.
+
+Building and proving the installer, which is a separate path the gate does not
+touch:
+
+```powershell
+.\scripts\Build-LocalInstaller.ps1
+.\scripts\Test-InstallerLifecycle.ps1 -ArtifactRoot 'target\local-development\<version>'
+```
+
+Kill any `ai-speakeasy-mini` first. An aborted lifecycle run leaves the app it
+launched for the running-app check alive, and the pre-flight guard then refuses
+every retry — correctly, it will not terminate a process it does not own, but
+the orphan is the script's own.
 
 Most of the workspace is fast now. `speakeasy-worker` links no native
 libraries at all and checks in seconds; only `speakeasy-granite` compiles C++.
@@ -251,8 +269,15 @@ Every one of these produced a plausible, wrong result rather than an error.
   draw a window and answer a script stays **console**-subsystem and re-launches
   itself with `DETACHED_PROCESS` for the window half (`relaunch_detached` in
   `apps/bootstrapper/src/main.rs`); the parent exits in ~37 ms, so the console
-  flash is a flicker. Verify a child is console-free by its lack of a child
-  `conhost.exe`, not by looking at the screen.
+  flash is a flicker. Verify a `DETACHED_PROCESS` child is console-free by its
+  lack of a child `conhost.exe`, not by looking at the screen — but **that test
+  does not generalise to `CREATE_NO_WINDOW`**, which is what every worker gets
+  (`process_worker.rs`). `CREATE_NO_WINDOW` still creates a console object and
+  still gets a `conhost.exe`; it only declines to display one. Checked
+  2026-08-18 after a conhost child of `granite-worker` was briefly mistaken for
+  the delivery-target trap returning. The test that distinguishes them is
+  whether the process owns a **visible top-level window**, which neither the
+  worker nor its conhost does.
 - **`Start-Process -ArgumentList` quotes nothing, and this repository's own path
   has a space in it.** The array is joined with spaces and handed over as one
   string, so `@('--install-root', 'C:\Coding Projects\...')` arrives at the
@@ -271,6 +296,50 @@ Every one of these produced a plausible, wrong result rather than an error.
   unsaved note. It happened. A delivery target must be a file the script created
   and verified by name in the window title, never just a window owned by the
   right process.
+
+- **The fork updated every path it executed and left every path it did not**,
+  and those paths fail fast, so each one hides the next. Six were found this
+  way on 2026-08-18 — the dev launcher, the quality gate, the dependency
+  policy, the packager, the installer builder and the install proof — each
+  still naming `speakeasy-inference-worker`, a sherpa runtime, or a script the
+  fork deleted. All six had been dead since the fork and none of them was
+  covered by a test, because they *are* the tests. **Before trusting anything a
+  script asserts, confirm the script runs to the end.**
+- **A check that asserts the presence of something deliberately deleted reports
+  a bug in the thing it is checking.** `Test-LocalInstall.ps1` demanded a
+  `nemotron-3.5-streaming-en-cpu` entry in the trusted manifest and threw
+  against a manifest that was entirely correct. It resolves the pack by
+  `install_eligible` now. When something is removed, grep the *proofs* for it,
+  not just the code.
+- **PowerShell turns a native command's redirected stderr into ErrorRecords,
+  and under `$ErrorActionPreference = 'Stop'` those are terminating.** Every
+  refusal `Test-InstallerLifecycle.ps1` exists to assert is written to stderr,
+  so each one threw at the `2>&1` before its exit code could be read, and
+  surfaced as a `NativeCommandError` quoting the refusal text — indistinguishable
+  from the installer being broken rather than correctly refusing. `Assert-Refused`
+  could never have passed. Leave the stream alone where the output is not needed
+  (`Stage-DevRuntime.ps1`), or lower the preference for the duration of the call
+  where it is (`Invoke-Installer`).
+- **Anything the installer hardcodes is a chance to write into SpeakEasy's
+  state, and none of it errors.** `%APPDATA%\<identifier>`, the ARP key, the
+  version stamp under `Software\<name>`, the install root under
+  `%LOCALAPPDATA%\<name>`, and the Start Menu folder were each inherited from
+  the parent product. The install root was the worst: setup would have written
+  over an existing SpeakEasy installation, and because uninstall removes the
+  install directory whole, uninstalling this app would have deleted that one.
+  Reachable only by building an installer and running it.
+- **A window measured during startup is not the window.** `configure_hud` sets
+  non-focusable, shows the dock and applies `enforce_declared_size` after the
+  windows already exist, so a reading taken too early shows a hidden, focusable
+  dock at the creation-time clamp width — identical to a real regression. Wait
+  for `granite-worker` to appear, then measure.
+- **`GetWindowRect` includes a resize border that `set_size` does not.** The
+  pinned log declares 340x460 and its outer rect measures 882x1169 at 250%,
+  which looks like `enforce_declared_size` failing. It is not: the log is
+  `resizable: true` and keeps `WS_THICKFRAME`, while the dock is not and so
+  measures exactly. `Measure-NativeWindow.ps1` reports the **client** rect —
+  850x1150 physical, exactly 340x460 logical — and the webview independently
+  agrees at 340x460 CSS px.
 
 ## Settled decisions — do not re-open without new evidence
 
@@ -302,6 +371,18 @@ Every one of these produced a plausible, wrong result rather than an error.
   rules are now unreachable from the UI.
 - **Local-only.** No GitHub Actions, no Dependabot, no hosted runners.
   `scripts/Test-LocalOnlyPolicy.ps1` fails if `.github` config reappears.
+- **The dictation floor is Granite's floor** (8 GiB), raised from 4 GiB on
+  2026-08-18. The two were split so a machine that could not host Granite still
+  dictated through the streaming path; with one engine that only let someone
+  speak into a guaranteed `GraniteUnavailable`. Refusing at `begin`, before a
+  sample is captured, is the same answer at the only useful moment.
+- **The app installs beside SpeakEasy, never into it.** Identifier
+  `ai.speakeasy.mini`, binary `ai-speakeasy-mini.exe`, install root
+  `%LOCALAPPDATA%\SpeakEasy Mini`, version stamp under
+  `Software\SpeakEasy Mini`, its own ARP key and its own Start Menu folder.
+  Every one of those was inherited from the parent until 2026-08-18. The Rust
+  **crate** names stay `speakeasy-*` deliberately, and the IPC schema `$id`s
+  keep the old string, because neither is user-visible or a filesystem path.
 
 ## Conventions
 

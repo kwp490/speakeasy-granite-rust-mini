@@ -5,7 +5,7 @@ has no institutional support, support team, response-time commitment, or
 service-level guarantee.
 
 For reproducible bugs, open a GitHub issue at
-<https://github.com/kwp490/speakeasy-granite-rust/issues> with the version,
+<https://github.com/kwp490/speakeasy-granite-rust-mini/issues> with the version,
 Windows version, hardware/model choice, sanitized error or reason code, and
 the smallest reproduction. Do not include recordings, transcripts,
 credentials, tokens, or private file paths.

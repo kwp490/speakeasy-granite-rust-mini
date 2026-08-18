@@ -1,5 +1,5 @@
-SpeakEasy - Third-Party Notices
-================================
+SpeakEasy Mini - Third-Party Notices
+=====================================
 
 Artifact status
 ---------------
@@ -9,30 +9,18 @@ dependency versions are recorded in Cargo.lock and package-lock.json.
 
 Bundled native runtime
 ----------------------
-sherpa-onnx 1.13.4 (CUDA build; also serves the CPU execution path)
-Copyright k2-fsa contributors
-License: Apache-2.0
-Source: https://github.com/k2-fsa/sherpa-onnx
-Modification: none. SpeakEasy's inference worker links sherpa-onnx's C API
-directly; onnxruntime_providers_tensorrt.dll is stripped from the shipped set
-since TensorRT is not used.
+No third-party native runtime is bundled. This section declared sherpa-onnx,
+ONNX Runtime and the NVIDIA CUDA redistributables until 2026-08-18; all three
+left with the streaming engine, and the installer payload is now three
+executables with no native library beside them. llama.cpp is compiled directly
+into granite-worker.exe and is covered below.
 
-ONNX Runtime (bundled by the sherpa-onnx CUDA release)
-Copyright Microsoft Corporation and contributors
-License: MIT
-Source: https://github.com/microsoft/onnxruntime
-Modification: none.
-
-NVIDIA CUDA Toolkit redistributables (cudart, cuBLAS, cuFFT) 12.9
-and cuDNN 9.25, for Windows x64
-Copyright NVIDIA Corporation
-License: NVIDIA CUDA/cuDNN redistribution license (see
-https://developer.download.nvidia.com/ for the versions this build fetches)
-Modification: none.
+The CUDA redistributables are still fetched on demand, by machines that
+qualify, and verified by digest against models/trusted-manifest.json. They are
+not redistributed in this artifact.
 
 llama.cpp (statically linked into granite-worker.exe; CPU build only --
-the CUDA execution provider has never shipped, see docs/handoff/
-granite-final-pass.md)
+a CUDA-built worker has never shipped)
 Copyright 2023-2026 The ggml authors
 License: MIT
 Source: https://github.com/ggml-org/llama.cpp
@@ -89,21 +77,6 @@ is required for it.
 The Granite Speech 4.1 2B model itself (Apache-2.0, IBM Corporation) is
 not bundled with this installer -- see MODEL-NOTICES.md, and
 models/trusted-manifest.json for the pack-level license record.
-
-Nemotron 3.5 Streaming model material
---------------------------------------
-The GPU streaming pack is a SpeakEasy-derived float32 ONNX export of
-NVIDIA's nemotron-3.5-asr-streaming-0.6b checkpoint. It is hosted separately
-from the Windows artifact at:
-https://huggingface.co/orangeblue39/nemotron-3.5-streaming-en-cuda
-
-Copyright NVIDIA Corporation
-License: OpenMDW-1.1
-Modification: re-exported to float32 ONNX by SpeakEasy's pinned
-scripts/model-export environment; this is not an NVIDIA release archive.
-The complete OpenMDW-1.1 agreement is retained in
-packaging/licenses/OpenMDW-1.1.txt and in the Hugging Face model repository.
-The app verifies the hosted archive length and SHA-256 before activation.
 
 Application dependencies
 ------------------------

@@ -49,12 +49,12 @@ rather than at setup time. Read its output.
 
 ## 2. Clone and install
 
-Clone to **`C:\Coding_Projects\speakeasy-granite-rust`** if you want Claude
+Clone to **`C:\Coding_Projects\speakeasy-granite-rust-mini`** if you want Claude
 Code's project memory to carry over without renaming anything — see §7.
 
 ```powershell
-git clone https://github.com/kwp490/speakeasy-granite-rust.git
-cd speakeasy-granite-rust
+git clone https://github.com/kwp490/speakeasy-granite-rust-mini.git
+cd speakeasy-granite-rust-mini
 npm ci
 ```
 
@@ -186,7 +186,7 @@ only one that is hard to reconstruct.
 **Claude Code's project memory.** Copy the whole directory:
 
 ```
-%USERPROFILE%\.claude\projects\C--Coding-Projects-speakeasy-granite-rust\
+%USERPROFILE%\.claude\projects\C--Coding-Projects-speakeasy-granite-rust-mini\
 ```
 
 The folder name is derived from the checkout path, so cloning to the same path

@@ -20,9 +20,11 @@ enforces that policy; see [docs/LOCAL-DEVELOPMENT.md](docs/LOCAL-DEVELOPMENT.md)
 - CMake 4.4.0 and LLVM/libclang for the Granite worker;
 - PowerShell and Git.
 
-Run `.scripts\Get-GpuRuntime.ps1 -LinkOnly` to stage the verified native
-import libraries before compiling. A full local runtime can be staged with
-`.scripts\Get-GpuRuntime.ps1` when CUDA hardware qualification is required.
+No native runtime has to be staged before compiling. `Get-GpuRuntime.ps1`
+staged sherpa-onnx and ONNX Runtime and left with them; `speakeasy-granite`
+compiles llama.cpp itself, so a C++ toolchain, CMake and libclang are the only
+native prerequisites. `git config --global core.longpaths true` is also
+required — llama.cpp's checkout exceeds `MAX_PATH` without it.
 
 ## Required gate
 

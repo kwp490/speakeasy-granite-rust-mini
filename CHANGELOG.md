@@ -22,8 +22,11 @@ transcription engine and one HUD.
   never writing them rather than deleting on exit. Choosing to keep them writes
   them to disk behind the existing plaintext disclosure.
 - **The installer is the only setup path.** The in-app seven-step wizard is
-  removed; setup probes the hardware, downloads, verifies, and proves the engine
-  transcribes before the app launches.
+  removed; setup probes the hardware, downloads and verifies every file against
+  a pinned SHA-256, and installs. The engine smoke test that would prove the
+  model actually transcribes before launch is specified but **not yet built** —
+  its clip and verified ground truth are committed, the runner is not.
+
 - **Its own identity** — `SpeakEasy Mini` / `ai.speakeasy.mini`, `Ctrl+Alt+P` —
   so it installs and runs alongside SpeakEasy without sharing settings, logs, a
   single-instance lock, or a global shortcut.
@@ -44,3 +47,27 @@ GPU "qualified" promotion (nothing can execute on the GPU to earn it until a
 CUDA worker ships), and the `immediate_repetitions` / `self_corrections`
 cleanup rules (they were already disabled for Granite, which now produces every
 transcript).
+
+### Fixed after the fork, once anything was actually run
+
+The fork updated every path it executed and left every path it did not. Nothing
+below was covered by a test, because these *are* the tests.
+
+- **The app could not be launched, and no dictation could have succeeded.** The
+  dev staging script built a crate the fork deleted, and
+  `RuntimeWizardCoordinator::paths()` required three deleted binaries before the
+  Granite worker — so it failed on every call and every dictation would have
+  ended in `GraniteUnavailable`.
+- **Setup would have installed over SpeakEasy and, on uninstall, deleted it.**
+  The install root, Start Menu folder, `%APPDATA%` identifier, Add/Remove
+  Programs key and version stamp were all inherited from the parent product.
+- **Add/Remove Programs showed the wrong product**, and 22 of 23 user-facing
+  strings in the setup wizard named SpeakEasy rather than SpeakEasy Mini.
+- **The quality gate had not been runnable since the fork**, so every "green"
+  claim came from running its sub-commands by hand; the installer could not be
+  built at all; and the installer lifecycle proof's refusal assertions could
+  never have passed, because PowerShell turned each refusal's stderr into a
+  terminating error before its exit code could be read.
+- **A machine with 4–8 GiB could start a dictation that could not finish.** The
+  dictation floor is now Granite's floor, so it is refused before recording
+  rather than after the user has spoken.

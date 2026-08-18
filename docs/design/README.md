@@ -45,12 +45,12 @@ Then measure — `getBoundingClientRect()` on each row beats reading the
 stylesheet, because it accounts for the cascade you did not know was there:
 
 ```powershell
-.\scripts\Invoke-WebviewProbe.ps1 -Window transcriber `
+.\scripts\Invoke-WebviewProbe.ps1 -Window dock `
   -Expression 'Math.round(document.querySelector(".hud-transcript").getBoundingClientRect().height)'
 ```
 
 Note that the app uses `tauri_plugin_single_instance`. An already-running build —
-including an installed one under `%LOCALAPPDATA%\SpeakEasy` — will absorb the
+including an installed one under `%LOCALAPPDATA%\SpeakEasy Mini` — will absorb the
 launch and leave you measuring the *old* frontend while everything looks fine.
 Stop it first.
 
