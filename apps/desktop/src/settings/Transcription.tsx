@@ -7,11 +7,14 @@ import {
   formatBytes,
   formatEngineReason,
   formatError,
+  formatFinalSourceGuidance,
+  formatFinalSourceReason,
   formatRuntimeComponent,
   formatState,
 } from "./format";
 import type {
   CudaRuntimeStatus,
+  DiagnosticsStatus,
   GpuStatus,
   ModelCatalogItem,
   ModelHardware,
@@ -38,6 +41,7 @@ export function Transcription() {
   const [models, setModels] = useState<ModelCatalogItem[]>([]);
   const [hardware, setHardware] = useState<ModelHardware | null>(null);
   const [gpu, setGpu] = useState<GpuStatus | null>(null);
+  const [lastFailure, setLastFailure] = useState<string | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelInstallStatus>({
     state: "verifying",
     error: null,
@@ -65,6 +69,17 @@ export function Transcription() {
         setModelStatus({ state: "failed", error: "model_status_unavailable" });
       });
     void invoke<PersonalizationStatus>("personalization_status").then(setPersonalization);
+    // Read once on mount rather than polled. The reason only changes when a
+    // dictation finishes, and this page is not open during one — settings never
+    // has focus while the user is dictating, because taking focus would change
+    // where the transcript is pasted.
+    void invoke<DiagnosticsStatus>("diagnostics_status")
+      .then((status) => setLastFailure(status.final_source_reason))
+      .catch(() => {
+        // Diagnostics being unavailable is not itself a dictation failure, and
+        // reporting it as one here would invent a problem. The panel stays
+        // hidden; Advanced is where an unreadable diagnostics surface shows up.
+      });
   }, []);
 
   useEffect(() => {
@@ -321,6 +336,21 @@ export function Transcription() {
 
   return (
     <>
+      {/* The last failure, first on the page.
+          With one engine and no fallback, a dictation that went wrong produced
+          no text at all — so the user arriving here has already lost something
+          and is looking for why. Putting the model catalog above that answer
+          would make them scroll past four disclosures to reach it.
+          Absent entirely when the last dictation succeeded: an empty "no
+          problems" panel is a permanent invitation to worry. */}
+      {lastFailure !== null && (
+        <section aria-labelledby="transcription-status" className="status-panel">
+          <h3 id="transcription-status">{messages.lastDictationFailed}</h3>
+          <p role="alert">{formatFinalSourceReason(lastFailure)}</p>
+          <p className="setting-detail">{formatFinalSourceGuidance(lastFailure)}</p>
+        </section>
+      )}
+
       <section aria-labelledby="transcription-language">
         <h3 id="transcription-language">{messages.languageSection}</h3>
         <p className="setting-detail">{messages.languageDetail}</p>

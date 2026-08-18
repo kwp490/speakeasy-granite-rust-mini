@@ -574,7 +574,8 @@ async fn dictation_retry(
     // it as `empty` rather than `failed`, and the settings UI should not
     // report an error the backend itself does not consider one.
     match outcome {
-        Ok(_) | Err("runtime_no_speech_detected") => Ok(()),
+        Ok(_) => Ok(()),
+        Err(code) if is_no_speech(code) => Ok(()),
         Err(code) => Err(code),
     }
 }
@@ -584,6 +585,23 @@ async fn dictation_retry(
 /// The correlation id is derived from the session id rather than generated, so
 /// a line in the diagnostic log can be tied back to the dictation that wrote
 /// it without the two ever being stored together.
+/// Whether a failure code means "the recording held no speech".
+///
+/// Two spellings, and both are live. `runtime_no_speech_detected` is what the
+/// runtime path has always returned; `no_speech` is
+/// `FinalSourceReason::NoSpeech`'s code, which is what the engine's own verdict
+/// produces. They arrive at the same match arms and mean the same thing.
+///
+/// This exists because silence is **not a malfunction** and the difference is
+/// load-bearing three times over: no quarantine strike, no stale prior
+/// transcript left standing as this dictation's result, and the ordinary
+/// `complete` state rather than `failed`. Matching one spelling and not the
+/// other would have reported ordinary silence as an engine fault — which is
+/// exactly what happened when the verdict started returning its own codes.
+fn is_no_speech(code: &str) -> bool {
+    matches!(code, "runtime_no_speech_detected" | "no_speech")
+}
+
 fn request_for_audio(audio: &UtteranceAudio) -> AsrRequest {
     AsrRequest {
         correlation_id: CorrelationId::from_bytes(audio.session_id.into_bytes()),
@@ -679,6 +697,11 @@ async fn run_retained_transcription(
         runtime.record_worker_failure();
     }
     operations.finish_dictation();
+    // The reason travels to the diagnostics surface before anything else
+    // happens to the outcome, so a failure that also fails to clean up still
+    // leaves the user something to read. Cleared on success in the same call.
+    app.state::<DiagnosticsRuntimeCoordinator>()
+        .record_final_source(outcome.as_ref().err().copied());
     match outcome {
         Ok(mut transcript) => {
             let (locale, rules) = {
@@ -747,10 +770,10 @@ async fn run_retained_transcription(
         // above), no stale prior transcript left standing as if it were this
         // dictation's result, and the capture panel reports the ordinary
         // `complete` state rather than `failed`.
-        Err("runtime_no_speech_detected") => {
+        Err(code) if is_no_speech(code) => {
             results.clear()?;
             capture.mark_transcription_finished(None);
-            Err("runtime_no_speech_detected")
+            Err(code)
         }
         Err(code) => {
             results.fail(code)?;

@@ -1386,6 +1386,35 @@ button:focus-visible {
   padding: var(--space-3);
 }
 
+/* The last dictation's failure, at the top of Transcription.
+
+   Bordered in --danger rather than filled with it: this panel carries two
+   paragraphs of prose, and body text on a saturated fill is where the contrast
+   proof has caught this design before. The border and the heading colour carry
+   the severity; the text stays on the page surface where it is measured
+   readable.
+
+   Colour is never the only signal here — the heading says the dictation
+   produced no text in words, which is what a forced-colors or monochrome
+   reader gets. */
+.status-panel {
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
+}
+
+.status-panel h3 {
+  color: var(--danger);
+  margin: 0;
+}
+
+.status-panel p {
+  margin: 0;
+}
+
 
 fieldset {
   border: 1px solid var(--border);

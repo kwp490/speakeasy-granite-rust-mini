@@ -10,7 +10,7 @@ pub const SETTINGS_SCHEMA_VERSION: u16 = 1;
 pub const APP_CAPABILITY_EVIDENCE_SCHEMA_VERSION: u16 = 1;
 /// The shipped global shortcut.
 ///
-/// Not `Ctrl+Alt+L`, which is what SpeakEasy uses. The two apps can be
+/// Not `Ctrl+Alt+L`, which is what `SpeakEasy` uses. The two apps can be
 /// installed side by side -- different identifier, different `%APPDATA%`,
 /// different single-instance lock -- and a global shortcut is the one resource
 /// they would still contend for. Whichever registered second would simply not

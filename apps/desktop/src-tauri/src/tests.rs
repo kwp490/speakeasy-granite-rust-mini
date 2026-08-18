@@ -357,6 +357,32 @@ mod tests {
         assert!(view.final_text.is_empty());
     }
 
+    /// Silence must not report as a fault, in either spelling.
+    ///
+    /// The engine's verdict returns `no_speech`; the runtime path returns
+    /// `runtime_no_speech_detected`. Both reach the same match arms, and when
+    /// only one of them was matched, ordinary silence took the failure path —
+    /// a quarantine strike, a `failed` capture state, and an error where the
+    /// honest answer is "you did not say anything".
+    #[test]
+    fn both_spellings_of_silence_are_treated_as_silence_not_as_a_fault() {
+        assert!(is_no_speech("no_speech"));
+        assert!(is_no_speech("runtime_no_speech_detected"));
+
+        // Everything else is a real failure and must keep taking the failure
+        // path, including the reasons that sit closest to silence.
+        for code in [
+            "granite_empty",
+            "granite_failed",
+            "granite_implausible",
+            "granite_unavailable",
+            "granite_quarantined",
+            "runtime_adapter_failed",
+        ] {
+            assert!(!is_no_speech(code), "{code} must not be treated as silence");
+        }
+    }
+
     #[test]
     fn delivery_outcome_is_reported_as_it_happened() {
         let hud = CaptureHudCoordinator::default();

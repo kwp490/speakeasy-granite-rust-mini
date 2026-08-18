@@ -94,16 +94,50 @@ export const messages = {
   // carry it now, so only the refusal keeps a longer form: it is the one outcome
   // where *why* changes what the user does next.
   deliveredRefusedStatus: "Not inserted — that app refused it",
-  // Disclosed only when Granite did not deliver and the retained fallback
-  // supplied the final. Keyed by `speakeasy_asr::FinalSourceReason::code()`.
-  finalSourceReasonUnknown: "The final pass did not deliver, so the live version was kept.",
+  // Why a dictation produced no text. Keyed by
+  // `speakeasy_worker::FinalSourceReason::code()`.
+  //
+  // Every one of these used to end "so the live version was kept", which was
+  // true when a streaming transcript was standing by to deliver instead. There
+  // is no live version and no second engine, so each of these now describes a
+  // dictation that produced nothing at all — and has to say what to do about
+  // it. A reason with no action is a reason the user cannot use.
+  //
+  // Two registers on purpose: `finalSourceReasons` is the one-line form for the
+  // toast and the dock, and `finalSourceGuidance` is what the Status page shows
+  // underneath it. The short form never promises detail the long form does not
+  // deliver.
+  lastDictationFailed: "Your last dictation produced no text",
+  finalSourceReasonUnknown: "The transcription did not complete, and nothing was pasted.",
   finalSourceReasons: {
-    granite_implausible: "A second pass produced more text than the audio could support, so the live version was kept.",
-    granite_empty: "A second pass produced no text, so the live version was kept.",
-    granite_failed: "A second pass could not complete, so the live version was kept.",
-    granite_unavailable: "A second pass could not run, so the live version was kept.",
-    granite_quarantined: "A second pass was paused after repeated failures, so the live version was kept.",
-    no_speech: "The final pass found no speech, so the live version was kept.",
+    granite_implausible:
+      "The transcription produced more text than the recording could contain, so it was discarded.",
+    granite_empty: "The transcription produced no text.",
+    granite_failed: "The transcription could not complete.",
+    granite_unavailable: "The transcription engine is not installed.",
+    granite_quarantined: "The transcription engine was paused after repeated failures.",
+    no_speech: "No speech was found in the recording.",
+  },
+  finalSourceGuidanceUnknown:
+    "Nothing was pasted. Try the dictation again; if it keeps happening, open Advanced and export the diagnostic log.",
+  finalSourceGuidance: {
+    // The signature of a speech model answering its prompt instead of
+    // transcribing. Naming that plainly matters: the recording was fine, the
+    // transcript was not, so "try again" is genuinely the right advice rather
+    // than a shrug.
+    granite_implausible:
+      "This usually means the engine wrote text it did not hear, which the app refuses to paste. The recording itself was fine — say it again and it will normally succeed. If every dictation does this, the model files are likely damaged: reinstall from Transcription.",
+    granite_empty:
+      "The engine ran but wrote nothing. Check that the right microphone is selected in Audio and that its level moves while you speak.",
+    granite_failed:
+      "The engine stopped partway. Try again — a single failure is usually transient. If it repeats, restart SpeakEasy Mini, and if it still repeats, reinstall the model from Transcription.",
+    granite_unavailable:
+      "No transcription engine is installed, so nothing can be transcribed. Setup installs one and verifies it before the app ever opens, so this normally means the installation was changed afterwards. Run the installer again.",
+    granite_quarantined:
+      "The engine failed several times in a row and was paused so it could not keep failing silently. Restart SpeakEasy Mini to clear it.",
+    // Not a malfunction, so it must not read as one.
+    no_speech:
+      "The recording held no speech. If you did speak, check the microphone selected in Audio — the level meter there should move while you talk.",
   },
   // Short enough for the status line's side slot, which is where the ceiling
   // lives now. It used to be a full sentence in a notice row of its own, which

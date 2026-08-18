@@ -22,7 +22,6 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use speakeasy_worker::{WorkerClient, WorkerCommand, WorkerEvent, WorkerFinalAdapter};
 use speakeasy_domain::{
     AsrExecution, AsrFeature, AsrLanguage, AsrRequest, AsrStreaming, AsrTask, CancelToken,
     Deadline, DomainError, EngineCapabilities, ErrorCode, FinalAsr, FinalTranscript, SystemClock,
@@ -33,6 +32,7 @@ use speakeasy_models::{
     bundled_manifest, verify_pack_files,
 };
 use speakeasy_windows::{CrashThrottle, ProcessDeadlines, ProcessSupervisor};
+use speakeasy_worker::{WorkerClient, WorkerCommand, WorkerEvent, WorkerFinalAdapter};
 
 use crate::process_worker::ProcessWorkerClient;
 
@@ -800,6 +800,53 @@ pub async fn run_granite_final_pass(
     }
 }
 
+/// A flattened, owned view of the pack a dictation would load right now.
+///
+/// [`GranitePackChoice`] borrows the manifest it was selected from, which is
+/// fine inside this module where the manifest is a local, and useless to the
+/// diagnostics and readiness callers outside it -- they would each have to
+/// hold a manifest alive to hold a choice. Those callers wanted four strings
+/// and a provider, so this hands them exactly that.
+pub struct GraniteSelection {
+    pub pack_id: String,
+    pub pack_revision: String,
+    /// `upstream_repository@upstream_revision`, for the diagnostics view's
+    /// model-source line.
+    pub source: String,
+    pub install_spec: InstallSpec,
+    pub capabilities: EngineCapabilities,
+    pub reason: EngineChoiceReason,
+}
+
+/// What Granite would run right now, or `None` when no pack is installed.
+///
+/// This is the replacement for `streaming_engine::admitted_asr_pack_with_preference`,
+/// which several callers outside the engine used to ask the same question of
+/// the streaming pack. It takes no provider override: the streaming engine had
+/// one because both its packs were downloadable and the user could sensibly
+/// prefer either, whereas Granite's provider follows whether a CUDA-capable
+/// *worker binary* was built. There is no override that can conjure one, so
+/// offering the choice would have been a control that cannot do what it says.
+pub fn granite_selection(
+    install_root: &Path,
+    cuda_worker_available: bool,
+) -> Option<GraniteSelection> {
+    let manifest = bundled_manifest().ok()?;
+    let choice = admitted_granite_pack(&manifest, install_root, cuda_worker_available)?;
+    Some(GraniteSelection {
+        pack_id: choice.pack.id().to_owned(),
+        pack_revision: choice.pack.revision().to_owned(),
+        source: format!(
+            "trusted_manifest:{}@{}",
+            choice.pack.source().upstream_repository(),
+            choice.pack.source().upstream_revision()
+        ),
+        install_spec: InstallSpec::from(choice.pack),
+        capabilities: choice.capabilities,
+        reason: choice.reason,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1516,51 +1563,4 @@ mod tests {
             }
         }
     }
-}
-
-/// A flattened, owned view of the pack a dictation would load right now.
-///
-/// [`GranitePackChoice`] borrows the manifest it was selected from, which is
-/// fine inside this module where the manifest is a local, and useless to the
-/// diagnostics and readiness callers outside it -- they would each have to
-/// hold a manifest alive to hold a choice. Those callers wanted four strings
-/// and a provider, so this hands them exactly that.
-pub struct GraniteSelection {
-    pub pack_id: String,
-    pub pack_revision: String,
-    /// `upstream_repository@upstream_revision`, for the diagnostics view's
-    /// model-source line.
-    pub source: String,
-    pub install_spec: InstallSpec,
-    pub capabilities: EngineCapabilities,
-    pub reason: EngineChoiceReason,
-}
-
-/// What Granite would run right now, or `None` when no pack is installed.
-///
-/// This is the replacement for `streaming_engine::admitted_asr_pack_with_preference`,
-/// which several callers outside the engine used to ask the same question of
-/// the streaming pack. It takes no provider override: the streaming engine had
-/// one because both its packs were downloadable and the user could sensibly
-/// prefer either, whereas Granite's provider follows whether a CUDA-capable
-/// *worker binary* was built. There is no override that can conjure one, so
-/// offering the choice would have been a control that cannot do what it says.
-pub fn granite_selection(
-    install_root: &Path,
-    cuda_worker_available: bool,
-) -> Option<GraniteSelection> {
-    let manifest = bundled_manifest().ok()?;
-    let choice = admitted_granite_pack(&manifest, install_root, cuda_worker_available)?;
-    Some(GraniteSelection {
-        pack_id: choice.pack.id().to_owned(),
-        pack_revision: choice.pack.revision().to_owned(),
-        source: format!(
-            "trusted_manifest:{}@{}",
-            choice.pack.source().upstream_repository(),
-            choice.pack.source().upstream_revision()
-        ),
-        install_spec: InstallSpec::from(choice.pack),
-        capabilities: choice.capabilities,
-        reason: choice.reason,
-    })
 }

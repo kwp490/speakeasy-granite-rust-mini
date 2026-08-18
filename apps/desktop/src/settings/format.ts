@@ -1,7 +1,7 @@
 import { messages } from "../catalog";
 
 /**
- * Catalog lookups shared by the five settings pages.
+ * Catalog lookups shared by the six settings pages.
  *
  * Every one of these turns a backend code into catalog prose. None of them ever
  * returns a raw identifier as user-facing text — that is what `displayName`
@@ -99,4 +99,28 @@ export function formatCredentialStatus(status: string): string {
  */
 export function formatTimeOfDay(unixMs: number): string {
   return new Date(unixMs).toLocaleTimeString();
+}
+
+/**
+ * Why the last dictation produced no text, as a sentence.
+ *
+ * Keyed by `speakeasy_worker::FinalSourceReason::code()`, plus the `runtime_*`
+ * codes that can fail a dictation before the engine is reached. Falls back to
+ * a real sentence rather than the code, because this is read by someone whose
+ * dictation just vanished — a bare `granite_implausible` tells them nothing
+ * they can act on.
+ */
+export function formatFinalSourceReason(code: string): string {
+  const reasons = messages.finalSourceReasons;
+  return (
+    reasons[code as keyof typeof reasons] ??
+    messages.errors[code as keyof typeof messages.errors] ??
+    messages.finalSourceReasonUnknown
+  );
+}
+
+/** What to do about it. Same keys as `formatFinalSourceReason`. */
+export function formatFinalSourceGuidance(code: string): string {
+  const guidance = messages.finalSourceGuidance;
+  return guidance[code as keyof typeof guidance] ?? messages.finalSourceGuidanceUnknown;
 }

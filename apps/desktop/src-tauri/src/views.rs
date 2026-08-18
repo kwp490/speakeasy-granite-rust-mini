@@ -451,6 +451,24 @@ struct DiagnosticsRuntimeCoordinator {
 }
 
 impl DiagnosticsRuntimeCoordinator {
+    /// Records why the last dictation produced no text.
+    ///
+    /// This field is named `final_source_reason` and used to mean something
+    /// else: *which* engine supplied a transcript that still arrived, after
+    /// Granite had been rejected. There is no second engine, so the field now
+    /// carries the reason nothing arrived at all — the same
+    /// `FinalSourceReason::code()` values, reporting an outcome rather than a
+    /// substitution.
+    ///
+    /// Cleared on success, deliberately. A stale reason from three dictations
+    /// ago sitting under a working engine is worse than no reason: it invites
+    /// someone to fix a problem that is already gone.
+    fn record_final_source(&self, reason: Option<&str>) {
+        if let Ok(mut snapshot) = self.snapshot.lock() {
+            snapshot.final_source_reason = reason.map(str::to_owned);
+        }
+    }
+
     fn snapshot(&self) -> DiagnosticsRuntimeSnapshot {
         self.snapshot.lock().map_or_else(
             |_| DiagnosticsRuntimeSnapshot::default(),
@@ -1046,7 +1064,7 @@ fn process_finalization_job(app: &tauri::AppHandle, job: FinalAudioJob) {
     ));
     match outcome {
         Ok(text) => deliver_final_text(app, &text),
-        Err("runtime_no_speech_detected") => deliver_final_text(app, ""),
+        Err(code) if is_no_speech(code) => deliver_final_text(app, ""),
         Err(code) => log_event(app, "dictation_transcription", &[("result", code)]),
     }
     log_event(

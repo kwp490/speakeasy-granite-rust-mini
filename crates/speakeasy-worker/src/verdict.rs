@@ -279,7 +279,10 @@ mod tests {
         // things -- reinstall versus try again.
         let unavailable = judge_granite_pass(Ok(None));
         assert_eq!(unavailable.delivered, None);
-        assert_eq!(unavailable.reason, Some(FinalSourceReason::GraniteUnavailable));
+        assert_eq!(
+            unavailable.reason,
+            Some(FinalSourceReason::GraniteUnavailable)
+        );
 
         let mut blank = transcript("real speech", 32_000);
         blank.text = String::new();

@@ -6,13 +6,13 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::Duration;
 
+use speakeasy_domain::{CancelToken, Clock, Deadline, DomainError, ErrorCode};
+use speakeasy_windows::{OwnedProcessTree, ProcessSupervisor, StopOutcome};
 use speakeasy_worker::{
     ProtocolError, RequestId, WORKER_PROTOCOL_VERSION, WorkerClient, WorkerCommand,
     WorkerErrorCode, WorkerEvent, WorkerRequest, WorkerResponse, read_frame,
     worker_response_is_terminal, write_frame,
 };
-use speakeasy_domain::{CancelToken, Clock, Deadline, DomainError, ErrorCode};
-use speakeasy_windows::{OwnedProcessTree, ProcessSupervisor, StopOutcome};
 
 pub struct ProcessWorkerClient<K> {
     process: OwnedProcessTree,
