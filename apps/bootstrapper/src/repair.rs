@@ -80,7 +80,7 @@ pub fn report(message: &str, destination: Destination, severity: Severity) {
             // repair mode never runs a dictation, and this is the last thing the
             // process does. The wizard must not reuse it while a test dictation
             // is in flight.
-            let _ = winsafe::HWND::NULL.MessageBox(message, "SpeakEasy", MB::OK | icon);
+            let _ = winsafe::HWND::NULL.MessageBox(message, "SpeakEasy Mini", MB::OK | icon);
         }
     }
 }

@@ -16,7 +16,7 @@
 
 /// The wizard's window title. Not the product tagline: this is what appears in
 /// the taskbar while setup runs.
-pub const WINDOW_TITLE: &str = "SpeakEasy setup";
+pub const WINDOW_TITLE: &str = "SpeakEasy Mini setup";
 
 /// Navigation. Short verbs, per the UI guide's preference.
 pub const BACK: &str = "Back";
@@ -40,7 +40,7 @@ pub struct Step {
 pub const STEPS: &[Step] = &[
     Step {
         heading: "Check this computer",
-        body: "SpeakEasy looks at the processor, memory, disk space and graphics \
+        body: "SpeakEasy Mini looks at the processor, memory, disk space and graphics \
                card, and reports what it finds. Speech recognition and the \
                punctuation pass are checked separately: they use different \
                graphics-card runtimes, so this computer can be suitable for one \
@@ -49,7 +49,7 @@ pub const STEPS: &[Step] = &[
     },
     Step {
         heading: "Choose how it runs",
-        body: "SpeakEasy preselects the fastest option each engine can actually \
+        body: "SpeakEasy Mini preselects the fastest option each engine can actually \
                use on this computer, and shows what it costs to download and \
                install. You can override either one to run on the processor.\n\n\
                A graphics card that clears the requirements has not yet been \
@@ -74,7 +74,7 @@ pub const STEPS: &[Step] = &[
     },
     Step {
         heading: "Install",
-        body: "Files are placed, shortcuts are created, and SpeakEasy is \
+        body: "Files are placed, shortcuts are created, and SpeakEasy Mini is \
                registered so it can be removed from Settings later.\n\n\
                This build is not code-signed, so Windows SmartScreen may warn \
                about it. That is expected and will not change.",
@@ -223,30 +223,30 @@ pub fn describe_install_decision(decision: &crate::install::Decision) -> String 
 
     match decision {
         Decision::Fresh => format!(
-            "SpeakEasy is not currently installed. Setup will install it for this user \
+            "SpeakEasy Mini is not currently installed. Setup will install it for this user \
              account only, without asking for administrator rights.\n\n{}{}",
             destinations(),
             prerequisites()
         ),
         Decision::Upgrade { from } => format!(
-            "SpeakEasy {from} is installed and will be upgraded. Your settings, \
+            "SpeakEasy Mini {from} is installed and will be upgraded. Your settings, \
              personalization and any installed models are kept.\n\n{}{}",
             destinations(),
             prerequisites()
         ),
         Decision::RefuseRunning => {
-            "SpeakEasy is running, so its files cannot be replaced. Finish or cancel \
-             dictation, then quit SpeakEasy from its tray menu and run setup again."
+            "SpeakEasy Mini is running, so its files cannot be replaced. Finish or cancel \
+             dictation, then quit SpeakEasy Mini from its tray menu and run setup again."
                 .to_owned()
         }
         Decision::RefuseSameVersion { installed } => format!(
-            "SpeakEasy {installed} is already installed — the same version this setup \
+            "SpeakEasy Mini {installed} is already installed — the same version this setup \
              carries. Installing again is refused, because it is not a fix for a \
              broken installation. Run this program from a command line with the \
              repair commands instead."
         ),
         Decision::RefuseDowngrade { installed } => format!(
-            "A newer SpeakEasy ({installed}) is already installed. Going back to an \
+            "A newer SpeakEasy Mini ({installed}) is already installed. Going back to an \
              older version is never done automatically, because it can leave data \
              written by the newer one behind. Use the repair commands to choose an \
              earlier version deliberately."
@@ -255,9 +255,9 @@ pub fn describe_install_decision(decision: &crate::install::Decision) -> String 
         // it is the only thing that distinguishes a corrupt stamp from a version
         // this build cannot parse.
         Decision::RefuseUnreadableStamp { found } => format!(
-            "SpeakEasy appears to be installed, but its recorded version cannot be \
+            "SpeakEasy Mini appears to be installed, but its recorded version cannot be \
              read — it says \"{found}\". Setup will not overwrite an installation it \
-             cannot identify. Use the repair commands, or remove SpeakEasy from \
+             cannot identify. Use the repair commands, or remove SpeakEasy Mini from \
              Windows Settings first."
         ),
     }
@@ -292,7 +292,7 @@ fn destinations() -> String {
 /// problem into a support conversation.
 pub fn install_failed(reason: &str) -> String {
     format!(
-        "SpeakEasy was not installed.\n\n{reason}\n\n\
+        "SpeakEasy Mini was not installed.\n\n{reason}\n\n\
          Nothing was registered, so this computer is in the state it was in \
          before setup ran."
     )
@@ -343,8 +343,8 @@ pub fn arguments_not_understood(detail: &str) -> String {
 pub const KEPT_WITH_GPU_RUNTIME: &str = "downloaded graphics-card runtime";
 
 /// Shown when an uninstall is refused because the app is running.
-pub const UNINSTALL_REFUSED_RUNNING: &str = "SpeakEasy is running, so its files cannot be removed. Finish or cancel \
-     dictation, then quit SpeakEasy from its tray menu and try again. Nothing \
+pub const UNINSTALL_REFUSED_RUNNING: &str = "SpeakEasy Mini is running, so its files cannot be removed. Finish or cancel \
+     dictation, then quit SpeakEasy Mini from its tray menu and try again. Nothing \
      has been removed.";
 
 /// Shown before an interactive uninstall that keeps everything optional.
@@ -357,7 +357,7 @@ pub fn uninstall_keeps_user_data() -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "SpeakEasy will be removed.\n\n\
+        "SpeakEasy Mini will be removed.\n\n\
          These are kept:\n{kept}\n\n\
          Choosing which of them to remove is not built yet, so this removes only \
          the program itself. Run with --remove-all to remove everything."
@@ -372,16 +372,16 @@ pub fn uninstall_keeps_user_data() -> String {
 pub fn describe_uninstall(outcome: &crate::uninstall::Outcome) -> String {
     let mut lines = Vec::new();
     if !outcome.failed.is_empty() {
-        lines.push("SpeakEasy was only partly removed.".to_owned());
+        lines.push("SpeakEasy Mini was only partly removed.".to_owned());
     } else if outcome.removed.is_empty() {
         // Nothing was found to remove, which is not the same as having removed
         // it. Announcing success here is what let an uninstall pointed at the
         // wrong directory report a job it had not done, and it is also the
         // ordinary result of running an uninstall twice — a user who sees
         // "removed" both times learns the message means nothing.
-        lines.push("SpeakEasy does not appear to be installed on this computer.".to_owned());
+        lines.push("SpeakEasy Mini does not appear to be installed on this computer.".to_owned());
     } else {
-        lines.push("SpeakEasy has been removed.".to_owned());
+        lines.push("SpeakEasy Mini has been removed.".to_owned());
     }
     if !outcome.removed.is_empty() {
         lines.push(String::new());
@@ -420,9 +420,9 @@ pub fn describe_uninstall(outcome: &crate::uninstall::Outcome) -> String {
 /// design and therefore cannot be pinned, and this project downloads nothing it
 /// cannot pin. Saying so is better than a download that skips verification.
 pub const WEBVIEW2_MISSING: &str = "Microsoft Edge WebView2 Runtime is not installed on this computer. \
-     SpeakEasy cannot start without it.\n\n\
+     SpeakEasy Mini cannot start without it.\n\n\
      Install it from Microsoft's website (search for \"WebView2 Runtime\"), then \
-     run setup again. SpeakEasy does not download it, because Microsoft's \
+     run setup again. SpeakEasy Mini does not download it, because Microsoft's \
      installer is served from a link whose contents change and cannot be \
      verified against a fixed checksum the way everything else here is.";
 
@@ -451,7 +451,7 @@ pub const CATALOG_UNAVAILABLE: &str = "Setup's list of verified downloads could 
      This is a fault in this copy of setup rather than anything on this computer.";
 
 /// Shown when the app's own data directory cannot be located.
-pub const DATA_ROOT_UNLOCATABLE: &str = "Setup could not find where SpeakEasy keeps its models on this computer, so \
+pub const DATA_ROOT_UNLOCATABLE: &str = "Setup could not find where SpeakEasy Mini keeps its models on this computer, so \
      nothing was downloaded. Nothing was changed.";
 
 /// Shown when the catalog has no eligible pack for what this machine chose.

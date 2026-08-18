@@ -59,7 +59,7 @@ many processes, so a path match silently finds nothing and reads exactly like
 a CPU fallback.
 
 .PARAMETER InstallRoot
-The installed app. Defaults to `%LOCALAPPDATA%\SpeakEasy`.
+The installed app. Defaults to `%LOCALAPPDATA%\SpeakEasy Mini`.
 
 .PARAMETER CudaPath
 CUDA Toolkit root. Defaults to the highest version found under
@@ -92,7 +92,7 @@ DLLs.
 #>
 [CmdletBinding()]
 param(
-    [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA 'SpeakEasy'),
+    [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA 'SpeakEasy Mini'),
     [string]$CudaPath,
     [string]$Architectures,
     [switch]$SkipBuild,

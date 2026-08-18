@@ -37,10 +37,17 @@ pub struct MachineReport {
 /// The disk figure has to be measured against the volume the files actually land
 /// on, not the current directory — setup is commonly run from a Downloads folder
 /// on a different drive from the one being installed to.
+///
+/// The leaf is this product's own name, and until 2026-08-18 it was the parent
+/// product's. That made `%LOCALAPPDATA%\SpeakEasy` the default destination:
+/// setup would have written `SpeakEasy Mini`'s executables over an existing
+/// `SpeakEasy` installation, and because `uninstall` removes the install
+/// directory whole, uninstalling Mini would then have taken `SpeakEasy` with it.
+/// Nothing caught it because no installer had been built since the fork.
 pub fn install_root() -> PathBuf {
     std::env::var_os("LOCALAPPDATA").map_or_else(
         || PathBuf::from("C:\\"),
-        |local| PathBuf::from(local).join("SpeakEasy"),
+        |local| PathBuf::from(local).join("SpeakEasy Mini"),
     )
 }
 

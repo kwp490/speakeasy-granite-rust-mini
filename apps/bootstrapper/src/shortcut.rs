@@ -24,7 +24,7 @@ pub fn start_menu_folder() -> Option<PathBuf> {
     std::env::var_os("APPDATA").map(|appdata| {
         PathBuf::from(appdata)
             .join(r"Microsoft\Windows\Start Menu\Programs")
-            .join("SpeakEasy")
+            .join("SpeakEasy Mini")
     })
 }
 
@@ -95,13 +95,13 @@ mod tests {
         // which is what this module exists to stop.
         let directory = std::env::temp_dir().join("speakeasy-shortcut-roundtrip");
         std::fs::create_dir_all(&directory).expect("temp directory");
-        let link = directory.join("SpeakEasy Setup and Repair.lnk");
+        let link = directory.join("SpeakEasy Mini Setup and Repair.lnk");
         // A real file, so the target is something the shell can store rather
         // than a path it may normalise differently.
         let target = directory.join("speakeasy-bootstrapper.exe");
         std::fs::write(&target, b"not a real executable").expect("target file");
 
-        create(&link, &target, "SpeakEasy setup and repair").expect("shortcut created");
+        create(&link, &target, "SpeakEasy Mini setup and repair").expect("shortcut created");
         let read_back = target_of(&link).expect("shortcut read back");
 
         assert!(link.is_file(), "the shortcut file must exist");

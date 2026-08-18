@@ -286,9 +286,9 @@ fn register_uninstall(install_root: &Path) -> Result<(), String> {
         key.set_value(name, &value.to_owned())
             .map_err(|error| error.to_string())
     };
-    set("DisplayName", "SpeakEasy")?;
+    set("DisplayName", "SpeakEasy Mini")?;
     set("DisplayVersion", &candidate_version().to_string())?;
-    set("Publisher", "SpeakEasy")?;
+    set("Publisher", "SpeakEasy Mini")?;
     set("InstallLocation", &install_root.to_string_lossy())?;
     set(
         "UninstallString",
@@ -309,9 +309,9 @@ fn create_shortcut(install_root: &Path) -> Result<(), String> {
         // failing the whole thing over a convenience would be the wrong trade.
         return Ok(());
     };
-    let link = folder.join("SpeakEasy.lnk");
+    let link = folder.join("SpeakEasy Mini.lnk");
     let target = install_root.join(APP_EXE);
-    crate::shortcut::create(&link, &target, "SpeakEasy dictation")
+    crate::shortcut::create(&link, &target, "SpeakEasy Mini dictation")
         .map_err(|error| error.to_string())?;
 
     // Read it back. A `.lnk` that saved without error but points somewhere else
