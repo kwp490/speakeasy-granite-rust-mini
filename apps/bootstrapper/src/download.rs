@@ -500,26 +500,51 @@ mod tests {
         );
     }
 
+    /// One engine, so one item — and the count is the assertion that will
+    /// notice when that stops being true.
+    ///
+    /// This test demanded two items, "one streaming pack and one Granite pack",
+    /// until 2026-08-18. It had been failing since the fork removed the
+    /// streaming engine, and nobody saw it: it lives in the bootstrapper's
+    /// **binary** target, and every command in `docs/handoff/CURRENT.md` ran
+    /// `cargo test --workspace --lib`, which builds no `--bin` targets at all.
+    /// The same shape as the recorded "a whole crate went red unnoticed", one
+    /// level down — a target filter rather than a crate list.
+    ///
+    /// The second item is a real future state rather than a thing that was
+    /// deleted: `plan` takes `provider` and deliberately ignores it, waiting on
+    /// the CUDA worker being published and pinned by digest (item 3 in the
+    /// handoff). When that lands this count becomes 2 and the label list gains
+    /// the worker beside the weights.
     #[test]
-    fn the_plan_names_both_engines_and_totals_their_transfer_sizes() {
-        let plan = plan(ExecutionProvider::Cpu).expect("the bundled manifest must yield a plan");
+    fn the_plan_names_one_engine_and_totals_its_transfer_size() {
+        // Not shadowed as `plan`: this test calls the function twice, and a
+        // binding of the same name makes the second call a type error.
+        let cpu = plan(ExecutionProvider::Cpu).expect("the bundled manifest must yield a plan");
+        assert_eq!(cpu.items.len(), 1, "one Granite pack, and nothing else");
         assert_eq!(
-            plan.items.len(),
-            2,
-            "one streaming pack and one Granite pack"
+            cpu.items.iter().map(|item| item.label).collect::<Vec<_>>(),
+            vec![catalog::ARTIFACT_GRANITE]
         );
+
+        // A GPU machine gets the same list today, and that is the current
+        // decision rather than an oversight — the weights are the same file
+        // either way and the CUDA worker is unpublished. When that changes,
+        // this is where the divergence has to show up.
+        let gpu = plan(ExecutionProvider::Cuda).expect("a GPU machine must also yield a plan");
         assert_eq!(
-            plan.items.iter().map(|item| item.label).collect::<Vec<_>>(),
-            vec![catalog::ARTIFACT_STREAMING, catalog::ARTIFACT_GRANITE]
+            gpu.items.iter().map(|item| item.label).collect::<Vec<_>>(),
+            cpu.items.iter().map(|item| item.label).collect::<Vec<_>>(),
+            "the provider does not select a different model yet"
         );
-        // Transfer size, not installed size. The CPU streaming archive is
-        // 453 MB and expands to 653 MB; counting the larger figure would leave
-        // the bar short of the end when the transfer actually finished.
+
+        // Transfer size, not installed size. Counting the larger figure would
+        // leave the bar short of the end when the transfer actually finished.
         assert_eq!(
-            plan.total_bytes,
-            plan.items.iter().map(|item| item.bytes).sum::<u64>()
+            cpu.total_bytes,
+            cpu.items.iter().map(|item| item.bytes).sum::<u64>()
         );
-        assert!(plan.total_bytes > 0);
+        assert!(cpu.total_bytes > 0);
     }
 
     #[test]

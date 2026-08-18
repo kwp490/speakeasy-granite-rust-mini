@@ -1,0 +1,20 @@
+# Derived from `dependency-policy/advisory-allowlist.json`, which is the
+# reviewed source: every id below carries a package, a reason and an expiry
+# there, and `Test-DependencyPolicy.ps1` fails if the two disagree. Add an
+# advisory to the allowlist, not here.
+#
+# Restored 2026-08-18. The fork deleted the whole `.cargo/` directory to be
+# rid of `config.toml`, whose only job was pointing `SHERPA_ONNX_LIB_DIR` at
+# a pre-fetched archive — and took this file with it, which nothing noticed
+# because the gate that reads it was itself unrunnable. The allowlist it is
+# derived from survived untouched, so this is a regeneration rather than a
+# new security decision.
+
+[advisories]
+ignore = [
+    "RUSTSEC-2025-0075",
+    "RUSTSEC-2025-0080",
+    "RUSTSEC-2025-0081",
+    "RUSTSEC-2025-0098",
+    "RUSTSEC-2025-0100",
+]

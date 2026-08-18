@@ -45,21 +45,27 @@ if ($LASTEXITCODE -ne 0) {
 }
 $metadata = $metadataJson | ConvertFrom-Json
 
+# Three entries left with the fork and are deliberately absent rather than
+# forgotten: `speakeasy-remote` (no network feature survives), `speakeasy-bench`
+# (the rig that timed two engines against each other, which needs two), and
+# `speakeasy-inference-worker` (the streaming worker). A crate with no entry
+# here throws on sight, so a resurrection cannot happen quietly.
 $allowedDependencies = @{
     # serde/serde_json exist for exactly one thing: the framed-JSON worker
     # protocol in `worker_protocol.rs`. That module lives here rather than in
-    # `speakeasy-asr` so a second inference runtime (Granite) can speak the
-    # same wire protocol without linking ONNX Runtime — see
-    # `docs/handoff/granite-final-pass.md`, Phase 4.
+    # `speakeasy-worker` so an inference runtime can speak the wire protocol
+    # without the protocol itself depending on any engine. That mattered when
+    # there were two engines; it is why `speakeasy-worker` now links nothing
+    # native at all.
     'speakeasy-domain' = @('serde', 'serde_json')
     'speakeasy-audio' = @('allocation-counter', 'cpal', 'speakeasy-domain')
-    # nvml-wrapper is a dev-dependency only: the CUDA smoke test reads free VRAM
-    # to tell a real CUDA session from a silent CPU fallback. The shipping code
-    # in this crate does not touch NVML.
-    'speakeasy-asr' = @(
-        'nvml-wrapper', 'sherpa-onnx', 'speakeasy-domain', 'transcribe-cpp',
-        'unicode-segmentation'
-    )
+    # Was `speakeasy-asr`, and was the largest entry in this table:
+    # `sherpa-onnx`, `transcribe-cpp`, `nvml-wrapper` for a CUDA smoke test, and
+    # `unicode-segmentation`. What survived the fork is the half that was never
+    # about recognition — a protocol boundary, an ordering queue and a
+    # plausibility gate — so it links no native libraries and needs nothing but
+    # the protocol types. One line here is the evidence for that claim.
+    'speakeasy-worker' = @('speakeasy-domain')
     # `llama-cpp-2` is the second inference runtime in this workspace, and the
     # only dependency here that *compiles* a C++ project rather than linking a
     # pre-fetched one. It exists because the delivered transcript comes from
@@ -84,35 +90,20 @@ $allowedDependencies = @{
         'winreg', 'zip'
     )
     'speakeasy-delivery' = @('speakeasy-domain', 'unicode-segmentation')
-    'speakeasy-remote' = @('reqwest', 'serde', 'serde_json', 'sha2', 'speakeasy-domain', 'subtle')
     'speakeasy-transforms' = @('serde', 'serde_json', 'sha2', 'unicode-normalization', 'unicode-segmentation')
     'speakeasy-storage' = @('serde', 'serde_json', 'sha2', 'rusqlite', 'speakeasy-domain', 'speakeasy-transforms', 'tempfile')
     'speakeasy-windows' = @('keyring', 'sha2', 'speakeasy-delivery', 'speakeasy-domain', 'uiautomation', 'win32job', 'winreg', 'winsafe')
     'speakeasy-test-support' = @('speakeasy-domain', 'speakeasy-windows')
-    # A measurement rig, not shipped code: `speakeasy-transcription-bench` times
-    # the two inference runtimes against each other. `hound` reads the WAV
-    # fixtures. `sysinfo` and `nvml-wrapper` record the host the numbers came
-    # from, which is not incidental — this project has invalidated its own
-    # measurements twice over an unrecorded host detail (debug vs release, and
-    # which runtime pack a rig actually resolved), so a result without the
-    # machine attached is not reproducible. `transcribe-cpp` is feature-gated
-    # here exactly as it is in `speakeasy-asr`.
-    #
-    # The crate was added without an entry here, and because this check throws on
-    # the first unknown workspace package it took the whole dependency-policy
-    # step down with it — every exact-pin and registry rule for every other crate
-    # stopped being evaluated.
-    'speakeasy-bench' = @(
-        'hound', 'nvml-wrapper', 'serde', 'serde_json', 'speakeasy-asr',
-        'speakeasy-domain', 'speakeasy-granite', 'sysinfo', 'transcribe-cpp'
-    )
+    # No `speakeasy-granite` here, and that is the architecture rather than an
+    # omission: Granite runs in a supervised child process, so the desktop crate
+    # talks to it over the worker protocol and never links llama.cpp. It is the
+    # reason a `cargo check` of this crate does not pay a C++ build.
     'speakeasy-desktop' = @(
         'serde', 'serde_json',
-        'speakeasy-domain', 'speakeasy-audio', 'speakeasy-asr', 'speakeasy-models',
-        'speakeasy-delivery', 'speakeasy-remote', 'speakeasy-storage', 'speakeasy-transforms',
+        'speakeasy-domain', 'speakeasy-audio', 'speakeasy-worker', 'speakeasy-models',
+        'speakeasy-delivery', 'speakeasy-storage', 'speakeasy-transforms',
         'speakeasy-windows', 'tauri', 'tauri-build', 'tauri-plugin-global-shortcut',
-        'tauri-plugin-single-instance', 'tracing',
-        'sha2',
+        'tauri-plugin-single-instance',
         # Dev-only: the Granite hash-verification test stages files under a real
         # temp directory, matching `speakeasy-models`/`speakeasy-storage`'s own
         # use of this crate.
@@ -132,7 +123,6 @@ $allowedDependencies = @{
         'semver', 'speakeasy-domain', 'speakeasy-models', 'speakeasy-storage',
         'speakeasy-windows', 'sysinfo', 'winreg', 'winsafe'
     )
-    'speakeasy-inference-worker' = @('sha2', 'speakeasy-domain', 'speakeasy-asr', 'speakeasy-models')
     # No `speakeasy-models` yet: there is no Granite entry in the trusted
     # manifest until Phase 5 lands it, so `LoadModel` here checks that the
     # conventional GGUF filenames exist on disk and nothing more. See
@@ -235,10 +225,11 @@ foreach ($package in $metadata.packages) {
 #
 # A `path:` value states the repo-relative directory the patch must resolve to;
 # any other value is the exact `Cargo.lock` source string expected for it.
+# One patched source. The two `transcribe-cpp` path patches left with the fork,
+# and `vendor/transcribe.cpp` — 2,265 of this repository's former 2,611 files —
+# went with them.
 $allowedPatchedSources = @{
     'llama-cpp-sys-2' = 'git+https://github.com/kwp490/llama-cpp-rs?rev=d989ffdb0caf3d809cdcff1850629bd3da6ed067#d989ffdb0caf3d809cdcff1850629bd3da6ed067'
-    'transcribe-cpp' = 'path:vendor/transcribe.cpp/bindings/rust/transcribe-cpp'
-    'transcribe-cpp-sys' = 'path:vendor/transcribe.cpp'
 }
 
 $cargoManifestText = Get-Content -Raw -Encoding utf8 (Join-Path $repositoryRoot 'Cargo.toml')

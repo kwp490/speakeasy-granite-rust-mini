@@ -84,23 +84,21 @@ if (-not $SkipGranite) {
     $env:LIBCLANG_PATH = $libclangDirectory
 }
 
-# `sherpa-onnx-sys` links through SHERPA_ONNX_LIB_DIR from .cargo/config.toml.
-# Assert the selected, version-stamped runtime before Cargo starts so a missing
-# native directory is reported as a staging problem rather than as LNK1181.
-$nativeRuntimeVersion = & (Join-Path $PSScriptRoot 'Get-NativeRuntimeVersion.ps1')
-$nativeRuntimeRoot = Join-Path $toolsRoot 'sherpa-onnx/current'
-$nativeRuntimeLibDir = Join-Path $nativeRuntimeRoot 'lib'
-$nativeRuntimeStamp = Join-Path $nativeRuntimeRoot 'version.txt'
-if (-not (Test-Path -LiteralPath $nativeRuntimeLibDir -PathType Container)) {
-    throw "The sherpa native runtime for version $nativeRuntimeVersion is not staged at $nativeRuntimeLibDir. Run .\scripts\Get-GpuRuntime.ps1 -LinkOnly first."
-}
-if (-not (Test-Path -LiteralPath $nativeRuntimeStamp -PathType Leaf)) {
-    throw "The sherpa native runtime stamp is missing at $nativeRuntimeStamp. Re-run .\scripts\Get-GpuRuntime.ps1 -LinkOnly."
-}
-$stagedNativeRuntimeVersion = (Get-Content -LiteralPath $nativeRuntimeStamp -Raw).Trim()
-if ($stagedNativeRuntimeVersion -ne $nativeRuntimeVersion) {
-    throw "The staged sherpa runtime is version $stagedNativeRuntimeVersion but the workspace requires $nativeRuntimeVersion. Re-run .\scripts\Get-GpuRuntime.ps1 -LinkOnly."
-}
+# There is no native-runtime staging step any more, and its absence is the
+# point. This gate used to assert a version-stamped sherpa-onnx runtime under
+# `.tools/sherpa-onnx/current` before Cargo started, because `sherpa-onnx-sys`
+# linked against it through `SHERPA_ONNX_LIB_DIR` in `.cargo/config.toml`. The
+# fork removed the engine, the config file and both scripts that block named
+# (`Get-NativeRuntimeVersion.ps1`, `Get-GpuRuntime.ps1`) — but not the block,
+# which went on calling the first of them.
+#
+# So this script threw on its own second step and had done so since the fork:
+# the whole gate was unrunnable, every "the gate is green" claim actually came
+# from running its sub-commands by hand, and the failure was a
+# CommandNotFoundException that read like a broken machine rather than a broken
+# gate. `speakeasy-granite` is now the only crate that links anything native and
+# it compiles llama.cpp itself, so there is nothing left to stage and nothing
+# here to replace this with.
 
 Push-Location $repositoryRoot
 try {

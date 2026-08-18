@@ -9,55 +9,221 @@ Read `CLAUDE.md` first. This file assumes it.
 
 SpeakEasy Mini was forked from SpeakEasy in one session and reduced to two
 changes that cascade through everything: **Granite is the only engine**, and
-**the dock is the only HUD**. Four commits, on a fresh history, pushed to a
+**the dock is the only HUD**. Five commits, on a fresh history, pushed to a
 private repository.
 
 Verified state, and the exact commands that produce it:
 
 ```powershell
 . .\scripts\Enter-DevEnvironment.ps1
-cargo test --workspace --exclude speakeasy-granite --exclude speakeasy-granite-worker --lib
-cargo clippy --workspace --exclude speakeasy-granite --exclude speakeasy-granite-worker --all-targets
+.\scripts\Invoke-ScaffoldChecks.ps1 -SkipNpmInstall
 ```
 
-293 Rust tests pass, clippy is silent. From `apps/desktop`, `npm test`,
-`npm run lint` and `npm run typecheck` are clean — 55 frontend tests.
+That is the whole gate — fmt, clippy `-D warnings`, workspace tests, coverage,
+the four frontend steps, dependency policy, `cargo deny`, both audits and
+gitleaks. It had not been runnable at all since the fork; see below.
 
-**The exclusions are load-bearing and are also a gap.** `speakeasy-granite`
-compiles llama.cpp from source, so the full gate is slow; it has been excluded
-from every check this session, which means *it has not been compiled since the
-fork*. It should build — nothing in it changed — but that is a prediction, not
-a measurement. Run `.\scripts\Invoke-ScaffoldChecks.ps1 -SkipNpmInstall` once
-and find out before trusting anything downstream of it.
+**As of 2026-08-18 it runs to the end and passes** — the first time it has, on
+this fork. `cargo audit` finds 0 vulnerabilities and 13 informational warnings
+(18 less the 5 the reviewed allowlist covers, which is also the check that
+`.cargo/audit.toml` is being read at all); gitleaks scans 5 commits and finds
+nothing. Getting there took six separate fixes to the gate and the things it
+checks, none of which were reachable before it could start; they are recorded
+below.
 
-## The largest gap: nothing has been run
+**Do not substitute `cargo test --workspace --lib` for it.** That was the
+command this file used to quote, and `--lib` builds no `--bin` targets, which is
+exactly how a bootstrapper test stayed red since the fork without anyone seeing
+it. 294 Rust `--lib` tests and 36 bootstrapper binary tests pass; from
+`apps/desktop`, `npm test`, `npm run lint` and `npm run typecheck` are clean —
+55 frontend tests.
 
-Every claim above is static verification. **The app has never been launched in
-this project.** No dictation has been performed, the dock has never been on
-screen, and the pinned log window has never been opened.
+**There are no longer any crate exclusions, and that is the news.**
+`speakeasy-granite` had not been compiled since the fork, and every command in
+this file used to exclude it. It builds:
+`cargo build --release -p speakeasy-granite-worker` finished in **1 m 50 s** on
+2026-08-18 and produced a 4.3 MB `granite-worker.exe`. The prediction was right,
+but it was a prediction until that ran.
 
-That is the highest-value next step and it should come before the installer,
-because it is the cheapest way to find out whether the amputation broke
-something no test covers. Specifically worth watching for:
+Two prerequisites had to be satisfied first, and neither was on this machine:
 
-- The dock appearing at all, and at the right size — `configure_hud` now shows
-  it unconditionally where the old code only showed it in dock mode.
-- Whether `capture_hud_status` survives the startup race. It polls at 10 Hz
-  from a window that loads before `setup` finishes, and the coordinator set it
-  reads changed this session.
-- A real dictation end to end, and what the dock's action row says when it
-  finishes.
-- The pinned log opening, staying on top, and **not stealing the foreground** —
-  if the next dictation after pinning lands on the clipboard instead of in your
-  document, that window took focus and the whole delivery-target trap has
-  reappeared.
+- `git config --global core.longpaths true`, which `docs/ARCHITECTURE.md`
+  already named as required. It was unset.
+- `.tools/` did not exist at all — no staged CMake, no staged Node. The system
+  CMake on `PATH` and the libclang `Resolve-Libclang.ps1` found were enough, so
+  `Enter-DevEnvironment.ps1` warned about neither.
+
+## The app has now been run, and it was broken in two places
+
+The previous version of this file said the app had never been launched and that
+this was the largest gap. It was, and launching it found what it was supposed to
+find: **two leftovers from the amputation, neither covered by any test, that
+between them made the app unlaunchable and dictation impossible.** Both are
+fixed.
+
+**1. Every dev launch threw before Vite started.**
+`apps/desktop/src-tauri/tauri.proof.conf.json` still listed the removed
+streaming engine — `inference-worker.exe`, both ONNX Runtime DLLs, both sherpa
+APIs and `cargs.dll`. `Stage-DevRuntime.ps1` reads that file to learn the
+installed layout, so it ran `cargo build -p speakeasy-inference-worker` against
+a crate the fork deleted, failed, and took `beforeDevCommand` down with it. The
+payload manifest and the uninstaller's `INSTALLED_PROOF_FILES` are pinned to
+each other by `scaffold.test.mjs`, so all three moved together.
+
+**2. `paths()` failed on every call, so every dictation would have failed.**
+`RuntimeWizardCoordinator::paths()` resolved the streaming worker,
+`onnxruntime.dll` and `sherpa-onnx-c-api.dll` as **required**, and did it
+*before* `granite_worker` — which was `Option` and, in its own words, "never in
+`required`". Those three can never exist again, so `paths()` returned
+`runtime_resources_unavailable` unconditionally, `granite_worker_exe` was always
+`None`, and `judge_granite_pass` would have ended every dictation with
+`GraniteUnavailable`. The requirement is now inverted: the Granite worker is the
+required path and the other three are gone.
+
+That second one is worth dwelling on, because it shows how the gap hid itself.
+Four tests covered `paths()`. Every one of them constructed the coordinator with
+a root that does not exist, so every one asserted the *error* and not one
+asserted success — a suite that was fully green about a function that could
+never succeed. `a_staged_root_resolves_and_the_granite_worker_is_what_makes_it_one`
+now asserts the positive case, and it was confirmed by reintroducing the bug and
+watching it fail while the other four stayed green.
+
+### What the first real dictation recorded
+
+Measured 2026-08-18 from `%APPDATA%i.speakeasy.mini\logs\speakeasy.log`,
+which is the record to trust:
+
+```text
+event=granite_warm result=ok engine=cpu_gpu_runtime_missing device=cpu
+event=dictation_start result=ok
+event=dictation_stop result=ok
+event=dictation_finalize result=started engine=llama.cpp
+event=hotkey_delivery_target integrity=Equal executable=<redacted> process_id=…
+event=hotkey_delivery result=committed
+event=dictation_finalize result=finished
+```
+
+- 9.64 s of speech; **4.20 s** from finalize to delivery; 4.85 s total after
+  stop. Delivery `committed` — a real paste into the focused window, not the
+  clipboard fallback.
+- `engine=cpu_gpu_runtime_missing device=cpu` is the correct code for this
+  machine: an NVIDIA card with no published CUDA worker to load. This is the
+  case `docs/ARCHITECTURE.md` says must be distinguishable from a chosen CPU
+  install, and item 2 below is what makes it so.
+- **That 4.20 s is not a measurement of anything.** It is a dev run — a debug
+  desktop host around a release worker — and `CLAUDE.md` is explicit that dev
+  timings have invalidated conclusions here twice. It says the path works. It
+  does not say what it costs. The apparent RTF of 0.436 should not be compared
+  against the recorded 0.158 until it is re-taken on an installed release build.
+
+Also verified in that session, each against the running window rather than the
+declaration:
+
+- All three windows exist. The dock is **visible at exactly its declared size** —
+  62×360 logical, 155×900 physical at this display's 250% scale — so
+  `enforce_declared_size` defeats the creation-time width clamp in practice, not
+  just in principle.
+- The foreground window was never one of ours, before or after the worker
+  spawned, and neither `granite-worker` nor its `conhost` has a visible window.
+  The delivery-target trap has not reappeared.
+- `granite-worker` goes resident at ~2.47 GiB with the weights loaded, and the
+  desktop process falls back to ~65 MB after the warm.
+
+One correction to `CLAUDE.md`'s guidance, found while checking this: a
+`CREATE_NO_WINDOW` child **does** have a child `conhost.exe`. That flag creates
+a console object and declines to display it. The "verify by the lack of a child
+`conhost.exe`" rule is sound for the bootstrapper's `DETACHED_PROCESS` relaunch
+and gives a false positive here; the test that actually distinguishes them is
+whether the process owns a visible top-level window.
+
+### Still not exercised
+
+- The pinned log window has been created but never **shown**. Opening it is
+  still the moment to re-check the foreground, because that is the window most
+  likely to take it.
+- Long dictations. The one recorded above was 9.6 s, so the ~30 s post-recording
+  wait a two-minute dictation implies has not been felt by anyone yet, and the
+  question of whether the dock's working indicator is enough is still open.
+- Anything at all on an installed release build.
+
+## The gate had not been runnable either
+
+`Invoke-ScaffoldChecks.ps1` is this project's definition of green, and
+`docs/handoff/CURRENT.md` told the next session to run it once and find out
+whether `speakeasy-granite` still built. Running it found something else first:
+**the gate threw on its own second step, and had done so since the fork.**
+
+It asserted a version-stamped sherpa-onnx runtime under
+`.tools/sherpa-onnx/current` before letting Cargo start — reasonable when
+`sherpa-onnx-sys` linked against it through `SHERPA_ONNX_LIB_DIR`. The fork
+removed the engine, `.cargo/config.toml`, and both scripts that block named
+(`Get-NativeRuntimeVersion.ps1` and `Get-GpuRuntime.ps1`), but not the block.
+So the gate died calling a script that no longer exists, with a
+`CommandNotFoundException` that reads like a broken machine rather than a broken
+gate — and every "the gate is green" claim in the previous handoff actually came
+from running its sub-commands by hand. The block is gone; `speakeasy-granite`
+compiles llama.cpp itself and there is nothing left to stage.
+
+Two things surfaced the moment it could run to the end, and neither was
+reachable by the commands that had been standing in for it:
+
+- **`cargo fmt --check` fails are invisible to `cargo test` and `cargo clippy`.**
+  The gate caught formatting in this session's own new test.
+- **`cargo test --workspace --lib` builds no `--bin` targets**, so it never ran
+  the bootstrapper's binary tests. One of them,
+  `the_plan_names_both_engines_and_totals_their_transfer_sizes`, had been
+  **failing since the fork** — it demanded the download plan name two packs,
+  "one streaming pack and one Granite pack", and there is one engine now. It is
+  rewritten as `the_plan_names_one_engine_and_totals_its_transfer_size`, and it
+  now also pins that a GPU machine plans the same list, so the CUDA worker
+  landing is what makes the count 2.
+
+This is the previous session's "a whole crate went red unnoticed" one level
+down: not a crate list this time, but a **target filter**. `--lib` is not the
+workspace. Run the gate.
+
+### The dependency policy was stale in four places
+
+Reaching `Test-DependencyPolicy.ps1` for the first time since the fork found it
+describing a workspace that no longer exists. Each of these threw in turn:
+
+- **`.cargo/audit.toml` was missing.** The fork deleted the whole `.cargo/`
+  directory to be rid of `config.toml`, whose only job was pointing
+  `SHERPA_ONNX_LIB_DIR` at a pre-fetched archive — and took the advisory
+  configuration with it. Regenerated, not invented: it is a projection of
+  `dependency-policy/advisory-allowlist.json`, which survived intact with all
+  five advisories, each carrying a package, a reason and an expiry of
+  2026-10-19. The regenerated file is advisory-for-advisory identical to the
+  parent repository's, which is the confirmation that the derivation is the
+  right one.
+- **The dependency table still called the worker crate `speakeasy-asr`**, so
+  `speakeasy-desktop`'s real dependency on `speakeasy-worker` was "forbidden".
+  Reconciled against `cargo metadata` rather than by hand. The entry is now one
+  line — `speakeasy-worker = @('speakeasy-domain')` — where it used to carry
+  `sherpa-onnx`, `transcribe-cpp`, `nvml-wrapper` and `unicode-segmentation`.
+  That single line is the machine-checked evidence for this file's claim that
+  the crate links nothing native.
+- **Three entries named crates that no longer exist** — `speakeasy-remote`,
+  `speakeasy-bench` and `speakeasy-inference-worker`. Removed, with a note
+  saying they are absent deliberately, because a crate with no entry throws on
+  sight and a quiet resurrection is exactly what this table exists to prevent.
+- **`$allowedPatchedSources` still listed both `transcribe-cpp` path patches.**
+  `[patch.crates-io]` has one entry now, the `llama-cpp-sys-2` fork.
+
+Worth recording because it was the question underneath all of this: `cargo audit`
+reports **zero vulnerabilities**. There are 18 informational warnings — 16
+unmaintained, 2 unsound — of which the reviewed allowlist covers five. The
+remaining thirteen are not suppressed anywhere and were not suppressed before
+the fork either.
 
 ## What is outstanding
 
 Ordered by what unblocks the most.
 
-### 1. Run the app end to end
-Above. Nothing depends on it, and everything is more trustworthy after it.
+### 1. Run the app end to end — done 2026-08-18
+See above. It found two blocking defects; both are fixed and the first real
+dictation delivered. What remains from this item is the pinned log window, a
+long dictation, and an installed release build.
 
 ### 2. Finish the installer (`apps/bootstrapper`)
 The bootstrapper is further along than it looks: the hardware probe, the
@@ -72,13 +238,29 @@ projector failed to attach does not error; it writes fluent text from the
 instruction alone, so "it returned a transcript" proves nothing and only content
 does.
 
-> **The trap here is packaging, not inference.** `*.wav` is in `.gitignore`, and
-> the existing fixture (`beckett.wav`, ground truth "Ever tried. Ever failed. No
-> matter. Try again. Fail again. Fail better.") lives in `.tools/fixtures/`,
-> which is not committed. So there is currently **no clip the installer could
-> embed**. Either add a `.gitignore` exception for one committed fixture and
-> `include_bytes!` it, or fetch it with the weights and verify it by digest like
-> everything else. Decide this before writing the step.
+> **The trap here is packaging, not inference — and it is now worse than the
+> last version of this file recorded.** That version said `beckett.wav` lived
+> uncommitted in `.tools/fixtures/`. Searched on 2026-08-18: it is **gone**.
+> Not in this repository, not in `speakeasy-granite-rust` (whose `.tools/` holds
+> downloads, gpu-runtime, the Granite weights, native and node — no `fixtures/`),
+> not in git history anywhere (it was gitignored, so it never entered one), and
+> nothing named `beckett*` exists under `C:\Coding Projects`, Downloads or
+> Documents. Its ground truth survives only in source comments — "Ever tried.
+> Ever failed. No matter. Try again. Fail again. Fail better." The same is true
+> of `Obama.wav`, the other fixture those comments name.
+>
+> The synthetic clips in `speakeasy-ai-granite/tests/fixtures/audio/` are not a
+> substitute: their own generator says they are frequency sweeps plus noise,
+> deliberately not speech, carrying no reference transcript.
+>
+> So the clip has to be **created before it can be packaged**, and that is the
+> decision to make first — record one (the obvious source is a real dictation
+> through the app, which now works, so the ground truth is whatever was said),
+> or synthesize one with TTS. Only then does the original question arise:
+> `.gitignore` exception plus `include_bytes!`, or fetch and verify by digest
+> with the weights. Committing is the better default — the clip is ~320 KB, and
+> a download is a failure mode added to the one step whose entire job is to be
+> trustworthy.
 >
 > `crates/speakeasy-granite/src/granite_smoke.rs` is the model to copy — it
 > already asserts whole transcripts against that exact fixture.
@@ -110,7 +292,7 @@ and deliberately ignores it, with a comment saying why, for exactly this.
 
 Until then a GPU machine gets the CPU worker and the app says so honestly.
 
-### 4. The rebrand tail
+### 4. The rebrand tail — and it is not cosmetic
 15 files under `scripts/` still say "SpeakEasy", and the desktop binary is still
 `ai-speakeasy-desktop`. The decision was to rename everything the user or the
 filesystem sees — scripts, binary name, installer strings, install root, log
@@ -118,11 +300,62 @@ paths — and to leave the Rust **crate** names alone, because renaming
 `speakeasy-desktop` and friends churns every manifest and path dependency for no
 observable difference.
 
+**Raised on 2026-08-18 from "naming" to a correctness bug**, because the
+bootstrapper still resolves the *parent product's* identifier, and two of the
+consequences are not cosmetic at all:
+
+- `uninstall::data_root()` returns `%APPDATA%\ai.speakeasy.desktop`, so
+  `model_lifecycle_root()` sends setup's downloaded weights to
+  `…\ai.speakeasy.desktop\model-lifecycle\models\…`. The app reads
+  `…\ai.speakeasy.mini\model-lifecycle\models\…` — verified, because that is
+  where a working dictation found them. **Setup would install ~2.3 GB where the
+  app never looks**, into SpeakEasy's data directory, and the app would then
+  report Granite as not installed. A test pins the wrong path
+  (`download.rs`: `root.ends_with("ai.speakeasy.desktop\model-lifecycle")`)
+  and passes.
+- `install.rs`'s ARP key is
+  `…\CurrentVersion\Uninstall\ai.speakeasy.desktop`, so Mini's installer
+  registers under SpeakEasy's Add/Remove Programs entry and Mini's uninstaller
+  removes it. That directly contradicts `CLAUDE.md`'s "installs and runs
+  alongside SpeakEasy without sharing" — the one property the separate identity
+  exists to provide.
+
+Neither was touched, because changing an install root and an ARP key changes
+what an uninstall does on a machine that may already carry the parent product,
+and that is an owner decision rather than a rename.
+
+Separately, and smaller: `catalog::ARTIFACT_GRANITE` is the user-facing string
+**"Punctuation model"**, and it is the label setup shows while fetching the only
+model there is. It was accurate when Granite was a second pass over a streaming
+transcript. Granite is now the speech recognition, and the punctuation arrives
+with it in the same pass, so setup currently narrates the download of the ASR
+model as a punctuation model. Setup copy is reviewable copy and lives in
+`catalog.rs` by rule, so this is a copy change to make deliberately.
+
 ### 5. Dead onboarding plumbing
 `OnboardingProgress` and `setup_requirement` still compile with nothing driving
 them (10 references under `apps/desktop/src-tauri/src`). The in-app setup wizard
 is gone and setup is the installer's job, so these should be removed rather than
 left as a flag nothing sets.
+
+### 6. Two comments that outlived their reasoning
+Both were found while fixing the launch, both are wrong in the direction that
+misleads a reader rather than the compiler, and neither was touched because
+correcting either is a decision rather than an edit.
+
+- **`MINIMUM_TOTAL_MEMORY_BYTES` (4 GiB) in `runtime_wizard.rs`** is justified
+  entirely by `inference-worker.exe`'s measured 1,263 MiB resident set. That
+  worker no longer exists. The comment goes on to argue explicitly *against*
+  using Granite's higher floor, on the grounds that it "would take dictation
+  away from machines that run the streaming path perfectly well" — a path that
+  is also gone. Whether the dictation floor should now simply *be* Granite's
+  floor is a live question with a behavioural answer; what is certain is that
+  the current number is defended by evidence about a deleted process.
+- **`run_granite_final_pass`'s doc** says `Ok(None)` means "the ordinary
+  single-engine fallback runs exactly as it did before this engine existed".
+  There is no fallback. The *behaviour* is right — `judge_granite_pass` maps
+  `Ok(None)` to `FinalSourceReason::GraniteUnavailable`, a named reason, which
+  was checked rather than assumed — so this is a comment fix, not a bug.
 
 ## Decisions already made — do not re-open without new evidence
 
@@ -170,14 +403,31 @@ Every one of these was an explicit owner decision this session.
   a later assertion failed, the earlier successful edits were discarded silently
   and the reported "ok" lines were lies. Write incrementally or verify after.
 
+  **This recurred on 2026-08-18**, in a two-edit pass over
+  `Stage-DevRuntime.ps1`, having read the warning above earlier the same
+  session. The second assertion failed on a backslash the heredoc had mangled,
+  and the first — already applied in memory — went with it. The rule is not
+  "be careful"; it is *write after each replacement*, because the failure is
+  silent and the transcript still reads as progress.
+
+- **A syntax check reported success without running.** A PowerShell parse check
+  passed `[ref]$errs` for an undeclared `$errs`; the statement failed, `$errs`
+  stayed null, and the `else` branch printed "parses clean" — for any input,
+  including a file that had never been read. The re-run declared the variable
+  *and* fed a deliberately broken script through the same check to confirm it
+  reported 2 errors. A verification that cannot fail is not a verification, and
+  this one had the exact silent-success shape the rest of this project is
+  written to avoid.
+
 ## Repository facts worth knowing
 
-- Four commits on `main`, private, `kwp490/speakeasy-granite-rust-mini`.
+- Five commits on `main`, private, `kwp490/speakeasy-granite-rust-mini`.
 - The tree is ~300 files, down from 2,611 — `vendor/transcribe.cpp` alone was
   2,265 of them.
 - `speakeasy-worker` (was `speakeasy-asr`) links **no native libraries** and
   checks in seconds. Only `speakeasy-granite` compiles C++.
 - `.cargo/config.toml` is gone. It existed only to point `SHERPA_ONNX_LIB_DIR`
-  at a pre-fetched archive.
+  at a pre-fetched archive. **`.cargo/audit.toml` is back**, though: it was
+  collateral damage of deleting that directory wholesale, and the gate needs it.
 - `docs/handoff/` and `docs/archive/` were deleted with the streaming engine.
   This file is the new one.
