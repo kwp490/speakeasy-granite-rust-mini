@@ -216,6 +216,60 @@ unmaintained, 2 unsound — of which the reviewed allowlist covers five. The
 remaining thirteen are not suppressed anywhere and were not suppressed before
 the fork either.
 
+## The installer has now been built and run
+
+`Test-InstallerLifecycle.ps1` passes end to end, which is the first
+behavioural evidence about setup on this fork. Getting there took thirteen
+fixes, and the shape of them is the lesson: **the fork updated every path it
+executed and left every path it did not.** The dev launcher, the quality gate,
+the dependency policy, the packager, the installer builder and the install
+proof were all in the second category, and each one hid the next because they
+fail fast.
+
+Four were real product defects rather than harness debris, and all four were
+this product writing into the parent's state:
+
+- **`probe::install_root()` defaulted to `%LOCALAPPDATA%\SpeakEasy`.** Setup
+  would have written this app's executables over an existing SpeakEasy
+  installation, and `uninstall` removes the install directory whole -- so
+  uninstalling Mini would have deleted SpeakEasy. `shortcut::start_menu_folder`
+  had the same collision.
+- **Add/Remove Programs showed `DisplayName: SpeakEasy`**, so the two products
+  were indistinguishable in the list a user goes to in order to remove one.
+- **The wizard called itself SpeakEasy throughout** -- 22 of 23 user-facing
+  strings in `catalog.rs`, plus the window title and the repair message box.
+
+What the passing run proves, precisely: fresh install places both executables;
+refuse-while-running refuses and leaves the installed binary's SHA-256
+unchanged; refuse-same-version and refuse-downgrade both fire with their own
+messages; repair backup and verify round-trip; and a silent uninstall leaves
+the install root and both registry keys clean, with `HKCU:\Software\SpeakEasy`
+untouched throughout.
+
+### What that proof does not cover
+
+- **`install_root()`'s default is never exercised.** The test passes
+  `--install-root` explicitly, so the worst defect above lived in a code path
+  the proof does not touch. Nothing pins that leaf to the product identity, so
+  it can regress in silence. A test asserting it is the cheapest insurance
+  available and does not exist.
+- **No model download and no transcription.** The engine smoke test still has
+  no runner; the clip and its verified ground truth are committed and unused.
+- **Nothing asserts the ARP strings.** The proof checks the key is created and
+  removed, not what is in it. That is exactly how `DisplayName: SpeakEasy`
+  survived.
+- **Uninstall leaves an empty `HKCU:\Software\SpeakEasy Mini`.** It removes the
+  `LocalDevelopment` subkey the test asserts on, not the now-empty parent.
+  Cosmetic, no data, deliberately left alone: deleting a parent key should be a
+  decision rather than a tidy-up.
+
+### A rough edge in the harness
+
+An aborted lifecycle run leaves the app it launched for the running-app check
+alive. The pre-flight guard then refuses every retry -- correctly, it will not
+terminate a process it does not own -- but the orphan is the script's own, and
+it cost three runs to notice. Kill `ai-speakeasy-mini` before re-running.
+
 ## What is outstanding
 
 Ordered by what unblocks the most.
@@ -343,9 +397,11 @@ manifest and path dependency for no observable difference. And the IPC schema
 neither user-visible nor a filesystem path, which is the line that decision
 drew.
 
-Not verified: no installer has been built or run. The strings are consistent
-and the workspace is green, which is not the same as `Test-InstallerLifecycle.ps1`
-having passed. That script is the next thing to run against this.
+Since verified: an installer was built and `Test-InstallerLifecycle.ps1` was
+run against it. It found three more collisions this section had not — the
+default install root, the Start Menu folder and the Add/Remove Programs
+`DisplayName` — all recorded above under "The installer has now been built and
+run". The lifecycle test now passes.
 
 ### 5. Dead onboarding plumbing
 `OnboardingProgress` and `setup_requirement` still compile with nothing driving
@@ -445,6 +501,30 @@ Every one of these was an explicit owner decision this session.
   reported 2 errors. A verification that cannot fail is not a verification, and
   this one had the exact silent-success shape the rest of this project is
   written to avoid.
+
+- **Three checks reported clean because they were broken, not because
+  anything passed.** A PowerShell parse check passed `[ref]$errs` for an
+  undeclared variable, so it printed "parses clean" for any input, including
+  a file it had never read. A wait loop grepped for `error` and matched
+  `thiserror`, reporting a build finished while it was still compiling. A
+  `Win32_Process` filter used URL-encoded quotes, matched nothing, and was
+  read as "no instance running" -- a `Get-Process` a second later found one.
+  Each was caught only by looking at something else afterwards. **An
+  instrument that fails silently is indistinguishable from one that passes**,
+  which is the failure this codebase's comments are mostly about, so run the
+  control *first* rather than after being surprised.
+
+- **A regression was reported that was not one.** Two window measurements
+  taken during a slower cold start showed the dock hidden, focusable and the
+  wrong width; both were mid-startup, before `configure_hud` had run. The
+  settled state was correct. Measure after the thing has settled, and say
+  "not yet settled" rather than "regressed" when it has not.
+
+- **A failure was diagnosed twice from a line number.** The installer
+  lifecycle error pointed inside a helper called three times, and it was read
+  as the first call. The first call had succeeded; the failure was two calls
+  later, under different conditions. A line number inside a shared helper does
+  not say which invocation.
 
 ## Repository facts worth knowing
 
