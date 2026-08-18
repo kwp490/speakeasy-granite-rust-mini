@@ -6,6 +6,13 @@
 *.ilk
 *.dmp
 *.wav
+# ...except the one setup embeds. The engine smoke test compares a whole
+# transcript against pinned ground truth, so the clip has to travel with the
+# code that asserts on it. The previous fixture was gitignored, lived only in
+# `.tools/`, and by 2026-08-18 had been lost from every checkout on this
+# machine -- taking the proof with it. `scripts/New-SmokeFixture.ps1`
+# regenerates this one from Windows' own synthesiser.
+!apps/bootstrapper/fixtures/smoke.wav
 
 # Production workspace output
 /target/
