@@ -37,6 +37,7 @@ settings, logs, a single-instance lock, or a global shortcut.
 | `docs/UI-GUIDE.md` | **The living UI spec.** Code must match it; amend it in the same change |
 | `docs/LOCAL-DEVELOPMENT.md` | Version bumps, installer, the local-only policy |
 | `docs/NEW-MACHINE.md` | Bootstrapping a fresh dev machine |
+| `docs/handoff/CURRENT.md` | **What is unfinished and why.** Read this before picking up work |
 | `docs/design/` | Visual elevations, one standalone HTML each |
 
 ## Commands
@@ -54,6 +55,16 @@ frontend test/lint/typecheck) does its own env setup:
 ```powershell
 .\scripts\Invoke-ScaffoldChecks.ps1 -SkipNpmInstall
 ```
+
+**`speakeasy-granite` has not been compiled since the fork.** It compiles
+llama.cpp from source, so every check this session excluded it:
+
+```powershell
+cargo test --workspace --exclude speakeasy-granite --exclude speakeasy-granite-worker --lib
+```
+
+Nothing in that crate changed, so it should build — but that is a prediction.
+Run the full gate once and find out before trusting anything downstream.
 
 Frontend-only, from `apps/desktop`: `npm run typecheck`, `npm run lint`,
 `npm test`, `npm run build`. Rust: `cargo test -p <crate> --lib`,

@@ -28,6 +28,16 @@ transcription engine and one HUD.
   so it installs and runs alongside SpeakEasy without sharing settings, logs, a
   single-instance lock, or a global shortcut.
 
+- **A failed dictation says what to do about it.** Every failure code carries a
+  one-line reason and real guidance, shown in the dock's action row and in a
+  panel at the top of Settings → Transcription. A Windows toast was specified
+  and refused: it needs an AppUserModelID from an installed Start Menu shortcut
+  and otherwise displays nothing while reporting success.
+- **ONNX Runtime's CUDA staging is gone** — a 2.97 GB on-demand fetch of cuDNN
+  and cuFFT, its coordinator, three commands and a settings panel. llama.cpp
+  needs cudart and cuBLAS, which the manifest keeps, and setup will fetch them
+  with the GPU worker as the single artifact they physically are.
+
 Removed with their subjects: the provider-override control (Granite's GPU
 support is a build feature, and no setting can conjure a worker binary), the
 GPU "qualified" promotion (nothing can execute on the GPU to earn it until a
