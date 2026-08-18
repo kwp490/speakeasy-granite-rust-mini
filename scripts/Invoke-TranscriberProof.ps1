@@ -124,7 +124,7 @@ if (-not [SpeakEasyWin32]::SetProcessDpiAwarenessContext([IntPtr](-4))) {
 }
 
 
-$diagnosticLog = Join-Path $env:APPDATA 'ai.speakeasy.desktop\logs\speakeasy.log'
+$diagnosticLog = Join-Path $env:APPDATA 'ai.speakeasy.mini\logs\speakeasy.log'
 
 function Get-TranscriberWindow {
     foreach ($handle in [SpeakEasyWin32]::Visible()) {

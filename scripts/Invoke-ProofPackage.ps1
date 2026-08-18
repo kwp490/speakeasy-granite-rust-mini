@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param()
 
 $ErrorActionPreference = 'Stop'
@@ -93,9 +93,9 @@ try {
     # previous build as though it were this one. That happened once with a
     # setup.exe from an earlier session. The app executable has exactly the same
     # property, so it is cleared before building rather than trusted afterwards.
-    $desktopExe = Join-Path $buildRoot 'release\ai-speakeasy-desktop.exe'
+    $desktopExe = Join-Path $buildRoot 'release\ai-speakeasy-mini.exe'
     if (Test-Path -LiteralPath $desktopExe) {
-        Write-Host 'removing previous ai-speakeasy-desktop.exe'
+        Write-Host 'removing previous ai-speakeasy-mini.exe'
         Remove-Item -LiteralPath $desktopExe -Force
     }
 
@@ -112,7 +112,7 @@ try {
     }
 
     if (-not (Test-Path -LiteralPath $desktopExe)) {
-        throw 'Tauri completed without producing ai-speakeasy-desktop.exe.'
+        throw 'Tauri completed without producing ai-speakeasy-mini.exe.'
     }
     [pscustomobject]@{
         desktop = $desktopExe

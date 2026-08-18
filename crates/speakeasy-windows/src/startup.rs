@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 pub const STARTUP_VALUE_NAME: &str = "SpeakEasy";
 const LEGACY_STARTUP_VALUE_NAME: &str = "SpeakEasy v2 Preview";
-const DESKTOP_EXECUTABLE_NAME: &str = "ai-speakeasy-desktop.exe";
+const DESKTOP_EXECUTABLE_NAME: &str = "ai-speakeasy-mini.exe";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StartupStatus {
@@ -136,8 +136,8 @@ mod tests {
     #[test]
     fn startup_parser_accepts_only_an_absolute_quoted_executable() {
         assert_eq!(
-            parse_quoted_command(r#""C:\Apps\SpeakEasy\ai-speakeasy-desktop.exe" --startup"#),
-            Some(PathBuf::from(r"C:\Apps\SpeakEasy\ai-speakeasy-desktop.exe"))
+            parse_quoted_command(r#""C:\Apps\SpeakEasy\ai-speakeasy-mini.exe" --startup"#),
+            Some(PathBuf::from(r"C:\Apps\SpeakEasy\ai-speakeasy-mini.exe"))
         );
         assert_eq!(parse_quoted_command("relative.exe --startup"), None);
         assert_eq!(parse_quoted_command("\"unterminated"), None);

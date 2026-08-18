@@ -238,32 +238,43 @@ projector failed to attach does not error; it writes fluent text from the
 instruction alone, so "it returned a transcript" proves nothing and only content
 does.
 
-> **The trap here is packaging, not inference — and it is now worse than the
-> last version of this file recorded.** That version said `beckett.wav` lived
-> uncommitted in `.tools/fixtures/`. Searched on 2026-08-18: it is **gone**.
-> Not in this repository, not in `speakeasy-granite-rust` (whose `.tools/` holds
-> downloads, gpu-runtime, the Granite weights, native and node — no `fixtures/`),
-> not in git history anywhere (it was gitignored, so it never entered one), and
-> nothing named `beckett*` exists under `C:\Coding Projects`, Downloads or
-> Documents. Its ground truth survives only in source comments — "Ever tried.
-> Ever failed. No matter. Try again. Fail again. Fail better." The same is true
-> of `Obama.wav`, the other fixture those comments name.
+> **The clip exists now; the step that runs it does not.** `beckett.wav` was
+> gone — not in this repository, not in the parent, not in either git history
+> (it was gitignored, so it never entered one), and nowhere else on this
+> machine. So was `Obama.wav`. The synthetic clips in `speakeasy-ai-granite`
+> are not a substitute: their own generator says they are frequency sweeps
+> plus noise, deliberately not speech, carrying no reference transcript.
 >
-> The synthetic clips in `speakeasy-ai-granite/tests/fixtures/audio/` are not a
-> substitute: their own generator says they are frequency sweeps plus noise,
-> deliberately not speech, carrying no reference transcript.
+> `scripts/New-SmokeFixture.ps1` generates the replacement with Windows' own
+> synthesiser at 16 kHz mono PCM16, and `apps/bootstrapper/fixtures/smoke.wav`
+> is committed behind a `.gitignore` exception — 200 KB, so that the clip
+> travels with the code that asserts on it rather than being fetched by the
+> one step whose whole job is to be trustworthy.
 >
-> So the clip has to be **created before it can be packaged**, and that is the
-> decision to make first — record one (the obvious source is a real dictation
-> through the app, which now works, so the ground truth is whatever was said),
-> or synthesize one with TTS. Only then does the original question arise:
-> `.gitignore` exception plus `include_bytes!`, or fetch and verify by digest
-> with the weights. Committing is the better default — the clip is ~320 KB, and
-> a download is a failure mode added to the one step whose entire job is to be
-> trustworthy.
+> Its ground truth is **verified, not typed**:
 >
-> `crates/speakeasy-granite/src/granite_smoke.rs` is the model to copy — it
-> already asserts whole transcripts against that exact fixture.
+> ```text
+> The quick brown fox jumps over the lazy dog. And Monday begins at dawn.
+> ```
+>
+> Both guesses at it were wrong, which is the argument for
+> `cargo run --release -p speakeasy-granite --example transcribe_file`
+> existing at all. The first sentence ended "and Granite writes it down" and
+> the model returned "Granit". The second was spoken with a comma — "dog, and
+> Monday" — and Granite chose "dog. And Monday", a punctuation decision nobody
+> would have written from memory. Swept across every thread count
+> `recommended_thread_count` can return (1 through 8) and byte-identical at all
+> of them, which is what makes a whole-transcript comparison safe on a machine
+> whose core count nobody chose.
+>
+> **What remains is the runner.** Setup still has to load the model, transcribe
+> those bytes and compare. The bootstrapper has no worker-protocol client —
+> `speakeasy-worker` exposes the adapter but not the process spawning, which
+> lives in the desktop crate's `process_worker.rs` — so this needs either a
+> small framed-JSON client in `apps/bootstrapper` (and a dependency-policy
+> entry for it) or that spawning lifted somewhere both can reach.
+> `crates/speakeasy-granite/src/granite_smoke.rs` remains the model for the
+> assertion itself: whole transcripts, never a prefix.
 
 **The retention question.** Setup asks whether to keep transcripts between
 sessions, default no, and seeds the answer into the profile. The read side is
@@ -292,45 +303,49 @@ and deliberately ignores it, with a comment saying why, for exactly this.
 
 Until then a GPU machine gets the CPU worker and the app says so honestly.
 
-### 4. The rebrand tail — and it is not cosmetic
-15 files under `scripts/` still say "SpeakEasy", and the desktop binary is still
-`ai-speakeasy-desktop`. The decision was to rename everything the user or the
-filesystem sees — scripts, binary name, installer strings, install root, log
-paths — and to leave the Rust **crate** names alone, because renaming
-`speakeasy-desktop` and friends churns every manifest and path dependency for no
-observable difference.
+### 4. The rebrand tail — done 2026-08-18, and it was not cosmetic
+The remaining "SpeakEasy" strings were filed as naming. Three of them were
+correctness bugs, each one this product writing into the *parent* product's
+state, and all three were invisible because the installer had not been run
+since the fork.
 
-**Raised on 2026-08-18 from "naming" to a correctness bug**, because the
-bootstrapper still resolves the *parent product's* identifier, and two of the
-consequences are not cosmetic at all:
+- **`uninstall::data_root()` returned `%APPDATA%\ai.speakeasy.desktop`.** Setup
+  puts the model weights under that root, so a fresh install would have
+  downloaded ~2.3 GB into SpeakEasy's data directory and the app — which reads
+  `ai.speakeasy.mini`, verified, because that is where a working dictation
+  found them — would then have reported Granite as not installed. In the other
+  direction it is worse: uninstalling Mini removes this tree, which was
+  SpeakEasy's.
+- **The ARP key was `…\Uninstall\ai.speakeasy.desktop`**, so setup registered
+  Mini over SpeakEasy's Add/Remove Programs entry — its `DisplayName`, version
+  and uninstall command — and Mini's uninstaller then deleted it, leaving the
+  parent installed and unlisted.
+- **`VERSION_KEY` was `Software\SpeakEasy\LocalDevelopment`.** Found while
+  fixing the other two, and the same shape one level down: installing Mini
+  overwrote SpeakEasy's version stamp, and Mini's downgrade refusal compared
+  against whatever SpeakEasy had installed, so the two products could refuse
+  each other's upgrades. Its inherited justification — that the key is shared
+  with the NSIS hooks so an upgrade finds its predecessor's stamp — cannot
+  apply to a product that has never shipped and has no predecessor.
 
-- `uninstall::data_root()` returns `%APPDATA%\ai.speakeasy.desktop`, so
-  `model_lifecycle_root()` sends setup's downloaded weights to
-  `…\ai.speakeasy.desktop\model-lifecycle\models\…`. The app reads
-  `…\ai.speakeasy.mini\model-lifecycle\models\…` — verified, because that is
-  where a working dictation found them. **Setup would install ~2.3 GB where the
-  app never looks**, into SpeakEasy's data directory, and the app would then
-  report Granite as not installed. A test pins the wrong path
-  (`download.rs`: `root.ends_with("ai.speakeasy.desktop\model-lifecycle")`)
-  and passes.
-- `install.rs`'s ARP key is
-  `…\CurrentVersion\Uninstall\ai.speakeasy.desktop`, so Mini's installer
-  registers under SpeakEasy's Add/Remove Programs entry and Mini's uninstaller
-  removes it. That directly contradicts `CLAUDE.md`'s "installs and runs
-  alongside SpeakEasy without sharing" — the one property the separate identity
-  exists to provide.
+Also renamed: the desktop binary is `ai-speakeasy-mini.exe`, in the cargo
+manifest, `install.rs`'s `APP_EXE` and `RUNNING_NAMES`,
+`speakeasy-windows::startup`, and the seven scripts that name it. The
+refuse-while-running check lost `speakeasy-v2-preview.exe`, which belonged to
+the parent's legacy preview and shared its install directory, never Mini's;
+keeping it only risked refusing a Mini install because something unrelated was
+running.
 
-Neither was touched, because changing an install root and an ARP key changes
-what an uninstall does on a machine that may already carry the parent product,
-and that is an owner decision rather than a rename.
+Two things deliberately left alone. The Rust **crate** names still say
+`speakeasy-*`, per the original decision, because renaming them churns every
+manifest and path dependency for no observable difference. And the IPC schema
+`$id`s still read `ai.speakeasy.desktop/ipc/...`; a schema identifier is
+neither user-visible nor a filesystem path, which is the line that decision
+drew.
 
-Separately, and smaller: `catalog::ARTIFACT_GRANITE` is the user-facing string
-**"Punctuation model"**, and it is the label setup shows while fetching the only
-model there is. It was accurate when Granite was a second pass over a streaming
-transcript. Granite is now the speech recognition, and the punctuation arrives
-with it in the same pass, so setup currently narrates the download of the ASR
-model as a punctuation model. Setup copy is reviewable copy and lives in
-`catalog.rs` by rule, so this is a copy change to make deliberately.
+Not verified: no installer has been built or run. The strings are consistent
+and the workspace is green, which is not the same as `Test-InstallerLifecycle.ps1`
+having passed. That script is the next thing to run against this.
 
 ### 5. Dead onboarding plumbing
 `OnboardingProgress` and `setup_requirement` still compile with nothing driving
@@ -338,24 +353,31 @@ them (10 references under `apps/desktop/src-tauri/src`). The in-app setup wizard
 is gone and setup is the installer's job, so these should be removed rather than
 left as a flag nothing sets.
 
-### 6. Two comments that outlived their reasoning
-Both were found while fixing the launch, both are wrong in the direction that
-misleads a reader rather than the compiler, and neither was touched because
-correcting either is a decision rather than an edit.
+### 6. Two comments that outlived their reasoning — done 2026-08-18
+Both were found while fixing the launch. One turned out to be a live defect
+rather than a stale comment.
 
-- **`MINIMUM_TOTAL_MEMORY_BYTES` (4 GiB) in `runtime_wizard.rs`** is justified
-  entirely by `inference-worker.exe`'s measured 1,263 MiB resident set. That
-  worker no longer exists. The comment goes on to argue explicitly *against*
-  using Granite's higher floor, on the grounds that it "would take dictation
-  away from machines that run the streaming path perfectly well" — a path that
-  is also gone. Whether the dictation floor should now simply *be* Granite's
-  floor is a live question with a behavioural answer; what is certain is that
-  the current number is defended by evidence about a deleted process.
-- **`run_granite_final_pass`'s doc** says `Ok(None)` means "the ordinary
-  single-engine fallback runs exactly as it did before this engine existed".
-  There is no fallback. The *behaviour* is right — `judge_granite_pass` maps
-  `Ok(None)` to `FinalSourceReason::GraniteUnavailable`, a named reason, which
-  was checked rather than assumed — so this is a comment fix, not a bug.
+**The dictation floor was 4 GiB and Granite's is 8 GiB**, and the split was
+deliberate: `runtime_wizard`'s gate is asked before the engine is chosen, so
+holding it below Granite's meant a mid-range machine still dictated through the
+streaming path and merely declined the second pass. With one engine that split
+only bought the user a delay. A machine with, say, 6 GiB passed the gate,
+recorded, waited out the whole post-recording pass, and got `GraniteUnavailable`
+— after they had already spoken, with nothing to fall back to. The floor is now
+Granite's floor. Refusing at `begin`, before a sample is captured, says the same
+thing at the only moment it is useful.
+
+The test that pinned the old ordering asserted the dictation floor stayed
+*strictly below* Granite's, "or the split is meaningless". It now asserts the
+opposite bound — the floor must never sit below Granite's, or a dictation is
+admitted that cannot possibly finish — and keeps its original body, which is
+still worth having: too little memory must read as "Granite is not part of this
+install", never as a fault worth a quarantine strike.
+
+**`run_granite_final_pass`'s doc** said `Ok(None)` let "the ordinary
+single-engine fallback" run. There is no fallback. The behaviour was already
+right — `judge_granite_pass` maps it to `FinalSourceReason::GraniteUnavailable`,
+checked rather than assumed — so this was a comment fix.
 
 ## Decisions already made — do not re-open without new evidence
 
@@ -371,6 +393,11 @@ Every one of these was an explicit owner decision this session.
   Menu shortcut and otherwise displays nothing *while reporting success*.
 - **No provider-override control.** Granite's GPU support is a build feature; no
   setting can conjure a worker binary.
+- **The dictation floor is Granite's floor** (8 GiB), raised from 4 GiB on
+  2026-08-18. The two were split so a machine that could not host Granite still
+  dictated through the streaming path; with one engine that split only let
+  someone speak into a guaranteed `GraniteUnavailable`. Refusing before capture
+  is the same answer at the only useful moment.
 - **No in-app setup wizard.** The installer is the only setup path.
 - **`immediate_repetitions` and `self_corrections` never run**, and have no
   toggles.

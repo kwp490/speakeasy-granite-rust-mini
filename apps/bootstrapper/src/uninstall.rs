@@ -118,8 +118,29 @@ pub struct Outcome {
 }
 
 /// Where the app's data lives.
+///
+/// `ai.speakeasy.mini`, and the identifier is the whole point of this
+/// function. It said `ai.speakeasy.desktop` until 2026-08-18 -- the *parent*
+/// product's identifier, inherited by the fork and never changed -- and two
+/// things followed that nothing caught, because the installer had not been run
+/// since the fork.
+///
+/// Setup downloads the model weights under this root, so ~2.3 GB went to
+/// `%APPDATA%/ai.speakeasy.desktop/model-lifecycle/models/`. The app reads
+/// `%APPDATA%/ai.speakeasy.mini/model-lifecycle/models/`, from Tauri's
+/// `app_data_dir` and its own identifier. A verified dictation found them in
+/// the second. So a fresh install would have downloaded the weights into
+/// `SpeakEasy`'s directory and then reported Granite as not installed.
+///
+/// Worse in the other direction: uninstalling `SpeakEasy Mini` removes this
+/// tree. Pointed at the parent's identifier, that is `SpeakEasy`'s data.
+///
+/// The whole reason this fork ships under its own identifier is to install and
+/// run beside `SpeakEasy` without sharing settings, logs, a single-instance lock
+/// or a shortcut. A hardcoded identifier is the one place that promise is kept
+/// or broken, which is why it is spelled out here rather than derived.
 pub fn data_root() -> Option<PathBuf> {
-    std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("ai.speakeasy.desktop"))
+    std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("ai.speakeasy.mini"))
 }
 
 /// Remove an installation.
@@ -606,7 +627,7 @@ mod tests {
         for ours in INSTALLED_PROOF_FILES {
             std::fs::write(proof.join(ours), b"ours").expect("installed file");
         }
-        std::fs::write(root.join("ai-speakeasy-desktop.exe"), b"app").expect("app");
+        std::fs::write(root.join("ai-speakeasy-mini.exe"), b"app").expect("app");
 
         let mut outcome = Outcome::default();
         remove_program_files(&root, false, &RunningImage::Elsewhere, &mut outcome);
@@ -629,7 +650,7 @@ mod tests {
         std::fs::create_dir_all(root.join("proof")).expect("proof");
         std::fs::create_dir_all(root.join("notices")).expect("notices");
         std::fs::write(root.join("proof").join("cudart64_12.dll"), b"big").expect("runtime file");
-        std::fs::write(root.join("ai-speakeasy-desktop.exe"), b"app").expect("app");
+        std::fs::write(root.join("ai-speakeasy-mini.exe"), b"app").expect("app");
 
         let mut outcome = Outcome::default();
         remove_program_files(&root, false, &RunningImage::Elsewhere, &mut outcome);
@@ -638,7 +659,7 @@ mod tests {
             root.join("proof").join("cudart64_12.dll").is_file(),
             "the expensive runtime must survive an ordinary uninstall"
         );
-        assert!(!root.join("ai-speakeasy-desktop.exe").exists());
+        assert!(!root.join("ai-speakeasy-mini.exe").exists());
         assert!(!root.join("notices").exists());
         assert!(outcome.failed.is_empty(), "{:?}", outcome.failed);
 
@@ -692,7 +713,7 @@ mod tests {
         std::fs::create_dir_all(&root).expect("root");
         let image = root.join("speakeasy-bootstrapper.exe");
         std::fs::write(&image, b"setup").expect("bootstrapper");
-        std::fs::write(root.join("ai-speakeasy-desktop.exe"), b"app").expect("app");
+        std::fs::write(root.join("ai-speakeasy-mini.exe"), b"app").expect("app");
         let canonical = image.canonicalize().expect("canonical image");
 
         let mut outcome = Outcome::default();
@@ -707,7 +728,7 @@ mod tests {
         );
 
         assert!(image.is_file(), "the running image must be spared");
-        assert!(!root.join("ai-speakeasy-desktop.exe").exists());
+        assert!(!root.join("ai-speakeasy-mini.exe").exists());
         assert!(outcome.failed.is_empty(), "{:?}", outcome.failed);
         assert_eq!(outcome.left_behind.len(), 1, "{:?}", outcome.left_behind);
         assert!(

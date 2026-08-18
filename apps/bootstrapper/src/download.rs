@@ -14,7 +14,7 @@
 //! root the installed app reads from, or the work is invisible to it and the
 //! first launch downloads everything again. That root is not the install root:
 //! program files go to `%LOCALAPPDATA%\SpeakEasy`, models to
-//! `%APPDATA%\ai.speakeasy.desktop\model-lifecycle`, which is where
+//! `%APPDATA%\ai.speakeasy.mini\model-lifecycle`, which is where
 //! `composition.rs` points `InstallManager` at. `agrees_with_the_app` in the
 //! tests below pins the two together, because nothing else would notice them
 //! drifting apart — a mismatch downloads three gigabytes to a directory nobody
@@ -483,7 +483,7 @@ mod tests {
             panic!("APPDATA must resolve on any machine this runs on");
         };
         assert!(
-            root.ends_with("ai.speakeasy.desktop\\model-lifecycle"),
+            root.ends_with("ai.speakeasy.mini\\model-lifecycle"),
             "{root:?}"
         );
     }

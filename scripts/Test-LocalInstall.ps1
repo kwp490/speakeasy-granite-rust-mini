@@ -132,15 +132,16 @@ $installSource = Get-Content -Raw -Encoding utf8 (Join-Path $repositoryRoot 'app
 foreach ($literal in @(
     # The version stamp NSIS wrote, unchanged: an upgrade from a pre-bootstrapper
     # install has to find the stamp its predecessor left.
-    'Software\SpeakEasy\LocalDevelopment',
+    'Software\SpeakEasy Mini\LocalDevelopment',
     # Add/Remove Programs registration, which the Tauri bundler used to generate.
-    'Software\Microsoft\Windows\CurrentVersion\Uninstall\ai.speakeasy.desktop',
+    'Software\Microsoft\Windows\CurrentVersion\Uninstall\ai.speakeasy.mini',
     'RefuseSameVersion',
     'RefuseDowngrade',
     'RefuseRunning',
-    # Both executable names, matching SPEAKEASY_REFUSE_IF_RUNNING.
-    'ai-speakeasy-desktop.exe',
-    'speakeasy-v2-preview.exe'
+    # The one executable name. `speakeasy-v2-preview.exe` was pinned here too
+    # until 2026-08-18: it belonged to the parent product's legacy preview,
+    # which shared SpeakEasy's install directory and never shared Mini's.
+    'ai-speakeasy-mini.exe'
 )) {
     if (-not $installSource.Contains($literal)) {
         throw "Install contract is missing from install.rs: $literal"
@@ -160,7 +161,7 @@ foreach ($literal in @(
     'data/speakeasy.sqlite3-wal',
     'data/speakeasy.sqlite3-shm',
     'model-lifecycle',
-    'ai.speakeasy.desktop'
+    'ai.speakeasy.mini'
 )) {
     if (-not $uninstallSource.Contains($literal)) {
         throw "Uninstall contract is missing from uninstall.rs: $literal"

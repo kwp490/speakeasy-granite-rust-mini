@@ -126,7 +126,7 @@ $runtimeDllNames = @(
     'onnxruntime_providers_shared.dll', 'sherpa-onnx-c-api.dll', 'sherpa-onnx-cxx-api.dll'
 )
 $payloadSpecs = @(
-    @((Join-Path $installerBuild 'release\ai-speakeasy-desktop.exe'), 'ai-speakeasy-desktop.exe', 'desktop'),
+    @((Join-Path $installerBuild 'release\ai-speakeasy-mini.exe'), 'ai-speakeasy-mini.exe', 'desktop'),
     @((Join-Path $installerBuild 'release\speakeasy-bootstrapper.exe'), 'speakeasy-bootstrapper.exe', 'bootstrapper'),
     @((Join-Path $installerBuild 'release\speakeasy-inference-worker.exe'), 'proof/inference-worker.exe', 'worker'),
     # CPU-only, built with `speakeasy-granite-worker`'s default features -- see

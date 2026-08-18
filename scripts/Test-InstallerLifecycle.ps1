@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$ArtifactRoot,
     [string]$InstallRoot,
@@ -80,7 +80,7 @@ function Assert-ProcessStopped {
 
 Push-Location $repositoryRoot
 try {
-    $runningApps = @(Get-Process -Name 'ai-speakeasy-desktop', 'speakeasy-v2-preview' -ErrorAction SilentlyContinue)
+    $runningApps = @(Get-Process -Name 'ai-speakeasy-mini' -ErrorAction SilentlyContinue)
     if ($runningApps.Count -gt 0) {
         $paths = $runningApps | ForEach-Object { $_.Path } | Where-Object { $_ } | Select-Object -Unique
         throw ('Cannot start the ephemeral installer lifecycle while SpeakEasy is already running. ' +
@@ -95,7 +95,7 @@ try {
     # rather than deleted: the stamp may belong to an installation the person
     # running this actually uses, and this script does not get to remove it for
     # the same reason it will not terminate a running SpeakEasy.
-    $versionStampKey = 'HKCU:\Software\SpeakEasy\LocalDevelopment'
+    $versionStampKey = 'HKCU:\Software\SpeakEasy Mini\LocalDevelopment'
     $existingStamp = (Get-ItemProperty -Path $versionStampKey -Name Version -ErrorAction SilentlyContinue).Version
     if ($existingStamp) {
         throw ("SpeakEasy $existingStamp is recorded as installed on this machine, so the " +
@@ -114,7 +114,7 @@ try {
     if ($fresh.ExitCode -ne 0) {
         throw "Fresh current-user install failed with exit code $($fresh.ExitCode): $($fresh.Output)"
     }
-    $installedDesktop = Join-Path $installRoot 'ai-speakeasy-desktop.exe'
+    $installedDesktop = Join-Path $installRoot 'ai-speakeasy-mini.exe'
     # The bootstrapper installs at the root, not in `repair\`: it is setup as
     # well as repair now, and a user looking for the thing that fixes a broken
     # install should find it beside the app rather than in a subdirectory named
@@ -143,7 +143,7 @@ try {
 
     Assert-Refused 'same-version install'
 
-    $versionKey = 'HKCU:\Software\SpeakEasy\LocalDevelopment'
+    $versionKey = 'HKCU:\Software\SpeakEasy Mini\LocalDevelopment'
     New-Item -Path $versionKey -Force | Out-Null
     $version = [version]$productVersion
     $newerVersion = '{0}.{1}.{2}' -f ($version.Major + 1), $version.Minor, $version.Build
@@ -196,10 +196,10 @@ try {
     if ($unexpected.Count -gt 0) {
         throw "Silent uninstall left unexpected files in the install root: $($unexpected -join ', ')"
     }
-    if (Test-Path -LiteralPath 'HKCU:\Software\SpeakEasy\LocalDevelopment') {
+    if (Test-Path -LiteralPath 'HKCU:\Software\SpeakEasy Mini\LocalDevelopment') {
         throw 'Silent uninstall left the version stamp behind; the next install would refuse.'
     }
-    $arpKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ai.speakeasy.desktop'
+    $arpKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ai.speakeasy.mini'
     if (Test-Path -LiteralPath $arpKey) {
         throw 'Silent uninstall left the Add/Remove Programs entry behind.'
     }

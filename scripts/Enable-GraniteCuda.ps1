@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 Puts Granite's final pass on the GPU in an installed build, by staging a
 CUDA-built worker over the CPU one the installer ships.
@@ -139,7 +139,7 @@ if ($Verify) {
 }
 
 # The app holds its worker open, and a resident one keeps the file locked.
-$running = @(Get-Process -Name 'ai-speakeasy-desktop', 'SpeakEasy', 'speakeasy-granite-worker' -ErrorAction SilentlyContinue)
+$running = @(Get-Process -Name 'ai-speakeasy-mini', 'SpeakEasy', 'speakeasy-granite-worker' -ErrorAction SilentlyContinue)
 if ($running.Count -gt 0) {
     throw ("SpeakEasy is running ($($running.ProcessName -join ', ')). Stop it first: " +
         "the app holds proof\granite-worker.exe open and the copy would fail or be ignored.")

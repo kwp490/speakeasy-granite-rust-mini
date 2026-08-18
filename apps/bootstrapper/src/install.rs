@@ -21,11 +21,21 @@ use semver::Version;
 
 /// Where the installed version is stamped.
 ///
-/// Same key the NSIS hooks used, because an upgrade from a pre-bootstrapper
-/// install has to find the stamp its predecessor wrote. Changing it would make
-/// every existing installation look like a fresh machine, and the first thing
-/// setup would do is refuse nothing and overwrite silently.
-pub const VERSION_KEY: &str = r"Software\SpeakEasy\LocalDevelopment";
+/// Under this product's own name. Until 2026-08-18 it was keyed to the parent
+/// product's name instead, inherited by the fork along with a justification
+/// that cannot apply here: the key was shared with the NSIS hooks "because an
+/// upgrade from a pre-bootstrapper install has to find the stamp its
+/// predecessor wrote". `SpeakEasy Mini` has no predecessor. It has never
+/// shipped, so no machine anywhere carries a Mini stamp to find.
+///
+/// What sharing it did instead was aim this product's writes at `SpeakEasy`'s
+/// record: installing Mini overwrote the parent's version stamp, and Mini's
+/// downgrade refusal compared its own version against whatever `SpeakEasy` had
+/// installed -- so the two products could refuse each other's upgrades.
+/// Uninstalling Mini then removed the record entirely (see
+/// `uninstall.rs`'s removable list), leaving `SpeakEasy` installed and
+/// unstamped, which is the state its own installer reads as a fresh machine.
+pub const VERSION_KEY: &str = r"Software\SpeakEasy Mini\LocalDevelopment";
 pub const VERSION_VALUE: &str = "Version";
 
 /// What setup is allowed to do.
@@ -167,13 +177,16 @@ pub fn installed_location() -> Option<PathBuf> {
     Some(PathBuf::from(location))
 }
 
-/// Whether `SpeakEasy` is running.
+/// Whether `SpeakEasy Mini` is running.
 ///
-/// Both executable names, matching `SPEAKEASY_REFUSE_IF_RUNNING`: the legacy
-/// preview shared the install directory, and a machine still running it has
-/// files that cannot be replaced even though the current name is absent.
+/// One executable name. This carried a second, `speakeasy-v2-preview.exe`,
+/// because the *parent* product's legacy preview shared its install directory
+/// and a machine still running it held files that could not be replaced. No
+/// build of `SpeakEasy Mini` was ever called that, and its install directory is
+/// not shared with either, so keeping the entry only risked refusing a Mini
+/// install because something unrelated was running.
 pub fn app_is_running() -> bool {
-    const RUNNING_NAMES: &[&str] = &["ai-speakeasy-desktop.exe", "speakeasy-v2-preview.exe"];
+    const RUNNING_NAMES: &[&str] = &["ai-speakeasy-mini.exe"];
 
     let system = sysinfo::System::new_all();
     system.processes().values().any(|process| {
@@ -316,11 +329,19 @@ fn create_shortcut(install_root: &Path) -> Result<(), String> {
 }
 
 /// Where Add/Remove Programs looks, for a current-user installation.
+///
+/// Keyed by this product's own identifier. It was keyed by
+/// `ai.speakeasy.desktop` until 2026-08-18, which meant setup registered
+/// `SpeakEasy Mini` under *`SpeakEasy`'s* Add/Remove Programs entry -- overwriting
+/// its `DisplayName`, its version and its uninstall command -- and Mini's
+/// uninstaller then deleted that entry, leaving the parent product installed
+/// and unlisted. See `uninstall::data_root` for the same inherited identifier
+/// doing the same damage to the data directory.
 pub const UNINSTALL_KEY: &str =
-    r"Software\Microsoft\Windows\CurrentVersion\Uninstall\ai.speakeasy.desktop";
+    r"Software\Microsoft\Windows\CurrentVersion\Uninstall\ai.speakeasy.mini";
 
 /// The app executable, as `tauri.conf.json`'s product name produces it.
-const APP_EXE: &str = "ai-speakeasy-desktop.exe";
+const APP_EXE: &str = "ai-speakeasy-mini.exe";
 
 #[cfg(test)]
 mod tests {
