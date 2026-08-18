@@ -126,7 +126,7 @@ fn gigabytes(bytes: u64) -> String {
 /// UI guide's two-register rule. The stable codes stay in the log, where the
 /// product-contract vocabulary belongs.
 pub fn describe_machine(report: &crate::probe::MachineReport) -> String {
-    use speakeasy_models::{GpuEngine, GpuQualification, GpuRejection};
+    use speakeasy_models::{GpuQualification, GpuRejection};
 
     let hardware = &report.hardware;
     let mut lines = Vec::new();
@@ -148,12 +148,11 @@ pub fn describe_machine(report: &crate::probe::MachineReport) -> String {
         lines.push(format!("Free disk space: {}", gigabytes(disk)));
     }
 
-    // Named once, above the two verdicts, rather than repeated in each —
-    // repeating it reads as two cards. A rejected engine carries no device on
-    // its verdict, so the name comes from the raw snapshot in that case: a card
-    // that is merely too old or too full still has to appear, or "processor"
-    // reads as a failure to notice hardware the user owns.
-    lines.push(report.admissibility.streaming.device().map_or_else(
+    // A rejected verdict carries no device, so the name comes from the raw
+    // snapshot in that case: a card that is merely too old or too full still
+    // has to appear, or "processor" reads as a failure to notice hardware the
+    // user owns.
+    lines.push(report.admissibility.device().map_or_else(
         || {
             let named = report
                 .gpu
@@ -173,75 +172,46 @@ pub fn describe_machine(report: &crate::probe::MachineReport) -> String {
     ));
 
     lines.push(String::new());
-    for (engine, verdict, weights) in [
-        (
-            GpuEngine::Streaming,
-            &report.admissibility.streaming,
-            report.streaming_weights_bytes,
+    // One verdict, one line. This was a loop over two engines with a label each
+    // — "Speech recognition" and "Punctuation pass" — because a machine could
+    // run one on the graphics card and the other on the processor, and the
+    // explanation that followed existed for exactly that case. Both are the
+    // same pass now, so there is nothing left to disagree.
+    let weights = report.granite_weights_bytes;
+    // Never "your graphics card works". Admissible means the card is new enough
+    // and has room for the weights; the engine check later is the only thing
+    // that turns that into a claim.
+    let verdict_words = match &report.admissibility {
+        GpuQualification::Qualified { .. } => "graphics card, tested and working".to_owned(),
+        // A zero means the manifest lookup found no pack, not a model that
+        // occupies nothing. "0.0 GB of weights" would be a confident false
+        // statement; saying less is the honest form of the same line.
+        GpuQualification::Admissible { .. } if weights == 0 => {
+            "graphics card, not yet tested".to_owned()
+        }
+        GpuQualification::Admissible { .. } => format!(
+            "graphics card ({} of weights), not yet tested",
+            gigabytes(weights)
         ),
-        (
-            GpuEngine::Granite,
-            &report.admissibility.granite,
-            report.granite_weights_bytes,
-        ),
-    ] {
-        let label = match engine {
-            GpuEngine::Streaming => "Speech recognition",
-            GpuEngine::Granite => "Punctuation pass",
-        };
-        // Never "your graphics card works". Admissible means the card is new
-        // enough and has room for the weights; the execution check later is the
-        // only thing that turns that into a claim.
-        let verdict_words = match verdict {
-            GpuQualification::Qualified { .. } => "graphics card, tested and working".to_owned(),
-            // A zero means the manifest lookup found no pack for this engine,
-            // not a model that occupies nothing. "0.0 GB of weights" would be a
-            // confident false statement; saying less is the honest form of the
-            // same line.
-            GpuQualification::Admissible { .. } if weights == 0 => {
-                "graphics card, not yet tested".to_owned()
+        GpuQualification::Rejected(reason) => match reason {
+            GpuRejection::InsufficientFreeVram { free, required } => format!(
+                "processor — needs {} free graphics memory, {} available now",
+                gigabytes(*required),
+                gigabytes(*free)
+            ),
+            GpuRejection::ComputeCapabilityTooLow { .. } => {
+                "processor — this graphics card is older than SpeakEasy Mini supports".to_owned()
             }
-            GpuQualification::Admissible { .. } => {
-                format!(
-                    "graphics card ({} of weights), not yet tested",
-                    gigabytes(weights)
-                )
+            GpuRejection::NoCudaDevice => "processor — no NVIDIA graphics card detected".to_owned(),
+            GpuRejection::ProbeUnavailable(_) => {
+                "processor — the NVIDIA driver did not answer".to_owned()
             }
-            GpuQualification::Rejected(reason) => match reason {
-                GpuRejection::InsufficientFreeVram { free, required } => format!(
-                    "processor — needs {} free graphics memory, {} available now",
-                    gigabytes(*required),
-                    gigabytes(*free)
-                ),
-                GpuRejection::ComputeCapabilityTooLow { .. } => {
-                    "processor — this graphics card is older than SpeakEasy supports".to_owned()
-                }
-                GpuRejection::NoCudaDevice => {
-                    "processor — no NVIDIA graphics card detected".to_owned()
-                }
-                GpuRejection::ProbeUnavailable(_) => {
-                    "processor — the NVIDIA driver did not answer".to_owned()
-                }
-            },
-        };
-        lines.push(format!("{label}: {verdict_words}"));
-    }
+        },
+    };
+    lines.push(format!("Transcription: {verdict_words}"));
 
-    if report.admissibility.engines_disagree() {
-        lines.push(String::new());
-        lines.push(ENGINES_DISAGREE.to_owned());
-    }
     lines.join("\n")
 }
-
-/// Shown when the two engines reach different conclusions.
-///
-/// Explanation, not a warning: one engine on the graphics card and the other on
-/// the processor is a supported outcome, and a machine that says so must not
-/// look broken.
-pub const ENGINES_DISAGREE: &str = "These differ because the two use different graphics-card runtimes and \
-     different amounts of memory. Running one on the graphics card and the other \
-     on the processor is normal and supported.";
 
 /// What setup will do to this machine, in plain words.
 ///
@@ -645,8 +615,8 @@ pub fn describe_download_complete(labels: &[&str], total_bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use speakeasy_models::{
-        ComputeCapability, CudaDevice, EngineAdmissibility, GpuQualification, GpuRejection,
-        GpuSnapshot, HardwareSnapshot,
+        ComputeCapability, CudaDevice, GpuQualification, GpuRejection, GpuSnapshot,
+        HardwareSnapshot,
     };
 
     use super::*;
@@ -687,11 +657,7 @@ mod tests {
                 devices: vec![card()],
                 unavailable: None,
             },
-            admissibility: EngineAdmissibility {
-                streaming: GpuQualification::Admissible { device: card() },
-                granite: GpuQualification::Admissible { device: card() },
-            },
-            streaming_weights_bytes: 2 * 1024 * 1024 * 1024,
+            admissibility: GpuQualification::Admissible { device: card() },
             granite_weights_bytes: 2 * 1024 * 1024 * 1024,
         };
 
@@ -714,11 +680,7 @@ mod tests {
                 devices: vec![card()],
                 unavailable: None,
             },
-            admissibility: EngineAdmissibility {
-                streaming: GpuQualification::Admissible { device: card() },
-                granite: GpuQualification::Admissible { device: card() },
-            },
-            streaming_weights_bytes: 0,
+            admissibility: GpuQualification::Admissible { device: card() },
             granite_weights_bytes: 0,
         };
 
@@ -732,8 +694,14 @@ mod tests {
     }
 
     #[test]
-    fn engines_that_disagree_are_explained_rather_than_warned_about() {
-        // A supported outcome. A machine reporting it must not look broken.
+    fn a_card_too_small_is_reported_as_a_size_problem_and_still_named() {
+        // This was `engines_that_disagree_are_explained_rather_than_warned_about`,
+        // which pinned that one engine on the card and the other on the
+        // processor read as supported rather than broken. There is one engine,
+        // so what survives is the half that was never about the split: a
+        // rejection has to say *why* in numbers, and must still name the card,
+        // so falling back reads as a decision about hardware the user owns
+        // rather than a failure to detect it.
         let report = MachineReport {
             hardware: hardware(),
             gpu: GpuSnapshot {
@@ -741,23 +709,18 @@ mod tests {
                 devices: vec![card()],
                 unavailable: None,
             },
-            admissibility: EngineAdmissibility {
-                streaming: GpuQualification::Admissible { device: card() },
-                granite: GpuQualification::Rejected(GpuRejection::InsufficientFreeVram {
-                    free: 4 * 1024 * 1024 * 1024,
-                    required: 6 * 1024 * 1024 * 1024,
-                }),
-            },
-            streaming_weights_bytes: 2 * 1024 * 1024 * 1024,
+            admissibility: GpuQualification::Rejected(GpuRejection::InsufficientFreeVram {
+                free: 4 * 1024 * 1024 * 1024,
+                required: 6 * 1024 * 1024 * 1024,
+            }),
             granite_weights_bytes: 6 * 1024 * 1024 * 1024,
         };
 
         let described = describe_machine(&report);
 
-        assert!(described.contains(ENGINES_DISAGREE));
-        assert!(described.contains("Punctuation pass: processor"));
-        // The card is still named, so falling back reads as a decision about
-        // hardware the user owns rather than a failure to detect it.
+        assert!(described.contains("Transcription: processor"));
+        assert!(described.contains("needs 6.0 GB free graphics memory"));
+        assert!(described.contains("4.0 GB available now"));
         assert!(described.contains("NVIDIA GeForce RTX 4070 Laptop GPU"));
     }
 }

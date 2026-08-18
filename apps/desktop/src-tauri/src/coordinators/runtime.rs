@@ -79,36 +79,6 @@ impl ModelCoordinator {
     }
 }
 
-/// Which archive a runtime install is fetching, and how much came before it.
-///
-/// The same shape as [`ActiveDownload`] and for the same reason — progress is
-/// recorded when a transfer starts rather than re-derived when it is polled —
-/// with one addition: the runtime arrives as five archives, so a single bar
-/// needs the total already banked as well as the current `.part`.
-#[derive(Clone, Debug)]
-struct ActiveRuntimeDownload {
-    part_path: PathBuf,
-    bytes_completed: u64,
-    total_bytes: u64,
-}
-
-/// Owns the on-demand CUDA runtime install.
-#[derive(Debug, Default)]
-pub struct CudaRuntimeCoordinator {
-    /// State and error only; sizes come from the plan and presence from disk, so
-    /// neither is cached here where it could go stale.
-    status: Arc<Mutex<(String, Option<String>)>>,
-    cancel: Arc<Mutex<Option<CancelToken>>>,
-    active: Arc<Mutex<Option<ActiveRuntimeDownload>>>,
-}
-
-impl CudaRuntimeCoordinator {
-    fn set_status(status: &Mutex<(String, Option<String>)>, state: &str, error: Option<String>) {
-        if let Ok(mut status) = status.lock() {
-            *status = (state.to_owned(), error);
-        }
-    }
-}
 
 #[cfg(any(test, feature = "proof-mode"))]
 impl Phase1Coordinator {

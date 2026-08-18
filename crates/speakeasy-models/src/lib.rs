@@ -9,7 +9,6 @@ mod archive;
 mod compatibility;
 mod download;
 mod gpu;
-mod gpu_runtime;
 mod hardware;
 mod lifecycle;
 mod manager;
@@ -24,13 +23,8 @@ pub use archive::ArchiveExtractionError;
 pub use compatibility::{CompatibilityContext, CompatibilityIssue, CompatibilityResolution};
 pub use download::{DownloadError, DownloadRequest, DownloadResult, download_to_file};
 pub use gpu::{
-    ComputeCapability, CudaDevice, EngineAdmissibility, ExecutionEvidence, GpuEngine, GpuProbe,
-    GpuProbeFailure, GpuQualification, GpuRejection, GpuSnapshot, MINIMUM_COMPUTE_CAPABILITY,
-    NvmlGpuProbe, admit, admit_engine, admit_engines,
-};
-pub use gpu_runtime::{
-    CudaRuntimeArchive, CudaRuntimeComponent, CudaRuntimeError, CudaRuntimeEvent, CudaRuntimeFile,
-    CudaRuntimePaths, CudaRuntimePlan,
+    ComputeCapability, CudaDevice, ExecutionEvidence, GpuProbe, GpuProbeFailure, GpuQualification,
+    GpuRejection, GpuSnapshot, MINIMUM_COMPUTE_CAPABILITY, NvmlGpuProbe, admit, admit_engine,
 };
 pub use hardware::{DetectedAdapter, HardwareProbe, HardwareSnapshot, SafeStandardHardwareProbe};
 pub use lifecycle::{

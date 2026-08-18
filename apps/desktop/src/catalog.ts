@@ -502,23 +502,6 @@ export const messages = {
    * because a user comparing a download against their remaining disk needs the
    * actual figures.
    */
-  gpuRuntimeSection: "Graphics-card acceleration",
-  gpuRuntimeAbsent:
-    "This computer's graphics card is supported, but the files needed to use it are not installed yet. Installing them makes dictation run on the graphics card, starting with the next dictation.",
-  gpuRuntimePartial:
-    "Some of the graphics-card acceleration files are installed, but not all of them, so dictation still runs on the processor. Installing again fetches only what is missing.",
-  gpuRuntimeInstalled:
-    "Graphics-card acceleration is installed. Dictation uses it when a graphics-card model is installed too.",
-  gpuRuntimeComponents: "Included",
-  gpuRuntimeComponentNames: {
-    "cuda-core": "Graphics-card compute libraries",
-    "cuda-cudnn": "Neural-network libraries",
-  },
-  gpuRuntimeFiles: "Files",
-  gpuRuntimeConfirm: "Confirm downloading and installing the graphics-card acceleration files",
-  gpuRuntimeInstall: "Install graphics-card acceleration",
-  gpuRuntimeInstalledLabel: "Installed",
-  gpuRuntimeFailed: "Graphics-card acceleration installation stopped safely:",
   localResult: "Local result",
   recoverableResult: "Recoverable transcript",
   noResult: "Your completed local transcript will remain available here.",

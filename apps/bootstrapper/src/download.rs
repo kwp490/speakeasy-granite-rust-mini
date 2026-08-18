@@ -105,43 +105,37 @@ impl Plan {
 
 /// Build the plan for this machine.
 ///
-/// `streaming` is the provider the compatibility step decided on — the CUDA and
-/// CPU streaming packs are different artifacts of very different sizes (2.3 GB
-/// against 453 MB), so this cannot be answered before the probe has run.
+/// `provider` is what the compatibility step decided, and it does not select a
+/// different model: there is one Granite pack and it is the CPU-variant GGUF
+/// either way, because the CUDA worker offloads that same file. This is why
+/// `engine=cpu_gpu_pack_not_installed device=cuda` is the correct state in the
+/// app's log rather than a fault.
 ///
-/// Granite is always the CPU pack, and that is not an oversight. There is no
-/// Granite GPU pack by design: the CUDA worker offloads the *CPU-variant* GGUF,
-/// which is why `engine=cpu_gpu_pack_not_installed device=cuda` is the correct
-/// state in the app's log rather than a fault.
+/// What the provider will decide is whether the CUDA worker and its two
+/// libraries are fetched alongside the weights. That fetch is not wired yet —
+/// the worker has to be published and pinned by digest first — so today this
+/// plans the weights alone and a GPU machine gets the same list as a CPU one.
 ///
 /// # Errors
 ///
 /// Returns a catalog message when the manifest cannot be parsed, when no
 /// install-eligible pack fills a role on the wanted provider, or when the app's
 /// data directory cannot be located.
-pub fn plan(streaming: ExecutionProvider) -> Result<Plan, Failure> {
+pub fn plan(provider: ExecutionProvider) -> Result<Plan, Failure> {
     let manifest = bundled_manifest().map_err(|_| catalog::CATALOG_UNAVAILABLE.to_owned())?;
     let root = model_lifecycle_root().ok_or_else(|| catalog::DATA_ROOT_UNLOCATABLE.to_owned())?;
     let downloads = root.join("downloads");
 
-    let mut items = Vec::new();
-    for (label, role, provider) in [
-        (
-            catalog::ARTIFACT_STREAMING,
-            PackRole::StreamingAsr,
-            streaming,
-        ),
-        (
-            catalog::ARTIFACT_GRANITE,
-            PackRole::FinalAsr,
-            ExecutionProvider::Cpu,
-        ),
-    ] {
-        let pack = manifest
-            .select_sole_install_eligible(role, provider)
-            .map_err(|error| catalog::pack_unavailable(label, &error.to_string()))?;
-        items.push(item_for(pack, &downloads)?);
-    }
+    // One item today. The GPU worker and its two CUDA libraries join it here
+    // once they are published and pinned by digest, which is why `provider` is
+    // taken and not yet read — the weights are the same file either way.
+    let _ = provider;
+    let pack = manifest
+        .select_sole_install_eligible(PackRole::FinalAsr, ExecutionProvider::Cpu)
+        .map_err(|error| {
+            catalog::pack_unavailable(catalog::ARTIFACT_GRANITE, &error.to_string())
+        })?;
+    let items = vec![item_for(pack, &downloads)?];
 
     let total_bytes = items.iter().map(|item| item.bytes).sum();
     Ok(Plan {

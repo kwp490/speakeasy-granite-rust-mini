@@ -89,15 +89,14 @@ pub fn run() {
         let models = ModelCoordinator::new(root, granite.cuda_worker_available());
         app.manage(models);
         app.manage(GpuQualificationCoordinator::default());
-        // Managed here rather than further down, ahead of the coordinators below
-        // that open files. The settings page fires its startup reads
-        // concurrently, and every statement between `setup` beginning and these
-        // two being managed is a window in which a read of them fails. That is
-        // not hypothetical: on the first launch after an install
-        // `cuda_runtime_status` lost exactly this race, and the graphics-card
-        // offer stayed invisible until the window was reloaded.
+        // Managed here rather than further down, ahead of the coordinators
+        // below that open files: the settings page fires its startup reads
+        // concurrently, and every statement between `setup` beginning and this
+        // being managed is a window in which a read of it fails. That is not
+        // hypothetical — a status command lost exactly this race on the first
+        // launch after an install, and the page it fed stayed blank until the
+        // window was reloaded.
         app.manage(runtime);
-        app.manage(CudaRuntimeCoordinator::default());
         let history = HistoryCoordinator::new(&app_root, &profile_settings);
         // Seeded before either is managed, so the first `session_transcript_log`
         // a window can fire already sees the retained entries. The settings page
@@ -193,9 +192,6 @@ pub fn run() {
         model_hardware,
         gpu_status,
         gpu_retest,
-        cuda_runtime_status,
-        cuda_runtime_install_start,
-        cuda_runtime_install_cancel,
         model_install_start,
         model_install_cancel,
         model_install_status,

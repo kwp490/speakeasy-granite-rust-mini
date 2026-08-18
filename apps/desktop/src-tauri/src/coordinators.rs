@@ -543,6 +543,16 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
             Ok(()) => "ok",
             Err(error) => domain_error_code(error),
         };
+        // Readiness verifies the pack a dictation would actually load, and
+        // which pack that is depends on whether this worker turned out to be
+        // CUDA-capable — a fact only the worker can report, and only after it
+        // has spoken. Startup had to guess conservatively; this is the first
+        // moment the guess can be corrected.
+        //
+        // Its previous caller was the on-demand CUDA runtime install, which
+        // left with ONNX Runtime. Dropping the call rather than re-pointing it
+        // would have left readiness permanently describing the startup guess.
+        models.refresh_readiness(coordinator.cuda_worker_available());
         // `engine` carries which Granite pack this machine resolved and why,
         // mirroring `streaming_warm`'s own field. A stable code and nothing
         // else -- a fallback to CPU must be findable in a support log, and

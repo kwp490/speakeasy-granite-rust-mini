@@ -352,11 +352,13 @@ impl Wizard {
         }
         self.settled.set(false);
         self.ready.set(false);
-        // The provider the compatibility step decided on. The engine-choice step
-        // is not built yet, so this is the recommendation rather than a user's
-        // override; when that step lands, its answer replaces this call and
-        // nothing else here changes.
-        let provider = self.machine.admissibility.streaming.preferred_provider();
+        // The provider the compatibility step decided on.
+        //
+        // It selects nothing about the *model* — there is one Granite pack and
+        // it is the CPU-variant GGUF either way, because the CUDA worker
+        // offloads that same file. What the provider decides is whether the
+        // GPU worker and its two CUDA libraries are fetched alongside it.
+        let provider = self.machine.admissibility.preferred_provider();
         let (message, show_bar) = match download::plan(provider) {
             Ok(plan) if plan.already_satisfied() => {
                 // Nothing to transfer, and it must not be reported as a transfer

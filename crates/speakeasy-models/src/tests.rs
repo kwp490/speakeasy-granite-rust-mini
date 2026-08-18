@@ -182,29 +182,36 @@ fn bundled_proof_manifest_is_embedded_valid_and_fail_closed() {
     assert_eq!(manifest.schema_version(), 3);
     assert_eq!(manifest.status(), ManifestStatus::AdmittedCatalog);
     assert!(manifest.is_install_eligible());
-    assert_eq!(manifest.proof_artifacts().len(), 12);
-    assert_eq!(manifest.packs().len(), 4);
+    // Two artifacts and two packs, down from twelve and four. The departed ten
+    // were sherpa-onnx's runtimes, the Nemotron and Parakeet models, Silero
+    // VAD, and the cuDNN/cuFFT redistributables that only ONNX Runtime needed.
+    // What is left is the two CUDA libraries llama.cpp links and the two
+    // Granite quantizations.
+    assert_eq!(manifest.proof_artifacts().len(), 2);
+    assert_eq!(manifest.packs().len(), 2);
     assert!(!manifest.capability_view().is_empty());
     assert!(!manifest.license_notice_view().is_empty());
 
     let selection = manifest
         .select_exact(
             ExactPackRequest {
-                id: "nemotron-3.5-streaming-en-cpu",
-                revision: "560ms-int8-2026-06-11",
+                id: "granite-speech-4.1-2b-q4_k_m-cpu",
+                revision: "q4_k_m-2026-05-11",
             },
             &compatible_context(),
         )
         .expect("the serving pack must be selectable for installation");
-    assert_eq!(selection.pack().id(), "nemotron-3.5-streaming-en-cpu");
+    assert_eq!(selection.pack().id(), "granite-speech-4.1-2b-q4_k_m-cpu");
 }
 
 #[test]
-fn the_authored_nemotron_packs_are_admitted_and_the_manifest_holds_no_moonshine() {
-    // With both Nemotron packs eligible, streaming-asr is unambiguous per
-    // provider: float on CUDA, int8 on CPU. Moonshine is gone from the
-    // manifest entirely, not merely retired, so there is no third entry left
-    // to make that ambiguous.
+fn the_granite_packs_are_admitted_and_carry_per_file_digests_rather_than_an_archive() {
+    // This was `the_authored_nemotron_packs_are_admitted_and_the_manifest_holds_no_moonshine`.
+    // The subject changed and so did the shape being asserted: the Nemotron
+    // packs were archives with one digest each, and Granite is the
+    // archive-less schema-v3 form, because Hugging Face serves the GGUFs as
+    // loose files. There is no single archive digest to check, so the trust
+    // anchor is per required file.
     let manifest = bundled_manifest().expect("bundled manifest must validate");
     let pack = |id: &str| {
         manifest
@@ -214,60 +221,59 @@ fn the_authored_nemotron_packs_are_admitted_and_the_manifest_holds_no_moonshine(
             .expect("pack is in the catalog")
     };
 
-    let cpu = pack("nemotron-3.5-streaming-en-cpu");
-    let cuda = pack("nemotron-3.5-streaming-en-cuda");
+    let shipped = pack("granite-speech-4.1-2b-q4_k_m-cpu");
+    let alternative = pack("granite-speech-4.1-2b-q8_0-cpu");
 
-    for pack in [cpu, cuda] {
-        assert!(pack.is_install_eligible(), "{} is not admitted", pack.id());
-        // The digest is the trust anchor whether or not there is a URL.
-        assert_eq!(
-            pack.archive()
-                .expect("both nemotron packs are archive-based")
-                .sha256()
-                .len(),
-            64
+    // Only one of the two is installable, and that asymmetry is the point.
+    // Q4_K_M is the shipped quantization on measurement; Q8_0 is the recorded
+    // alternative it replaced, kept so the comparison is not lost and
+    // deliberately not eligible, so it is not a second configuration anyone
+    // has to keep working. A test that demanded both be installable would be
+    // asserting the opposite of the decision.
+    assert!(shipped.is_install_eligible());
+    assert!(
+        !alternative.is_install_eligible(),
+        "Q8_0 is catalogued for the record, not offered for install"
+    );
+
+    for pack in [shipped, alternative] {
+        assert!(
+            pack.archive().is_none(),
+            "{} must be the archive-less loose-file shape",
+            pack.id()
+        );
+        assert!(
+            !pack.required_files().is_empty(),
+            "{} must pin its files",
+            pack.id()
+        );
+        for file in pack.required_files() {
+            assert_eq!(
+                file.sha256().len(),
+                64,
+                "{} has an unpinned file",
+                pack.id()
+            );
+            assert!(
+                file.url().is_some(),
+                "{} has a file with no source",
+                pack.id()
+            );
+        }
+        assert_eq!(pack.role(), PackRole::FinalAsr);
+        assert_eq!(pack.runtime().provider(), ExecutionProvider::Cpu);
+    }
+
+    // Nothing from the streaming era may reappear as a pack.
+    for gone in ["nemotron", "moonshine", "parakeet", "silero"] {
+        assert!(
+            !manifest
+                .packs()
+                .iter()
+                .any(|pack| pack.id().to_lowercase().contains(gone)),
+            "{gone} must not reappear as a pack"
         );
     }
-    assert!(
-        !manifest
-            .packs()
-            .iter()
-            .any(|pack| pack.id().to_lowercase().contains("moonshine")),
-        "Moonshine must not reappear as a pack"
-    );
-
-    // The CPU pack comes from sherpa-onnx's own release; the CUDA pack is a
-    // derived export hosted at an immutable Hugging Face revision.
-    assert!(cpu.is_downloadable());
-    assert!(cuda.is_downloadable());
-    assert_eq!(
-        cuda.archive()
-            .expect("the CUDA pack still carries an archive record")
-            .url(),
-        Some(
-            "https://huggingface.co/orangeblue39/nemotron-3.5-streaming-en-cuda/resolve/bae0a819fa4f4bc0878f535509886455037f8f63/nemotron-3.5-streaming-en-cuda-320ms-fp32.tar.gz"
-        )
-    );
-
-    assert_eq!(cpu.runtime().provider(), ExecutionProvider::Cpu);
-    assert_eq!(cuda.runtime().provider(), ExecutionProvider::Cuda);
-    assert_eq!(cpu.chunk_size_ms(), Some(560));
-    assert_eq!(cuda.chunk_size_ms(), Some(320));
-
-    assert_eq!(
-        manifest
-            .select_sole_install_eligible(PackRole::StreamingAsr, ExecutionProvider::Cpu)
-            .expect("the CPU Nemotron pack is admitted")
-            .id(),
-        "nemotron-3.5-streaming-en-cpu"
-    );
-    assert_eq!(
-        manifest
-            .select_sole_install_eligible(PackRole::StreamingAsr, ExecutionProvider::Cuda)
-            .expect("the CUDA Nemotron pack is admitted")
-            .id(),
-        "nemotron-3.5-streaming-en-cuda"
-    );
 }
 
 #[test]
@@ -404,15 +410,15 @@ fn with_streaming_pack_on_provider(id: &str, provider: &str) -> Value {
 }
 
 #[test]
-fn the_admitted_streaming_pack_is_selected_by_role_not_by_a_written_out_id() {
+fn the_admitted_pack_is_selected_by_role_not_by_a_written_out_id() {
     let manifest = bundled_manifest().expect("bundled manifest must validate");
 
     let pack = manifest
-        .select_sole_install_eligible(PackRole::StreamingAsr, ExecutionProvider::Cpu)
-        .expect("the admitted streaming pack must resolve by role");
+        .select_sole_install_eligible(PackRole::FinalAsr, ExecutionProvider::Cpu)
+        .expect("the admitted pack must resolve by role");
 
-    assert_eq!(pack.id(), "nemotron-3.5-streaming-en-cpu");
-    assert_eq!(pack.role(), PackRole::StreamingAsr);
+    assert_eq!(pack.id(), "granite-speech-4.1-2b-q4_k_m-cpu");
+    assert_eq!(pack.role(), PackRole::FinalAsr);
 }
 
 #[test]

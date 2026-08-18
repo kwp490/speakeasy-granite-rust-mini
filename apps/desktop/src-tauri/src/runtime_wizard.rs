@@ -1,9 +1,8 @@
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use speakeasy_domain::CancelToken;
-use speakeasy_models::{CudaRuntimePaths, CudaRuntimePlan};
 use speakeasy_windows::CrashThrottle;
 
 /// What an ordinary dictation needs: the streaming worker's resident model,
@@ -198,73 +197,6 @@ impl RuntimeWizardCoordinator {
         }
         Ok(paths)
     }
-
-    /// Whether this installation can actually execute on CUDA.
-    ///
-    /// An admissible card is not enough and neither is an installed CUDA pack:
-    /// the execution provider is an optional part of the install (see
-    /// [`RuntimePaths::onnxruntime_providers_cuda`]), so a machine can have a
-    /// supported GPU, the GPU model on disk, and still no way to run it.
-    ///
-    /// That combination is not hypothetical — the runtime and the pack are
-    /// separate downloads by decision, so they can and will arrive apart.
-    /// Selection asks this before preferring CUDA; otherwise it would pick an
-    /// engine that can only fail at load time.
-    ///
-    /// # It is completeness, not the provider DLL
-    ///
-    /// This used to be `onnxruntime_providers_cuda.dll is present`, which was
-    /// sound only while the provider and its dependencies arrived together in
-    /// the installer. Now the runtime is fetched on demand as five archives, so
-    /// "the provider is here" and "the provider can load" are different claims:
-    /// a fetch interrupted before cuBLAS or cuDNN landed leaves the provider on
-    /// disk and CUDA unusable, and answering `true` there hands the worker an
-    /// engine that fails at model load.
-    ///
-    /// So it asks whether **all fifteen** required files are present at their
-    /// recorded lengths. Re-stats disk on every call by design — that is what
-    /// makes an install take effect on the next warm rather than the next
-    /// launch, and what keeps the disclosure from disagreeing with the disk.
-    pub fn cuda_runtime_available(&self) -> bool {
-        self.paths().is_ok_and(|paths| {
-            cuda_runtime_plan().is_some_and(|plan| plan.is_complete(&paths.proof))
-        })
-    }
-
-    /// Where an on-demand CUDA runtime install reads and writes.
-    ///
-    /// All three directories are siblings under the resource root, so they are
-    /// on one volume and moving a 668 MB DLL into place is a rename rather than
-    /// a copy.
-    ///
-    /// # Errors
-    ///
-    /// Returns `runtime_resources_unavailable` when the install is not intact.
-    pub fn cuda_runtime_paths(&self) -> Result<CudaRuntimePaths, &'static str> {
-        let paths = self.paths()?;
-        Ok(CudaRuntimePaths {
-            proof: paths.proof,
-            downloads: paths.root.join(".cuda-runtime-download"),
-            stage: paths.root.join(".cuda-runtime-stage"),
-        })
-    }
-}
-
-/// The CUDA runtime's file list, resolved once per process.
-///
-/// The manifest is compiled into the binary and the plan derived from it is
-/// immutable, so this is a pure function of constant bytes. Cached because
-/// `cuda_runtime_available` is asked on the path to a warm and re-parsing the
-/// manifest to reach the same answer would be waste — the part that must stay
-/// live is the disk check, not the parse.
-pub fn cuda_runtime_plan() -> Option<&'static CudaRuntimePlan> {
-    static PLAN: OnceLock<Option<CudaRuntimePlan>> = OnceLock::new();
-    PLAN.get_or_init(|| {
-        speakeasy_models::bundled_manifest()
-            .ok()
-            .and_then(|manifest| CudaRuntimePlan::resolve(&manifest).ok())
-    })
-    .as_ref()
 }
 
 fn canonical_directory(path: &Path) -> Result<PathBuf, &'static str> {

@@ -52,30 +52,6 @@ export type GpuStatus = {
   engine_reason: string;
 };
 
-/**
- * The graphics-card acceleration runtime as an offer.
- *
- * Separate from `ModelInstallStatus` because it is a separate download with a
- * separate lifecycle: it carries no pack, and a machine can have every model it
- * needs and still be missing this.
- *
- * `state` is `absent | partial | downloading | installing | installed |
- * cancelled | failed`. `partial` is not a rounding of `absent` — it means some
- * of the 2.45 GB is on disk and cannot run yet, which a user who paid for that
- * transfer deserves to be told.
- */
-export type CudaRuntimeStatus = {
-  state: string;
-  error: string | null;
-  /** False when no supported card was found, and then nothing is offered. */
-  offered: boolean;
-  download_bytes: number;
-  installed_bytes: number;
-  file_count: number;
-  installed_components: string[];
-  bytes_downloaded?: number | null;
-  bytes_total?: number | null;
-};
 
 export type ModelHardware = {
   operating_system: string;

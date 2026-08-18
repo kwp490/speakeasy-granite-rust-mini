@@ -21,19 +21,6 @@ export function formatError(code: string): string {
   return messages.errors[code as keyof typeof messages.errors] ?? messages.errorUnknown;
 }
 
-/**
- * A graphics-card runtime component code as prose.
- *
- * The codes are the publishers' names for the libraries (`cuda-core`,
- * `cuda-cudnn`); this page shows what they are *for*. Falls back to the code,
- * like `displayName` and for the same reason — a component the catalog has not
- * learned about yet is better named badly than reported as unknown.
- */
-export function formatRuntimeComponent(component: string): string {
-  const names = messages.gpuRuntimeComponentNames;
-  return names[component as keyof typeof names] ?? component;
-}
-
 /** Why dictation landed on the engine it did (`GpuStatus.engine_reason`). */
 export function formatEngineReason(reason: string): string {
   const reasons = messages.engineReasons;

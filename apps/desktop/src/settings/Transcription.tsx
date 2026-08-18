@@ -9,11 +9,9 @@ import {
   formatError,
   formatFinalSourceGuidance,
   formatFinalSourceReason,
-  formatRuntimeComponent,
   formatState,
 } from "./format";
 import type {
-  CudaRuntimeStatus,
   DiagnosticsStatus,
   GpuStatus,
   ModelCatalogItem,
@@ -47,9 +45,6 @@ export function Transcription() {
     error: null,
   });
   const [confirmed, setConfirmed] = useState(false);
-  const [runtime, setRuntime] = useState<CudaRuntimeStatus | null>(null);
-  const [runtimeAttempts, setRuntimeAttempts] = useState(0);
-  const [runtimeConfirmed, setRuntimeConfirmed] = useState(false);
   const [personalization, setPersonalization] = useState<PersonalizationStatus | null>(null);
   const [observedTerm, setObservedTerm] = useState("");
   const [correctedTerm, setCorrectedTerm] = useState("");
@@ -108,61 +103,6 @@ export function Transcription() {
     modelStatus.state === "downloading" ||
     modelStatus.state === "installing";
 
-  const runtimeInstalling =
-    runtime?.state === "downloading" || runtime?.state === "installing";
-
-  /**
-   * The runtime download is polled on its own timer, not folded into the model
-   * poll, because the two are independent transfers with independent states.
-   *
-   * On completion it re-reads the catalog: installing the runtime changes which
-   * engine resolves, so the disclosure above has to be re-read or it goes on
-   * saying "this installation does not include graphics-card acceleration"
-   * next to a runtime that is now installed.
-   */
-  /**
-   * Reads the offer on a bounded retry rather than exactly once.
-   *
-   * Retrying is what makes "no offer shown" mean *no supported card* rather than
-   * *asked a moment too early* — see the note in `readRuntime`. Bounded so a
-   * machine that genuinely cannot answer is not polled forever, and matching the
-   * bound the Audio page already uses for device enumeration, which exists for
-   * the same reason.
-   */
-  useEffect(() => {
-    if (runtime !== null || runtimeAttempts >= 20) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setRuntimeAttempts((attempts) => attempts + 1);
-      void readRuntime();
-    }, 250);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [runtime, runtimeAttempts]);
-
-  useEffect(() => {
-    if (!runtimeInstalling) {
-      return;
-    }
-    const timer = window.setInterval(() => {
-      void invoke<CudaRuntimeStatus>("cuda_runtime_status")
-        .then((next) => {
-          setRuntime(next);
-          if (next.state === "installed") {
-            void refreshCatalog();
-          }
-        })
-        .catch(() => {
-          /* A dropped poll leaves the last reading on screen. */
-        });
-    }, 750);
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [runtimeInstalling]);
-
   /**
    * Re-reads the catalog *and* the engine disclosure together.
    *
@@ -198,43 +138,6 @@ export function Transcription() {
       setModelStatus({ state: "downloading", error: null });
     } catch (error) {
       setModelStatus({ state: "failed", error: String(error) });
-    }
-  }
-
-  async function readRuntime() {
-    try {
-      setRuntime(await invoke<CudaRuntimeStatus>("cuda_runtime_status"));
-    } catch {
-      // Deliberately leaves the previous reading alone rather than nulling it.
-      //
-      // Nulling here was a real defect, found on an installed build: this
-      // command needs a coordinator Tauri's `setup` manages after several that
-      // open files, the page fires its startup reads at once, and on the first
-      // launch after an install this read lost that race. One transient failure
-      // then hid a 2.97 GB offer permanently, because nothing asked again until
-      // the window was reloaded. The retry effect above asks again.
-      //
-      // While it stays null nothing is rendered, which is the right fail-closed
-      // behaviour: an offer this page cannot price — no size, no file count —
-      // must not be shown at all.
-    }
-  }
-
-  /**
-   * Starts the runtime fetch. Same shape as `installModel`, including the
-   * `catch`: without one a refusal such as `gpu_not_admissible` would be an
-   * unhandled rejection and the button would appear to do nothing.
-   */
-  async function installRuntime() {
-    try {
-      await invoke("cuda_runtime_install_start", { confirmed: runtimeConfirmed });
-      setRuntime((previous) =>
-        previous === null ? previous : { ...previous, state: "downloading", error: null },
-      );
-    } catch (error) {
-      setRuntime((previous) =>
-        previous === null ? previous : { ...previous, state: "failed", error: String(error) },
-      );
     }
   }
 
@@ -404,106 +307,15 @@ export function Transcription() {
             </article>
           </>
         )}
-        {/* The graphics-card acceleration offer.
+        {/* The graphics-card acceleration offer stood here.
 
-            Shown only when the probe admitted a card (`offered`), because
-            fetching 2.97 GB of graphics-card libraries for a machine that cannot
-            execute a single node on them is pure cost. Never started without
-            `runtimeConfirmed`, and the size is on screen next to that checkbox
-            rather than behind a disclosure — this is the largest download the
-            app can initiate, so the confirmation and the number it applies to
-            have to be visible at the same moment. */}
-        {runtime !== null && runtime.offered && (
-          <article className="model-row" data-testid="gpu-runtime-offer">
-            <h4>
-              <bdi>{messages.gpuRuntimeSection}</bdi>
-            </h4>
-            <dl className="fact-grid">
-              <div>
-                <dt>{messages.modelReadiness}</dt>
-                <dd>{formatState(runtime.state)}</dd>
-              </div>
-              <div>
-                <dt>{messages.downloadSize}</dt>
-                <dd>{formatBytes(runtime.download_bytes)}</dd>
-              </div>
-              <div>
-                <dt>{messages.installedSize}</dt>
-                <dd>{formatBytes(runtime.installed_bytes)}</dd>
-              </div>
-            </dl>
-            <p>
-              {runtime.state === "installed"
-                ? messages.gpuRuntimeInstalled
-                : runtime.state === "partial"
-                  ? messages.gpuRuntimePartial
-                  : messages.gpuRuntimeAbsent}
-            </p>
-            <Disclosure hint={messages.technicalDetailsHint} summary={messages.technicalDetails}>
-              <dl className="fact-grid">
-                <div>
-                  <dt>{messages.gpuRuntimeFiles}</dt>
-                  <dd className="exact-value">{runtime.file_count}</dd>
-                </div>
-                {/* Which halves are already down. The two are fetched and
-                    verified separately, so a resumed install can legitimately
-                    have one and not the other — and neither alone can run. */}
-                <div>
-                  <dt>{messages.gpuRuntimeComponents}</dt>
-                  <dd>
-                    {runtime.installed_components.length === 0
-                      ? messages.engineNone
-                      : runtime.installed_components
-                          .map((component) => formatRuntimeComponent(component))
-                          .join(", ")}
-                  </dd>
-                </div>
-              </dl>
-            </Disclosure>
-            {runtime.state !== "installed" && (
-              <label className="confirmation">
-                <input
-                  checked={runtimeConfirmed}
-                  onChange={(event) => setRuntimeConfirmed(event.target.checked)}
-                  type="checkbox"
-                />
-                {messages.gpuRuntimeConfirm}
-              </label>
-            )}
-            <div className="actions">
-              <button
-                disabled={
-                  !runtimeConfirmed ||
-                  runtimeInstalling ||
-                  installing ||
-                  runtime.state === "installed"
-                }
-                onClick={() => void installRuntime()}
-                type="button"
-              >
-                {messages.gpuRuntimeInstall}
-              </button>
-              <button
-                disabled={!runtimeInstalling}
-                onClick={() => void invoke("cuda_runtime_install_cancel")}
-                type="button"
-              >
-                {messages.cancel}
-              </button>
-            </div>
-            {runtime.bytes_total != null && (
-              <label className="setting-field">
-                <span>{messages.progress}</span>
-                <progress max={runtime.bytes_total} value={runtime.bytes_downloaded ?? 0} />
-              </label>
-            )}
-            {runtime.error !== null && (
-              <p role="alert">
-                {messages.gpuRuntimeFailed} {formatError(runtime.error)}
-              </p>
-            )}
-          </article>
-        )}
+            It fetched ONNX Runtime's CUDA execution provider on demand — 2.97 GB
+            of libraries the streaming engine needed. Granite does not use them,
+            and its own GPU support is a compile-time feature of the worker
+            binary rather than anything this page can download, so an offer here
+            could only ever have installed DLLs and changed nothing observable.
+            Setup fetches the CUDA worker and its two libraries together, as the
+            single unit they are. */}
         {models.map((model) => (
           <article className="model-row" key={`${model.id}@${model.revision}`}>
             <h4>
