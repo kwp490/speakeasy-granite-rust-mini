@@ -105,38 +105,22 @@ $components = Get-ChildItem -LiteralPath $artifactFull -File |
             sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         }
     }
-$sherpaCudaLib = Join-Path $repositoryRoot '.tools\sherpa-onnx\current\lib'
-function Resolve-RuntimeDll {
-    param([Parameter(Mandatory)][string]$Name)
-    $source = Get-ChildItem -Path $sherpaCudaLib -Filter $Name -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if (-not $source) {
-        throw "Required runtime DLL not found -- run .\scripts\Get-GpuRuntime.ps1 first: $Name"
-    }
-    $source.FullName
-}
-# Same sherpa CPU-capable set `Invoke-ProofPackage.ps1` stages into `proof/`.
-# The CUDA execution provider and its cuBLAS/cuFFT/cuDNN dependencies are
-# excluded, and the reason has changed: it used to be that their combined size
-# overflowed the NSIS compiler, which no longer exists here. It is now the
-# fetch-first policy -- ~2.97 GB that `gpu_runtime.rs` downloads on demand,
-# pinned in `models/trusted-manifest.json`, only on machines that want it.
-$runtimeDllNames = @(
-    'cargs.dll', 'onnxruntime.dll',
-    'onnxruntime_providers_shared.dll', 'sherpa-onnx-c-api.dll', 'sherpa-onnx-cxx-api.dll'
-)
+# No native DLLs are staged beside the workers. This carried a
+# `Resolve-RuntimeDll` helper and the same five sherpa/ONNX names
+# `Invoke-ProofPackage.ps1` did, both fetched from `Get-GpuRuntime.ps1` -- a
+# script the fork deleted with the engine that needed it. `speakeasy-granite`
+# compiles llama.cpp into the worker, so `granite-worker.exe` stands alone on a
+# CPU install.
+
 $payloadSpecs = @(
     @((Join-Path $installerBuild 'release\ai-speakeasy-mini.exe'), 'ai-speakeasy-mini.exe', 'desktop'),
     @((Join-Path $installerBuild 'release\speakeasy-bootstrapper.exe'), 'speakeasy-bootstrapper.exe', 'bootstrapper'),
-    @((Join-Path $installerBuild 'release\speakeasy-inference-worker.exe'), 'proof/inference-worker.exe', 'worker'),
     # CPU-only, built with `speakeasy-granite-worker`'s default features -- see
     # Invoke-ProofPackage.ps1. Its GGUF model files are not bundled here, same
     # as every other ASR pack: they are fetched on demand by Get-Granite.ps1
     # after install, verified against models/trusted-manifest.json.
     @((Join-Path $installerBuild 'release\speakeasy-granite-worker.exe'), 'proof/granite-worker.exe', 'granite-worker')
-) + @($runtimeDllNames | ForEach-Object {
-    ,@((Resolve-RuntimeDll -Name $_), "proof/$_", 'native-dll')
-})
+)
 $installedPayload = foreach ($spec in $payloadSpecs) {
     $source = $spec[0]
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {

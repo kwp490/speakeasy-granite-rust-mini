@@ -20,8 +20,12 @@ $checksumsPath = Join-Path $artifactRoot 'SHA256SUMS'
 if (-not (Test-Path -LiteralPath $manifestPath)) { throw 'Current-host manifest is missing.' }
 if (-not (Test-Path -LiteralPath $checksumsPath)) { throw 'SHA256SUMS is missing.' }
 $hostManifest = Get-Content -Raw -Encoding utf8 $manifestPath | ConvertFrom-Json
-if ($hostManifest.installed_payload.Count -ne 9) {
-    throw 'Current-host manifest must inventory exactly 9 installed executable/native payload files.'
+# Three: the app, the bootstrapper and the Granite worker. It was nine until
+# 2026-08-18 -- those three plus the streaming worker and the five sherpa/ONNX
+# DLLs beside it. Pinned as an exact count rather than a floor so that a payload
+# quietly gaining or losing a file fails here instead of at a user's install.
+if ($hostManifest.installed_payload.Count -ne 3) {
+    throw 'Current-host manifest must inventory exactly 3 installed executable payload files.'
 }
 foreach ($payload in $hostManifest.installed_payload) {
     if ($payload.installed_relative_path -match '(^[\\/]|(^|[\\/])\\.\\.([\\/]|$))' -or
@@ -30,13 +34,21 @@ foreach ($payload in $hostManifest.installed_payload) {
     }
 }
 $trustedManifest = Get-Content -Raw -Encoding utf8 (Join-Path $repositoryRoot 'models\trusted-manifest.json') | ConvertFrom-Json
-# The CPU streaming pack, not a bundled artifact: no ASR model ships inside the
-# installer any more (Moonshine's did; both Nemotron packs are fetched through
-# the app's own model-lifecycle UI after install, on-demand). What this build
-# still owes is compatibility -- the pack must admit the version being shipped,
-# checked below.
-$pack = $trustedManifest.packs | Where-Object id -eq 'nemotron-3.5-streaming-en-cpu'
-if (-not $pack) { throw 'The CPU streaming pack is missing from the trusted manifest.' }
+# The pack setup will actually install, resolved by `install_eligible` rather
+# than by id. It named `nemotron-3.5-streaming-en-cpu` until 2026-08-18 -- a
+# pack that left with the streaming engine, so this threw on a manifest that was
+# perfectly correct. Resolving it follows a future swap (Q8_0 to Q4_K_M already
+# happened once, on measurement) instead of pinning a name that goes stale.
+#
+# No model ships inside the installer: the GGUFs are fetched after install and
+# verified against this same manifest. What this build owes is compatibility --
+# the pack must admit the version being shipped, checked below.
+$pack = @($trustedManifest.packs | Where-Object { $_.role -eq 'final-asr' -and $_.install_eligible })
+if ($pack.Count -ne 1) {
+    throw ("Expected exactly one install-eligible final-asr pack in the trusted " +
+        "manifest; found $($pack.Count).")
+}
+$pack = $pack[0]
 
 # The pack declares the application and worker versions it admits. Only the
 # floor is declared, and this asserts the ceiling stays absent.
@@ -83,9 +95,15 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Recovery tests failed.' }
     & cargo test -p speakeasy-domain dictation_defers_all_invalidating_operations_until_exact_owner_finishes --locked
     if ($LASTEXITCODE -ne 0) { throw 'Update exclusion test failed.' }
-    & cargo test -p speakeasy-inference-worker --locked
+    # `speakeasy-worker`, not `speakeasy-inference-worker`: the crate was renamed
+    # when the streaming engine left, and what survived is the half that was
+    # never about recognition -- the protocol boundary, the ordering queue and
+    # the plausibility gate. `speakeasy-granite-worker` joins it here because on
+    # this fork it is the process that actually transcribes, so an installer
+    # proof that never exercised it would be proving the wrong worker.
+    & cargo test -p speakeasy-worker -p speakeasy-granite-worker --locked
     if ($LASTEXITCODE -ne 0) { throw 'Worker tests failed.' }
-    & cargo clippy -p speakeasy-bootstrapper -p speakeasy-storage -p speakeasy-inference-worker -p speakeasy-desktop --all-targets --locked -- -D warnings
+    & cargo clippy -p speakeasy-bootstrapper -p speakeasy-storage -p speakeasy-worker -p speakeasy-desktop --all-targets --locked -- -D warnings
     if ($LASTEXITCODE -ne 0) { throw 'Warning-denied product Clippy failed.' }
 } finally {
     Pop-Location

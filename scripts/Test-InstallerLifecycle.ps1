@@ -49,7 +49,24 @@ function Invoke-Installer {
     # zero, and the only symptom here was the next line failing to find a file.
     # The installer now refuses arguments it cannot parse whole, so this would be
     # caught rather than obeyed; the call operator is what stops it being sent.
-    $output = & $installer --install --install-root $installRoot 2>&1
+    # `Continue` for the duration of the call, and this is the whole reason
+    # `Assert-Refused` works. PowerShell turns a native command's stderr into
+    # ErrorRecords when it is redirected inside PowerShell, and under
+    # `$ErrorActionPreference = 'Stop'` those are *terminating*. Every refusal
+    # this script exists to assert is written to stderr, so each one threw here
+    # -- at the redirect, before the exit code could be read -- and the failure
+    # surfaced as a `NativeCommandError` naming the refusal text, which reads
+    # exactly like the installer being broken rather than like the installer
+    # correctly refusing. `Stage-DevRuntime.ps1` carries the same warning about
+    # cargo's progress output; the difference is that this script *needs* the
+    # output, so it lowers the preference rather than leaving the stream alone.
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & $installer --install --install-root $installRoot 2>&1
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
     # Both, always. The exit code proves a refusal happened; only the message
     # says WHICH refusal, and the two have already disagreed here -- a stamp left
     # by an earlier run made a fresh install refuse as a same-version reinstall,
