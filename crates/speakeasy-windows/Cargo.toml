@@ -1,0 +1,22 @@
+[package]
+name = "speakeasy-windows"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+sha2.workspace = true
+speakeasy-domain.workspace = true
+speakeasy-delivery.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+keyring.workspace = true
+uiautomation.workspace = true
+win32job.workspace = true
+winsafe.workspace = true
+winreg.workspace = true
+
+[lints]
+workspace = true

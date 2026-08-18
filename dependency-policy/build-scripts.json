@@ -1,0 +1,754 @@
+{
+  "schema_version": 1,
+  "purpose": "Inventory of every crate in this workspace's locked dependency graph that has a build script (cargo metadata target kind custom-build), per docs/handoff/granite-final-pass.md known-risk item 6. This proves an inventory exists; it does not prove the absence of network calls in any build.rs -- see caveat.",
+  "caveat": "network_indicator is a textual grep over each build.rs for a fixed set of strings (reqwest, ureq, hyper::, curl::, TcpStream, http_req, isahc, attohttpc, literal http(s):// URLs). A false negative is possible (e.g. shelling out to curl by a name this scan does not match, or a network call several functions deep in an included module) and one false positive is already known (web_atoms, see its note). Treat a `false` here as \"no obvious network client in this build.rs today\", not as a guarantee.",
+  "regenerate": "cargo metadata --format-version 1 --locked, filter packages whose targets include kind \"custom-build\", read each target's src_path, grep for the indicator list above. Re-run whenever Cargo.lock changes and diff the entries list; a name/version pair with no matching entry here is a new build-script dependency that has not been reviewed.",
+  "matching": "Test-DependencyPolicy.ps1 matches crates.io and git entries by name@version, but source=\"workspace\" entries by name alone, so their version field here is informational. A workspace crate's build.rs is in-tree and reviewed as code in the diff, so pinning its version bought no review and only broke the gate on every [workspace.package] version bump.",
+  "entries": [
+    {
+      "name": "alsa-sys",
+      "version": "0.4.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "anyhow",
+      "version": "1.0.104",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "async-io",
+      "version": "2.6.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "atk-sys",
+      "version": "0.18.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "aws-lc-rs",
+      "version": "1.17.3",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "aws-lc-sys",
+      "version": "0.43.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "bindgen",
+      "version": "0.72.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "bzip2-sys",
+      "version": "0.1.13+1.0.8",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "cairo-sys-rs",
+      "version": "0.18.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "camino",
+      "version": "1.2.4",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "clang-sys",
+      "version": "1.9.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "cookie",
+      "version": "0.18.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "cpal",
+      "version": "0.18.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "crc32fast",
+      "version": "1.5.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "crossbeam-utils",
+      "version": "0.8.22",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "erased-serde",
+      "version": "0.4.10",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "field-offset",
+      "version": "0.3.6",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "gdk-pixbuf-sys",
+      "version": "0.18.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "gdk-sys",
+      "version": "0.18.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "gdkx11-sys",
+      "version": "0.18.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "generic-array",
+      "version": "0.14.7",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "getrandom",
+      "version": "0.3.4",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "getrandom",
+      "version": "0.4.3",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "gio",
+      "version": "0.18.4",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "gio-sys",
+      "version": "0.18.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "glib-sys",
+      "version": "0.18.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "gobject-sys",
+      "version": "0.18.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "gtk",
+      "version": "0.18.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "gtk-sys",
+      "version": "0.18.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "httparse",
+      "version": "1.10.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "iana-time-zone-haiku",
+      "version": "0.1.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "icu_normalizer_data",
+      "version": "2.2.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "icu_properties_data",
+      "version": "2.2.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "indexmap",
+      "version": "1.9.3",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "javascriptcore-rs-sys",
+      "version": "1.1.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "jni",
+      "version": "0.22.4",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "jni-macros",
+      "version": "0.22.4",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "jni-sys",
+      "version": "0.3.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "libc",
+      "version": "0.2.186",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "libdbus-sys",
+      "version": "0.2.7",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "libsqlite3-sys",
+      "version": "0.38.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "llama-cpp-2",
+      "version": "0.1.153",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "llama-cpp-sys-2",
+      "version": "0.1.153",
+      "source": "git (patched fork)",
+      "network_indicator": false,
+      "note": "The patched fork (see [patch.crates-io] in Cargo.toml). Already reviewed under known-risk item 6 in docs/handoff/granite-final-pass.md: no HTTP client in this build.rs."
+    },
+    {
+      "name": "memoffset",
+      "version": "0.9.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "ntapi",
+      "version": "0.4.3",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "num-traits",
+      "version": "0.2.19",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "objc2",
+      "version": "0.6.4",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "objc2-exception-helper",
+      "version": "0.1.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "pango-sys",
+      "version": "0.18.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "parking_lot_core",
+      "version": "0.9.12",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "prettyplease",
+      "version": "0.2.37",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "proc-macro-error",
+      "version": "1.0.4",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "proc-macro-error-attr",
+      "version": "1.0.4",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "proc-macro2",
+      "version": "1.0.107",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "quinn",
+      "version": "0.11.11",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "quinn-udp",
+      "version": "0.5.15",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "quote",
+      "version": "1.0.47",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "ref-cast",
+      "version": "1.0.26",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "ring",
+      "version": "0.17.14",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "rustix",
+      "version": "1.1.4",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "rustls",
+      "version": "0.23.42",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "rustversion",
+      "version": "1.0.23",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "schemars",
+      "version": "0.8.22",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "selectors",
+      "version": "0.36.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "serde",
+      "version": "1.0.229",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "serde_core",
+      "version": "1.0.229",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "serde_json",
+      "version": "1.0.150",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "sherpa-onnx-sys",
+      "version": "1.13.4",
+      "source": "crates.io",
+      "network_indicator": true,
+      "note": "Its build.rs downloads prebuilt native libs from GitHub releases via ureq when SHERPA_ONNX_LIB_DIR/SHERPA_ONNX_ARCHIVE_DIR are unset (download_prebuilt_libs, ~line 112). This workspace short-circuits that path: .cargo/config.toml sets SHERPA_ONNX_LIB_DIR to the vendored .tools/sherpa-onnx runtime, so resolve_lib_dir returns before the download branch is reached. Confirmed by reading .cargo/config.toml, which cites implicit-build-downloads=false by name."
+    },
+    {
+      "name": "soup3-sys",
+      "version": "0.5.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "speakeasy-bootstrapper",
+      "version": "1.4.2",
+      "source": "workspace",
+      "network_indicator": false,
+      "note": "This workspace own crate, not third-party. Emits two MSVC linker arguments to embed apps/bootstrapper/speakeasy-bootstrapper.manifest (DPI awareness, Common Controls v6, asInvoker) and nothing else. No codegen, no process spawning, no downloads."
+    },
+    {
+      "name": "speakeasy-desktop",
+      "version": "1.2.1",
+      "source": "workspace",
+      "network_indicator": false,
+      "note": "This workspace own crate, not third-party. Standard tauri_build::build() codegen (icons, capabilities, generated bindings)."
+    },
+    {
+      "name": "sqlite-wasm-rs",
+      "version": "0.5.5",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "swift-rs",
+      "version": "1.0.7",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "syn",
+      "version": "1.0.109",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "system-configuration-sys",
+      "version": "0.6.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "target-lexicon",
+      "version": "0.12.16",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "tauri",
+      "version": "2.11.5",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "tauri-plugin-global-shortcut",
+      "version": "2.3.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "tauri-runtime",
+      "version": "2.11.3",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "tauri-runtime-wry",
+      "version": "2.11.4",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "thiserror",
+      "version": "1.0.69",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "thiserror",
+      "version": "2.0.19",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "transcribe-cpp",
+      "version": "0.2.0",
+      "source": "workspace",
+      "network_indicator": false,
+      "note": "Vendored in-tree at vendor/transcribe.cpp and patched by path, so cargo reports no source. Entered the default graph with speakeasy-bench, which enables the transcribe-cpp feature by default. Its 59-line build.rs was read in full, not only grepped: it reads DEP_TRANSCRIBE_* env vars and re-emits them as cargo metadata, plus an rpath link-arg on non-Windows. No process spawning, no downloads."
+    },
+    {
+      "name": "transcribe-cpp-sys",
+      "version": "0.2.0",
+      "source": "workspace",
+      "network_indicator": false,
+      "note": "Vendored in-tree at vendor/transcribe.cpp; compiles the vendored C++ via CMake. Carries this workspace's own commits (9ec0ae0), which is why the patch is by path rather than rev-pinned. Reviewed for build-time network access: the one process it spawns is `cmd /C mklink /J`, a local junction for the Windows MAX_PATH workaround, and the CMake tree only does include(ExternalProject) to set EP_PREFIX -- there is no ExternalProject_Add with a URL or GIT_REPOSITORY anywhere in it, so implicit-build-downloads = false holds."
+    },
+    {
+      "name": "typeid",
+      "version": "1.0.3",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "valuable",
+      "version": "0.1.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "vswhom-sys",
+      "version": "0.1.3",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "wasm-bindgen",
+      "version": "0.2.126",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "wasm-bindgen-shared",
+      "version": "0.2.126",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "web_atoms",
+      "version": "0.2.5",
+      "source": "crates.io",
+      "network_indicator": true,
+      "note": "Heuristic false positive: the http:// strings are XML namespace URI constants (SVG/XHTML/MathML/XLink), not network calls."
+    },
+    {
+      "name": "webkit2gtk-sys",
+      "version": "2.0.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "webview2-com-sys",
+      "version": "0.38.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "winapi",
+      "version": "0.3.9",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "winapi-i686-pc-windows-gnu",
+      "version": "0.4.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "winapi-x86_64-pc-windows-gnu",
+      "version": "0.4.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_aarch64_gnullvm",
+      "version": "0.42.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_aarch64_gnullvm",
+      "version": "0.52.6",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_aarch64_gnullvm",
+      "version": "0.53.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_aarch64_msvc",
+      "version": "0.42.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_aarch64_msvc",
+      "version": "0.52.6",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_aarch64_msvc",
+      "version": "0.53.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_i686_gnu",
+      "version": "0.42.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_i686_gnu",
+      "version": "0.52.6",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_i686_gnu",
+      "version": "0.53.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_i686_gnullvm",
+      "version": "0.52.6",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_i686_gnullvm",
+      "version": "0.53.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_i686_msvc",
+      "version": "0.42.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_i686_msvc",
+      "version": "0.52.6",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_i686_msvc",
+      "version": "0.53.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_x86_64_gnu",
+      "version": "0.42.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_x86_64_gnu",
+      "version": "0.52.6",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_x86_64_gnu",
+      "version": "0.53.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_x86_64_gnullvm",
+      "version": "0.42.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_x86_64_gnullvm",
+      "version": "0.52.6",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_x86_64_gnullvm",
+      "version": "0.53.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_x86_64_msvc",
+      "version": "0.42.2",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_x86_64_msvc",
+      "version": "0.52.6",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "windows_x86_64_msvc",
+      "version": "0.53.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "wit-bindgen",
+      "version": "0.57.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "wry",
+      "version": "0.55.1",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "x11",
+      "version": "2.21.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "x11-dl",
+      "version": "2.21.0",
+      "source": "crates.io",
+      "network_indicator": false
+    },
+    {
+      "name": "zmij",
+      "version": "1.0.23",
+      "source": "crates.io",
+      "network_indicator": false
+    }
+  ]
+}

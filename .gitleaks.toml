@@ -1,0 +1,9 @@
+# The decoder identity fixture contains a public, content-addressed tokenizer
+# digest. It is not a credential, but its hexadecimal shape matches
+# gitleaks' generic-api-key detector in both the current file and its history.
+[allowlist]
+description = "Public tokenizer digest fixtures are not secrets"
+regexTarget = "line"
+regexes = [
+    '''tokenizer_sha256:\s*"32be3ebfabfff475d64d7829b435f1c7856a1c497907def5c41d54ca9f1eccfd"'''
+]

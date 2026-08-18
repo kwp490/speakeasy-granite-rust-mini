@@ -1,0 +1,13 @@
+# Tauri regenerates these on every build and writes them with LF endings. This
+# repository is used with `core.autocrlf=true`, so git otherwise expects CRLF in
+# the worktree and reports both files as modified after every single build --
+# with an empty diff, because the content is identical and only the endings
+# differ. The cost is not cosmetic: `git status` never returns to clean, so it
+# stops being a signal, and a real change sitting alongside them is easy to miss.
+# They were discarded by hand five times in one session before this was written.
+#
+# Declaring them LF makes the worktree form match what the generator writes, so
+# they stay clean until their content actually changes. Scoped to these generated
+# files on purpose -- hand-written sources keep the repository's existing
+# behaviour.
+apps/desktop/src-tauri/gen/schemas/*.json text eol=lf

@@ -1,0 +1,114 @@
+SpeakEasy - Third-Party Notices
+================================
+
+Artifact status
+---------------
+This notice accompanies an unsigned Windows artifact, built for personal
+local use rather than public distribution. The exact Rust and npm
+dependency versions are recorded in Cargo.lock and package-lock.json.
+
+Bundled native runtime
+----------------------
+sherpa-onnx 1.13.4 (CUDA build; also serves the CPU execution path)
+Copyright k2-fsa contributors
+License: Apache-2.0
+Source: https://github.com/k2-fsa/sherpa-onnx
+Modification: none. SpeakEasy's inference worker links sherpa-onnx's C API
+directly; onnxruntime_providers_tensorrt.dll is stripped from the shipped set
+since TensorRT is not used.
+
+ONNX Runtime (bundled by the sherpa-onnx CUDA release)
+Copyright Microsoft Corporation and contributors
+License: MIT
+Source: https://github.com/microsoft/onnxruntime
+Modification: none.
+
+NVIDIA CUDA Toolkit redistributables (cudart, cuBLAS, cuFFT) 12.9
+and cuDNN 9.25, for Windows x64
+Copyright NVIDIA Corporation
+License: NVIDIA CUDA/cuDNN redistribution license (see
+https://developer.download.nvidia.com/ for the versions this build fetches)
+Modification: none.
+
+llama.cpp (statically linked into granite-worker.exe; CPU build only --
+the CUDA execution provider has never shipped, see docs/handoff/
+granite-final-pass.md)
+Copyright 2023-2026 The ggml authors
+License: MIT
+Source: https://github.com/ggml-org/llama.cpp
+Modification: vendored via a cherry-pick fork, kwp490/llama.cpp
+(branch speakeasy/9e3b928-granite-embd-scale), which adds one upstream
+commit (ggml-org/llama.cpp#24357) on top of pinned commit 9e3b928.
+No other source changes. Fork license text:
+https://github.com/kwp490/llama.cpp/blob/speakeasy/9e3b928-granite-embd-scale/LICENSE
+
+llama-cpp-rs (the Rust bindings crate; kwp490/llama-cpp-rs fork,
+tag 0.1.153, rev d989ffdb0caf3d809cdcff1850629bd3da6ed067)
+Copyright the llama-cpp-rs contributors
+License: MIT OR Apache-2.0
+Source: https://github.com/kwp490/llama-cpp-rs
+Modification: none to Rust source; retags the upstream 0.1.153 release
+with .gitmodules repointed at the llama.cpp fork above.
+
+The following C/C++ libraries are vendored inside llama.cpp's own source
+tree and are statically compiled into granite-worker.exe. None of them
+are Rust crates, so they carry no Cargo.lock entry and cargo-deny/cargo-audit
+never see them; they are disclosed here instead, verified against the
+actual compiled object files in this build (not assumed from a README):
+
+cpp-httplib
+Copyright (c) 2017 yhirose
+License: MIT
+Source: https://github.com/yhirose/cpp-httplib
+Modification: none.
+
+JSON for Modern C++ (nlohmann/json)
+Copyright 2013-2025 Niels Lohmann
+License: MIT
+Source: https://github.com/nlohmann/json
+Modification: none.
+
+miniaudio
+Copyright 2026 David Reid
+License: MIT-0 (also available public domain; this build elects MIT-0)
+Source: https://github.com/mackron/miniaudio
+Modification: none.
+
+stb_image
+Copyright (c) 2017 Sean Barrett
+License: MIT (also available public domain; this build elects MIT)
+Source: https://github.com/nothings/stb
+Modification: none.
+
+Note: llama.cpp also vendors sheredom/subprocess.h (public domain), but
+it is only reachable from llama.cpp's server and test binaries, both of
+which this build disables (LLAMA_BUILD_SERVER=OFF, LLAMA_BUILD_TESTS=OFF)
+-- confirmed absent from every compiled object in this build, so no notice
+is required for it.
+
+The Granite Speech 4.1 2B model itself (Apache-2.0, IBM Corporation) is
+not bundled with this installer -- see MODEL-NOTICES.md, and
+models/trusted-manifest.json for the pack-level license record.
+
+Nemotron 3.5 Streaming model material
+--------------------------------------
+The GPU streaming pack is a SpeakEasy-derived float32 ONNX export of
+NVIDIA's nemotron-3.5-asr-streaming-0.6b checkpoint. It is hosted separately
+from the Windows artifact at:
+https://huggingface.co/orangeblue39/nemotron-3.5-streaming-en-cuda
+
+Copyright NVIDIA Corporation
+License: OpenMDW-1.1
+Modification: re-exported to float32 ONNX by SpeakEasy's pinned
+scripts/model-export environment; this is not an NVIDIA release archive.
+The complete OpenMDW-1.1 agreement is retained in
+packaging/licenses/OpenMDW-1.1.txt and in the Hugging Face model repository.
+The app verifies the hosted archive length and SHA-256 before activation.
+
+Application dependencies
+------------------------
+The application is an independent MIT-licensed Rust implementation. Direct
+and transitive application dependencies retain their upstream copyrights and
+licenses; their exact version inventory is Cargo.lock/package-lock.json.
+
+This artifact is unsigned and has no SmartScreen reputation.

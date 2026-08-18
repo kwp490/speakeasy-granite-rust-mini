@@ -1,0 +1,40 @@
+[package]
+name = "speakeasy-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+custom-protocol = ["tauri/custom-protocol"]
+proof-mode = []
+
+[[bin]]
+name = "ai-speakeasy-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+speakeasy-domain.workspace = true
+speakeasy-audio.workspace = true
+speakeasy-worker.workspace = true
+speakeasy-models.workspace = true
+speakeasy-delivery.workspace = true
+speakeasy-storage.workspace = true
+speakeasy-transforms.workspace = true
+speakeasy-windows.workspace = true
+tauri.workspace = true
+tauri-plugin-global-shortcut.workspace = true
+tauri-plugin-single-instance.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,11 @@
+﻿{
+  "engine": "granite",
+  "model_path": "R:\\FixtureRemovable\\Granite",
+  "professional_mode_enabled": true,
+  "active_profile_id": "Fixture Legacy Profile",
+  "streaming_partials_enabled": true,
+  "livePreview": true,
+  "fixture_future_key": {
+    "nested": "preserve"
+  }
+}

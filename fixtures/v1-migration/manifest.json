@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "sanitized": true,
+  "production_paths_forbidden": true,
+  "baselines": [
+    {
+      "name": "v0.14.5",
+      "commit": "2a357a5d3c19a9700c12eec6ef133aace31f80ca",
+      "root": "baselines/v0.14.5"
+    },
+    {
+      "name": "v0.15.0",
+      "commit": "3f325c77a008c1537117f923da81b7f084fb2bcc",
+      "root": "baselines/v0.15.0"
+    },
+    {
+      "name": "post-0.15-hotfix",
+      "commit": "88e6923bb48cd93d9179320f755712c3e6496807",
+      "root": "baselines/post-0.15-hotfix"
+    }
+  ],
+  "intentional_corrupt_files": [
+    "edge/corrupt-settings.json",
+    "presets/corrupt.json"
+  ],
+  "scenario_coverage": [
+    "utf8_bom",
+    "corrupt_json",
+    "unknown_keys",
+    "deprecated_preview_keys",
+    "old_profile_fields",
+    "invalid_values",
+    "managed_path",
+    "custom_fixed_path",
+    "unc_path",
+    "removable_path",
+    "unreachable_path",
+    "remote_source",
+    "duplicate_preset_name",
+    "corrupt_preset",
+    "custom_preset_unknown_fields",
+    "missing_credentials",
+    "existing_v2_collision",
+    "source_changed_after_preview",
+    "interrupted_activation",
+    "shared_programdata_multiuser"
+  ]
+}

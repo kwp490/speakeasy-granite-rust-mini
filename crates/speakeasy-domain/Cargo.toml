@@ -1,0 +1,19 @@
+[package]
+name = "speakeasy-domain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The only dependency this otherwise dependency-free crate takes. It exists
+# for `worker_protocol`'s framed-JSON wire format, which every supervised
+# local worker process (sherpa's and Granite's alike) has to speak — see that
+# module's doc comment for why the protocol itself lives here rather than in
+# `speakeasy-asr`.
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

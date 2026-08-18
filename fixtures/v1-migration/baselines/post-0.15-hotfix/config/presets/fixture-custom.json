@@ -1,0 +1,11 @@
+{
+  "name": "Fixture Custom",
+  "system_prompt": "Return only rewritten fixture text.",
+  "fix_tone": false,
+  "fix_grammar": true,
+  "fix_punctuation": false,
+  "vocabulary": "FixtureTerm",
+  "future_option": {
+    "must_round_trip_in_legacy_v1": true
+  }
+}

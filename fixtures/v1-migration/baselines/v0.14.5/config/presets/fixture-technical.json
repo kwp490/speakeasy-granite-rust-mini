@@ -1,0 +1,8 @@
+{
+  "name": "Fixture Technical",
+  "system_prompt": "Rewrite clearly while preserving FixtureTerm exactly.",
+  "fix_tone": true,
+  "fix_grammar": true,
+  "fix_punctuation": true,
+  "vocabulary": "FixtureTerm, API-000"
+}

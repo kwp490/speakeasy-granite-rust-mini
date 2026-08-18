@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "same-fingerprint-idempotent",
+      "expected": "second preview with identical source fingerprint and choices plans no duplicate import"
+    },
+    {
+      "id": "existing-v2-settings-collision",
+      "choices": ["keep_v2", "replace_from_v1"],
+      "expected": "no implicit merge and complete resulting settings shown"
+    },
+    {
+      "id": "existing-v2-preset-collision",
+      "choices": ["keep_v2", "replace_from_v1", "import_as_name_v1"],
+      "expected": "stable explicit collision resolution"
+    },
+    {
+      "id": "source-changed-after-preview",
+      "expected": "commit refused; new fingerprint and preview required"
+    },
+    {
+      "id": "interrupted-before-activation",
+      "expected": "staging may be cleaned; existing v2 remains active"
+    },
+    {
+      "id": "interrupted-during-activation",
+      "expected": "journal restores complete verified pre-existing v2 state; no marker written"
+    },
+    {
+      "id": "shared-programdata-multiuser",
+      "expected": "preview warns source may belong to another Windows user; all egress consents reset"
+    },
+    {
+      "id": "unreachable-custom-path",
+      "expected": "path preserved exactly and reported unavailable; never normalized to managed"
+    },
+    {
+      "id": "corrupt-one-of-many-presets",
+      "expected": "valid presets continue; corrupt file fingerprint and warning retained"
+    },
+    {
+      "id": "missing-credentials",
+      "expected": "import continues without secret; feature remains disabled and actionable"
+    },
+    {
+      "id": "global-quit-binding",
+      "expected": "binding imported as disabled pending explicit user enablement"
+    },
+    {
+      "id": "consent-reset",
+      "expected": "legacy disclosure flags retained as historical metadata only; v2 egress denied until fresh consent"
+    }
+  ]
+}

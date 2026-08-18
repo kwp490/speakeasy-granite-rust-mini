@@ -1,0 +1,309 @@
+# Architecture
+
+> **One engine.** IBM Granite Speech 4.1 runs once over the retained recording
+> after the user stops it, and that single pass produces the punctuation and
+> casing along with the words. There is no live transcription and no second
+> engine: a pass that fails, returns nothing, or fails the plausibility gate
+> ends the dictation with a named reason rather than substituting a weaker
+> result.
+
+## Overview
+
+SpeakEasy Mini is a Tauri v2 desktop app: a React/TypeScript frontend for
+presentation only, and a Rust backend that owns every capability the frontend
+can't be trusted with directly (filesystem, network, process spawning,
+clipboard/input synthesis, credentials). The frontend talks to the backend only
+through a narrow set of Tauri IPC commands; it has no direct filesystem,
+network, or OS-input access.
+
+## Data flow: mic to delivered text
+
+```text
+microphone (cpal) -> speakeasy-audio capture pipeline
+                   -> retained audio, held in memory until stop
+                        -> workers/granite-worker (child process)
+                             -> llama.cpp, Granite Speech 4.1 2B
+                        -> speakeasy-worker::judge_granite_pass
+                             -> a transcript, or a named reason and nothing
+                   -> speakeasy-transforms (dictionary, snippets, cleanup)
+                   -> speakeasy-windows::CommitWriter (clipboard + synthesized Ctrl+V)
+                        gated by speakeasy-delivery's target-safety checks
+```
+
+One entry point drives this pipeline: the **global hotkey** (`Ctrl+Alt+P` by
+default), registered at startup via `tauri-plugin-global-shortcut`. Press once
+to start capture, press again to stop, transcribe, personalize, and paste into
+the focused window. The dock's Stop button ends a recording too — necessary
+because the hotkey has a hands-free mode in which no key ends one.
+
+The inference worker is a separate process, supervised (kill-on-close Windows
+Job, deadlines, crash-loop quarantine after repeated failures) so a native
+crash can't take down the desktop app. It talks to the desktop over a
+length-prefixed JSON stdio protocol.
+
+Capture endpointing is intentionally manual: the hotkey or the dock's Stop
+button ends a dictation. There is no VAD. Every recording has a hard two-minute
+safety ceiling; reaching it auto-stops capture and sends the retained audio
+through the normal transcription and delivery path.
+
+## Crate map
+
+| Crate | Owns |
+|---|---|
+| `speakeasy-domain` | Correlation/session IDs, state machines, cancellation/deadline contracts, the framed-JSON worker protocol, object-safe ports. No dependencies of its own. |
+| `speakeasy-audio` | CPAL microphone capture, resampling, the capture pipeline, and the start/stop cues. VAD types remain available for experiments, but the shipped policy is manual stop plus a two-minute safety ceiling. |
+| `speakeasy-worker` | The worker-protocol client boundary, the ordered finalization queue, and `judge_granite_pass` — the verdict on whether a transcript is fit to deliver. Links no native libraries. |
+| `speakeasy-granite` | IBM Granite Speech 4.1 on llama.cpp. The only crate that compiles C++; see "The native runtime" below. |
+| `speakeasy-models` | Trusted model manifest, download/verify/install/activate lifecycle, hardware inventory. |
+| `speakeasy-delivery` | Target-safety classification (focus/process/element/integrity checks) and the pre-write delivery plan. |
+| `speakeasy-transforms` | Dictionary/protected-term matching, text snippets, locale formatting (only `en-US` sentence-case is implemented; other locales pass through unchanged), optional rule-based cleanup. |
+| `speakeasy-storage` | Settings, history, personalization persistence (SQLite + JSON, versioned, with backup/recovery). |
+| `speakeasy-windows` | Clipboard/paste synthesis, process supervision, credential manager access, Windows-specific lifecycle handling. |
+| `speakeasy-test-support` | Fakes/fixtures used by tests only. |
+
+`speakeasy-worker` was `speakeasy-asr`, and it linked sherpa-onnx. What it kept
+is the half that was never about recognition — a protocol boundary, an ordering
+queue, and a plausibility gate — so it now builds and tests in seconds with no
+model, no GPU, and no toolchain beyond rustc.
+
+Apps and workers:
+
+- `apps/desktop` — the shipped Tauri app.
+- `apps/bootstrapper` — one binary, two entry modes: the setup installer, and
+  the backup/restore tool it absorbed from `apps/repair`. Has no Tauri
+  dependency. See "Setup" below.
+- `workers/granite-worker` — the supervised child process that loads Granite
+  Speech and runs the transcription pass.
+
+The dependency graph is enforced by `scripts/Test-DependencyPolicy.ps1` and
+`deny.toml`/`.cargo/audit.toml` (license/advisory allowlist, exact-pinned
+versions).
+
+### The native runtime: llama.cpp
+
+`speakeasy-granite` runs IBM Granite Speech 4.1 2B, which is a language model
+with a speech encoder and an audio projector rather than an ASR model —
+transcription is autoregressive text generation. There is no ONNX export of it,
+so it runs on llama.cpp via `llama-cpp-2` with the `mtmd` feature. It is a
+separate crate so that its build cost falls only on what needs it.
+
+That build cost is real: `llama-cpp-sys-2` *compiles* llama.cpp rather than
+downloading a prebuilt library, which makes three things build prerequisites:
+
+- **A C++ toolchain** (MSVC).
+- **CMake.** Staged under `.tools/cmake-4.4.0-windows-x86_64`, and put on `PATH`
+  by `Enter-DevEnvironment.ps1`. Without it the build fails with ``is `cmake` not
+  installed?`` several minutes in.
+- **libclang**, for bindgen. Located by `scripts/Resolve-Libclang.ps1`, which
+  checks `LIBCLANG_PATH` first and then the usual install locations. Without it
+  the build panics with `Unable to find libclang`.
+
+Why this is called out rather than assumed: the crate built on 2026-08-03 and
+failed in the same checkout the next day, because both CMake and libclang were
+being satisfied by whatever happened to be on `PATH` in one shell.
+`Enter-DevEnvironment.ps1` warns when either is missing;
+`Invoke-ScaffoldChecks.ps1` refuses to start, because the gate builds this crate.
+
+Two further consequences:
+
+- **`git config --global core.longpaths true` is required.** llama.cpp's
+  `tools/ui` tree, checked out under a workspace-local `CARGO_HOME`, exceeds
+  Windows' 260-character `MAX_PATH` by a few characters, and cargo's fetch fails
+  with `path too long`. The machine-wide `LongPathsEnabled` registry flag is not
+  sufficient on its own — git and libgit2 need telling as well. This has to be
+  global rather than repo-local, because the checkout lives in `CARGO_HOME`,
+  outside this repository.
+- **`[patch.crates-io]` pins `llama-cpp-sys-2` to a fork**, because the llama.cpp
+  that `llama-cpp-2` 0.1.153 vendors does not transcribe with Granite Speech. The
+  fork carries one upstream cherry-pick and no invented code; `Cargo.toml` has the
+  full reasoning, `Test-DependencyPolicy.ps1` enforces its shape, and `deny.toml`
+  allows exactly that one git source. It is meant to be retired.
+
+Because `speakeasy-granite` is the only crate that pays this cost, the gate runs
+it as a separate job (`Invoke-ScaffoldChecks.ps1 -SkipGranite` and
+`-GraniteOnly`) so a cold C++ build cannot starve the checks that catch
+everything else. Every other crate now builds in seconds.
+
+### Which provider runs, and how you find out
+
+Granite runs on the GPU or the CPU, and — unlike the streaming engine this
+replaced — that is decided by **which worker binary is installed**, not by which
+model pack was downloaded. Granite's CUDA support is a compile-time feature of
+`speakeasy-granite`, so a machine with a perfectly good NVIDIA card still runs on
+the CPU unless a CUDA-built `granite-worker.exe` is present beside it with
+`cudart` and `cuBLAS`.
+
+Two consequences follow, and both are deliberate:
+
+- **There is no provider-override setting.** One existed for the streaming
+  engine, where both packs were downloadable and preferring either was
+  meaningful. Here no setting can conjure a worker binary, so a control offering
+  the choice would report a state the engine will not be in.
+- **Setup records which configuration it installed.** Without that, "running on
+  CPU because you chose CPU" and "running on CPU because the GPU worker will not
+  load" are the same silent outcome. With it, the first is normal and the second
+  is an error with instructions.
+
+`GraniteEngineCoordinator::engine_reason` carries a stable code for why this
+machine is on the provider it is on — `probe_preferred`,
+`cpu_gpu_pack_not_installed`, `cpu_gpu_runtime_missing` — and that code reaches
+the diagnostics view and the log. GPU *admission* (the probe says the card
+qualifies) stays distinct from GPU *qualification* (a model has actually
+executed on it); the app reports the difference rather than conflating them.
+
+Measured on an RTX 5090: Granite Q4_K_M resident run 1,571.9 ms on CPU versus
+156.4 ms on CUDA, RTF 0.158 versus 0.0157, holding ~3.27 GiB of VRAM. Cold load
+is 5,218 ms against 2,104 ms.
+
+## Delivery safety
+
+**The target is whatever Windows reports as the foreground window** at the
+moment a dictation finishes. That single fact is the premise the rest of this
+section rests on, and it makes any window SpeakEasy Mini itself puts in the
+foreground a delivery target — including windows the user cannot see. Three
+separate causes have done exactly that (a hidden-but-focused settings window, a
+console allocated because the release binary had no `windows_subsystem`
+attribute, and one console per worker once that first console was gone), and none
+of them errored: each produced a `target_inspect_refused` refusal and a clipboard
+fallback, which reads as a fault in some other subsystem. So a new window or
+spawned process is a delivery-safety change, not just a UI one.
+
+All three windows — `main`, `hud-dock` and `log` — declare `focus: false` and
+are made non-focusable in `configure_hud`. A scaffold test asserts it for every
+declared window, so adding a fourth without that fails the gate rather than
+producing a delivery bug months later. `UI-GUIDE.md` carries the resulting rule;
+`CLAUDE.md` carries the trap.
+
+`speakeasy-delivery` classifies the focused target before any automatic
+write. A password field, the secure desktop, or a window confirmed to be
+running at higher (or unknown) integrity refuses *all* automatic delivery —
+clipboard included — and falls back to the result view, because SpeakEasy Mini
+has positive evidence the target is sensitive. When delivery is allowed,
+exactly one `Ctrl+V` is sent (tagged via `dwExtraInfo` so SpeakEasy Mini can
+distinguish its own synthesized input) — never an automatic Enter.
+`VerifiedRangeReplace` and `AppendOnlyLive` (in-place, live-editing delivery
+modes) exist in the type system but aren't reachable in the current build;
+`CommitOnFinish` (paste after the final transcript is ready) is the only
+delivery mode that actually runs.
+
+Every other refusal — a read-only target, a terminal, an interrupted paste
+(focus changed, a modifier was held, the clipboard raced another writer), or
+a target that could not be inspected at all
+(`DeliveryRefusal::TargetInaccessible`) — falls back to an automatic
+clipboard-only copy instead of silently dropping the transcript.
+`TargetInaccessible` is distinct from `ElevatedTarget`: it fires when the
+`OpenProcess` call in
+`speakeasy-windows::target::inspect_current` itself fails, which happens for
+packaged, AppContainer-sandboxed processes (New Outlook for Windows is one)
+denying even `PROCESS_QUERY_LIMITED_INFORMATION` to an unpackaged caller —
+a sandbox boundary, not evidence of elevation. Because that failure happens
+before a `TargetSnapshot` exists, SpeakEasy Mini has no way to know whether the
+focused control was sensitive; the clipboard fallback still runs there by
+deliberate choice, accepting the residual risk in exchange for never
+silently losing a dictation. The sanitized numeric OS error behind a
+`TargetInaccessible` refusal (never the OS-provided message text) is
+available via `TargetObserver::last_os_error()` and logged alongside the
+refusal reason.
+
+## Model
+
+The app installs one Granite pack: `granite-speech-4.1-2b-q4_k_m-cpu`. Its
+manifest entry, per-file checksums and licences live in
+`models/trusted-manifest.json`, and the worker rejects any other artifact ID.
+
+Q4_K_M is the shipped quantization on measurement rather than by decision — ~21%
+faster than Q8_0 on a 120 s utterance (RTF 0.277 versus 0.352) with an identical
+transcript but for one punctuation choice. `granite-speech-4.1-2b-q8_0-cpu`
+stays in the catalog as the recorded alternative, not as a second configuration
+to keep working.
+
+The packs are the schema-v3 archive-less shape: Hugging Face serves the GGUFs as
+loose files, so there is no single archive digest and each required file carries
+its own URL and SHA-256. Model bytes are never bundled — setup downloads and
+verifies them, then the app works fully offline.
+
+The two CUDA redistributables in the catalog (`cudart`, `cuBLAS`) are there for
+llama.cpp's GPU build. The cuFFT and cuDNN entries this catalog used to carry
+belonged to ONNX Runtime and left with it.
+
+## Trust boundaries
+
+- React is presentation-only. The main window has only `core:default`
+  Tauri capabilities plus the specific commands the app registers; it has no
+  filesystem, network, shell/process, or raw-input authority.
+- `withGlobalTauri` is false; CSP allows only local application/IPC/asset
+  sources.
+- The dock's poll is read-only (`capture_hud_status` never mutates state) and
+  the dock is not focusable. Its command allowlist is explicit and asserted
+  against source in both the Rust and frontend suites.
+- The pinned log window has its own, narrower gate
+  (`require_main_or_log_window`). It gets the addressable
+  `session_transcript_copy` that the dock is refused, because browsing the log
+  is the entire purpose of that window — and the dock, which is on screen during
+  every dictation, still cannot reach it.
+- Legacy credential entries are inspected only for migration reporting and are
+  never returned through IPC, logged, or placed in argv/environment.
+
+## What's implemented vs. not
+
+Implemented and wired into the shipped app: local Granite transcription with
+punctuation in a single pass, the global hotkey with auto-paste, the side dock,
+the pinnable transcript log with optional on-disk retention,
+dictionary/snippet personalization, `en-US` locale formatting, settings
+persistence, and model install/update/remove.
+
+Not implemented: automatic (VAD) endpointing — deliberately excluded from the
+shipped policy — push-to-talk/hands-free activation (the reducer logic exists
+and is unit-tested, but isn't exercised outside tests), non-English locale
+formatting, and diagnostic WAV export.
+
+Deliberately removed, and not coming back without new evidence: live
+transcription, the large transcriber HUD, the in-app setup wizard, the
+provider-override control, and the `immediate_repetitions` / `self_corrections`
+cleanup rules.
+
+## Setup
+
+Setup is a single downloadable executable — `apps/bootstrapper` — and it is the
+only setup path. There is no in-app wizard; the app assumes it was installed by
+something that already checked the machine.
+
+What it does, in order:
+
+1. Probes the hardware and picks the CPU or GPU configuration.
+2. Downloads what that configuration needs, resumably, and verifies every file
+   against a SHA-256 digest pinned in `models/trusted-manifest.json`.
+3. Runs an engine smoke test: transcribes a short bundled clip and compares the
+   result against known ground truth, **word for word**. This is the step that
+   earns the rest. A speech model whose audio projector failed to attach does
+   not error — it writes fluent text from the instruction alone — so
+   "it returned a transcript" proves nothing. Only content does.
+4. Asks whether to retain transcripts between sessions, and seeds the answer
+   into the profile (default: no).
+5. Records which configuration it installed, so the app can later tell a CPU
+   install apart from a broken GPU one.
+6. Launches the app.
+
+Four structural decisions, recorded with their costs:
+
+- **NSIS is replaced entirely**, so the bootstrapper carries the version stamp
+  and its downgrade refusal, refuse-while-running, ARP registration, Start Menu
+  shortcuts, WebView2 provisioning, and the uninstaller's data-retention
+  prompts.
+- **The wizard is native**, drawn with `winsafe`'s `gui` and `shell` features,
+  because the thing that provisions WebView2 is the thing being replaced and
+  repair mode runs on already-broken machines.
+- **It absorbs `apps/repair`**, so it is one binary with two entry modes rather
+  than a third executable. The repair CLI verbs are preserved exactly and
+  `docs/RUNBOOK.md` stays accurate.
+- **It stays console-subsystem** and re-launches itself detached for the window
+  half. A `windows_subsystem = "windows"` binary cannot also answer a script,
+  and it fails in the shape that looks like success — see `CLAUDE.md`.
+
+The GPU worker is fetched rather than bundled: a CUDA `granite-worker.exe` plus
+`cudart` and `cuBLAS`, hosted on Hugging Face and pinned by digest like the
+model weights. Hosting it there rather than in this repository's releases keeps
+the code repository private while leaving the download anonymous.
+
+This project is **never signed** (owner decision, 2026-08-14) — a decision, not
+a deferral, so setup must not imply otherwise.

@@ -1,0 +1,65 @@
+[package]
+name = "speakeasy-granite"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# CUDA is opt-in **at build time**, and that is the whole of the gate. It is no
+# longer a statement about what users can reach (owner decision 2026-08-14:
+# both engines run on the GPU when the hardware supports it).
+#
+# Why it stays opt-in: enabling it makes `llama-cpp-sys-2` compile ggml's CUDA
+# kernels with `nvcc`, so the CUDA Toolkit becomes a hard build prerequisite for
+# anything that touches this crate. `Invoke-ScaffoldChecks.ps1` runs `cargo
+# clippy --workspace --all-targets` and `cargo test --workspace`, so a
+# default-on feature would take the everyday gate red on any machine without a
+# multi-gigabyte toolkit. Keeping it opt-in costs nothing, because which engine
+# a user lands on is a *runtime* decision (see `RuntimeWizardCoordinator::
+# cuda_runtime_available`) and the worker reports its own
+# `compiled_accelerators` at `Hello`.
+#
+# # Three justifications used to sit here. Two are gone.
+#
+# 1. "CI runs on a `windows-2022` image with no CUDA Toolkit." **Deleted: there
+#    is no CI.** This project is local-only and `scripts/Test-LocalOnlyPolicy.ps1`
+#    fails the build if `.github` configuration reappears. The claim could not
+#    have been true for a long time, and it was load-bearing for a shipped
+#    capability, which is how a stale comment does real damage.
+# 2. "The shipped installer never requests this feature, so the CUDA path stays
+#    a local, manual hardware configuration rather than something a user can
+#    reach." **Deleted: that is now exactly backwards.** The installer still does
+#    not bundle a CUDA worker, but for a different reason -- the installer is
+#    kept minimal on purpose and anything fetchable is fetched (see
+#    `docs/handoff/setup-wizard-redesign.md`). The CUDA worker is intended to be
+#    a published, digest-pinned artifact that setup downloads when the machine
+#    admits it, the same way the float ASR export already is.
+# 3. Size. That one survives, and is about the *redistributables*, not this: the
+#    CUDA execution provider's ~2.3 GB overflows `makensis` on its own. The CUDA
+#    worker itself measured 54.4 MB for a single architecture.
+#
+# Proven, not theoretical: built and run 2026-08-10 (RTX 5090, toolkit 13.3) and
+# again 2026-08-14 (RTX 4070 Laptop, arch 89), staged by
+# `scripts/Enable-GraniteCuda.ps1`, and confirmed by `granite-worker.exe`
+# holding a CUDA context in `nvidia-smi` with `granite_warm` logging
+# `device=cuda`. Release-to-paste on a silent five-second capture went from
+# 2,129 ms to 519 ms.
+#
+# Do not leave `CMAKE_CUDA_ARCHITECTURES` unset. Left unset, ggml's own
+# CMakeLists (ggml/src/ggml-cuda/CMakeLists.txt) falls back to a broad
+# multi-architecture virtual-arch list meant for redistributable builds rather
+# than `native`, unless a GPU happens to be visible at configure time -- a
+# multi-gigabyte, multi-minute build. For a local proof set it to this machine's
+# own compute capability (`89` for Ada consumer parts, `120` for Blackwell). For
+# a **published** artifact that has to run on cards it was not built on, an
+# explicit list plus PTX is required, and its size and build time must be
+# measured rather than assumed.
+cuda = ["llama-cpp-2/cuda"]
+
+[dependencies]
+llama-cpp-2.workspace = true
+
+[lints]
+workspace = true

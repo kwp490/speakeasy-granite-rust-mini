@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "locale": "en-US",
+  "qualification": "limited",
+  "qualified_features": ["unicode_nfc", "sentence_capitalization"],
+  "disabled_unqualified_features": ["number", "date", "time", "currency", "measurement", "list", "spoken_punctuation"],
+  "cases": [
+    { "mode": "plain_text", "input": "hello world", "expected": "hello world" },
+    { "mode": "sentence_case", "input": "hello world", "expected": "Hello world" },
+    { "mode": "sentence_case", "input": "comma is a word", "expected": "Comma is a word" },
+    { "mode": "sentence_case", "input": "$12.50 at 3:15", "expected": "$12.50 at 3:15" },
+    { "mode": "plain_text", "input": "1/2/2030 5 km", "expected": "1/2/2030 5 km" },
+    { "mode": "preserve_spoken_wording", "input": "one two three", "expected": "one two three" },
+    { "mode": "literal", "input": "open ai\nsnippet signature", "expected": "open ai\nsnippet signature" },
+    { "mode": "code", "input": "let open_ai = 1;", "expected": "let open_ai = 1;" },
+    { "mode": "terminal", "input": "snippet signature", "expected": "snippet signature" }
+  ]
+}

@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <!--
+    Common Controls v6 comes from the dependency further down: without it
+    comctl32 v5 is loaded and every button and progress bar is drawn in the
+    pre-XP style. Nothing errors; the wizard just looks two decades old, on the
+    first screen a user ever sees.
+
+    DPI awareness is the declaration below, and it is SYSTEM-AWARE ON PURPOSE.
+    That is a decision with a measurement behind it, not a stepping stone to
+    PerMonitorV2 — read the rest of this before "upgrading" it.
+
+    Resolved 2026-08-17, correcting what was written here on 2026-08-15. The
+    earlier note recorded that the client area came back as exactly 620x460 —
+    the declared logical size — under PerMonitorV2, under system-aware, and with
+    no manifest at all, and read "three declarations, one number" as evidence
+    that the window never scaled. The observation was real and the conclusion was
+    wrong: the probe was itself DPI-unaware, and Windows virtualizes every
+    coordinate such a process reads, so it was shown physical pixels divided by
+    the scale factor. Re-measured from a per-monitor-aware probe
+    (`scripts/Measure-NativeWindow.ps1`) on the same 240-dpi machine, all three
+    declarations produce a client area of 1550x1150 PHYSICAL — which is 620x460
+    logical at 240 dpi, exactly right. Nothing was ever mis-scaled.
+
+    They agree because the declaration is nearly moot: `winsafe` calls the legacy
+    `SetProcessDPIAware` itself, from `initial_gui_setup`, on the first
+    `gui::dpi()` call — which happens while the window options are being built,
+    before the window exists. Removing this element entirely still produced
+    1550x1150. It stays because a load-time declaration is not contingent on when
+    some library first happens to touch DPI, and because it is the thing a reader
+    looks for.
+
+    PerMonitorV2 is not reachable here, and the blocker is the FONT rather than
+    the geometry. `winsafe` 0.0.27 creates one `HFONT` for the whole process
+    (`static mut UI_HFONT`, from `SystemParametersInfo`, which reports the system
+    DPI) and sets it on each control as that control is created. Nothing in the
+    crate can change a control's font afterwards: that is `WM_SETFONT` through
+    `SendMessage`, which `winsafe` marks `unsafe` and this workspace `forbid`s
+    workspace-wide. So under PerMonitorV2 the controls would relayout to a second
+    monitor's DPI while the text stayed the size of the first one's. Measured on
+    this machine: Segoe UI 9pt is a 41 px cell at 240 dpi, and on a 96-dpi
+    monitor the heading label would be 26 px tall and the buttons 28 px. Every
+    label clipped. System-aware instead gets a bitmap stretch from Windows —
+    blurry, but proportionally correct and never clipped, which is the better
+    failure of the two.
+
+    What would have to change to revisit this: a safe way to set a control's
+    font, either from a newer `winsafe` or by drawing the text ourselves; or
+    building the wizard from a dialog resource template, which PerMonitorV2
+    rescales automatically INCLUDING its font, at the cost of an `.rc` compile
+    step. Both are dependency or toolchain changes, so both need asking first.
+
+    One build trap, since editing this file is how anyone would test the above:
+    `cargo:rerun-if-changed` compares mtimes, so restoring a manifest from a copy
+    that preserved its timestamp reports `Finished` in under a second and leaves
+    the PREVIOUS manifest embedded in the binary. Touch the file, then confirm
+    what actually shipped by searching the `.exe` for a declaration only one
+    version contains — `PerMonitorV2` served here. Not for text from a comment:
+    the linker strips these, so nothing written between these markers reaches
+    the binary and a comment cannot be used to identify the embedded version.
+  -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+    </windowsSettings>
+  </application>
+
+  <!--
+    Explicitly asOwner. This binary installs into the current user's profile and
+    writes only HKCU, exactly as the NSIS installer it replaces did
+    (`installMode: currentUser`), so it must not ask for elevation. A setup
+    program that prompts for administrator when it does not need it teaches users
+    to approve prompts they should read.
+  -->
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="*"
+        publicKeyToken="6595b64144ccf1df"
+        language="*" />
+    </dependentAssembly>
+  </dependency>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 and 11. The product is Windows-only and targets 11. -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
+    </application>
+  </compatibility>
+</assembly>

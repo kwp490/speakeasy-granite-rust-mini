@@ -1,0 +1,6 @@
+[toolchain]
+# Rustup's channel field takes the release name; the installed host target is
+# selected automatically on Windows.
+channel = "1.97.1"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

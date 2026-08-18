@@ -1,0 +1,8 @@
+{
+  "name": "Fixture Collision",
+  "system_prompt": "First synthetic preset with the duplicate name.",
+  "fix_tone": true,
+  "fix_grammar": false,
+  "fix_punctuation": true,
+  "vocabulary": "AlphaFixture"
+}

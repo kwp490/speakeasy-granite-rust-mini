@@ -1,0 +1,1528 @@
+:root {
+  color-scheme: light dark;
+  --surface: #f5f7f2;
+  --surface-raised: #ffffff;
+  --text: #17201c;
+  --text-muted: #4c5c52;
+  /* Red carried four unrelated meanings — brand emphasis, eyebrows, the
+     active tab and warnings — so none of them meant anything operationally.
+     It is split here: --accent is interactive/brand, --recording is active
+     capture, and --warning and --danger keep their own meanings. */
+  --accent: #8d3524;
+  --recording: #c2442c;
+  --success: #216e3a;
+  --warning: #8a4d00;
+  --danger: #a21f2d;
+  --border: #9ca79f;
+  /* Dividers and control boundaries are different jobs. `--border` separates
+     regions; `--border-strong` outlines things a user operates, which WCAG 1.4.11
+     holds to 3:1 because it is how a control is identified at all. Measured:
+     `--border` is 2.31:1 on the light surface, which is fine for a divider and
+     was not fine for every button in the workspace. */
+  --border-strong: #5d6b62;
+  --focus: #005fcc;
+  /* ── The transcriber's own palette ───────────────────────────────────────
+     Deliberately theme-independent. The transcriber is an always-on-top overlay
+     that has to stay legible over whatever window happens to be behind it, so it
+     stays dark whether Windows is light or dark — unlike the settings window,
+     which follows the system.
+
+     That is exactly why it needs its own tokens rather than the shared ones. It
+     used `--accent`, which flips to a light coral in dark mode, against
+     near-white text: 1.9:1, which fails WCAG AA badly and was visible in every
+     screenshot. Its surface never flips, so its accent must not either.
+
+     `--hud-accent` stays distinct from `--recording` on purpose. Red keeps one
+     operational meaning here: active capture. */
+  --hud-surface: #17201c;
+  --hud-raised: #24312a;
+  --hud-hover: #2c3b33;
+  --hud-border: #66736b;
+  --hud-text: #f2f4ee;
+  --hud-text-muted: #becabf;
+  --hud-accent: #ff9a7f;
+  --hud-accent-text: #17201c;
+  /* The record button's tones. Fills light enough to take `--hud-accent-text`,
+     measured against it: `--hud-ready` 8.88:1, `--hud-busy` 9.93:1. `--recording`
+     is reused rather than duplicated so red keeps meaning active capture and
+     nothing else; it takes `--hud-text` instead, at 4.56:1, and clears 1.4.11
+     against the surface at 3.30:1. */
+  --hud-ready: #6fd18f;
+  --hud-busy: #f2c14e;
+  --hud-level: #66b985;
+  /* The dock waveform's two louder bands. Green is `--hud-level` above and is
+     shared with the record button's fill, so the quiet end of the dock's meter
+     and the default HUD's meter are the same green rather than two greens.
+
+     Measured against `--hud-surface`, which is the only surface these ever
+     appear on: `--hud-level` 6.87:1, `--hud-level-mid` 6.53:1,
+     `--hud-level-high` 6.32:1. Held above 3:1 even though the bars are
+     decoration — the meter is the largest thing in the dock and a band that
+     dropped out against the card would read as a gap in the waveform rather
+     than as a quiet colour. They are never the only signal: loudness is
+     carried by the bar's width, which is what changes first (§11). */
+  --hud-level-mid: #64a8f0;
+  --hud-level-high: #b98cf5;
+  --hud-final: #8ee0ab;
+  /* Warning and error *text* on this surface, which the shared `--warning` and
+     `--danger` cannot supply: both are tuned for the light workspace and measure
+     2.49:1 and 2.20:1 against `--hud-surface`, failing AA badly. This is the same
+     defect the accent had, in the same place — a token picked for a surface that
+     flips, used on the one surface that does not.
+
+     Measured against `--hud-surface`: `--hud-warning` 9.93:1,
+     `--hud-danger` 6.99:1. The error red stays recognisably red rather than
+     becoming pink at the contrast the surface demands. */
+  --hud-warning: #f2c14e;
+  --hud-danger: #f28b84;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 18px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius: 6px;
+  /* Interface text is sans-serif; transcript surfaces opt back into a serif
+     where it reads better. */
+  font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  background: var(--surface);
+  color: var(--text);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+/* The dock is a rounded card floating over the desktop, not a window filled
+   edge to edge, so its window is `transparent: true` and both documents above
+   the card have to get out of the way — `:root` paints `--surface`, and that
+   light rectangle is what showed through the corners and around the card in
+   the running window.
+
+   The padding is the gutter the corner radius and the drop shadow live in:
+   without it the shadow has nowhere to fall and the card's own edge is the
+   window's edge. It comes out of the declared 130x360, which is why the card
+   itself is sized in percentages rather than repeating those numbers.
+
+   `min-width` also resets here. The settings workspace's 320px comfort floor
+   was measured against this window and left the 130px-wide dock's body wider
+   than the window containing it, overflowing sideways inside a viewport too
+   narrow to show it. */
+html:has(.hud-dock),
+body:has(.hud-dock) {
+  background: transparent;
+}
+
+html:has(.hud-dock) {
+  --dock-gutter: 5px;
+}
+
+body:has(.hud-dock) {
+  box-sizing: border-box;
+  min-height: 0;
+  min-width: 0;
+  padding: var(--dock-gutter);
+}
+
+/* ── The compact transcriber ───────────────────────────────────────────────
+   Fixed 420x280 logical and not resizable, so the layout is a column where
+   every fixed-height row is a control and the transcript takes whatever is
+   left. The window itself never scrolls; only the transcript does.
+
+   Four fixed rows and one that flexes, in a fixed order:
+
+     20px  .hud-chrome      wordmark, pin, minimize, close
+     38px  .hud-command     the record button, and Settings
+     18px  .hud-status      one state voice, and this state's one action
+    128px  .hud-transcript  flex: 1 — the same height in every state, and the
+                            only thing in the window that scrolls
+     28px  .hud-footer      the microphone
+
+   With the 12px window padding and the 4/8px gaps that is 152 + 128 = 280.
+
+   That order does not change and no row is conditional, which is the point.
+   Chrome previously held 181 of the 280 pixels because three rows above the
+   transcript restated one fact — a supporting line, a delivery notice, and a
+   streaming disclosure that outlived the recording it described — and two more
+   (the ceiling warning, Cancel) appeared mid-dictation and pushed the transcript
+   down while it was being read. Cancel, the ceiling, Copy and Done now share the
+   status row's side slot, so the transcript's box cannot move.
+
+   Measured against the layout this replaced: 79 usable transcript pixels became
+   128, three lines became five.
+
+   Still a column flex rather than a row template: `.hud-transcript` is whichever
+   child claims `flex: 1`, and the two states with nothing to transcribe put a
+   notice in that position instead of adding a row.
+
+   Type scale is three sizes and no more: 0.95rem for the record button and the
+   transcript, 0.76rem for the status line and controls, 0.68rem for captions and
+   chips. It used to be six, spanning 0.95 → 0.66 in steps as small as 0.02 —
+   a difference the eye cannot resolve, so everything muted read as one
+   undifferentiated grey block and the hierarchy conveyed nothing. */
+.capture-hud {
+  background: var(--hud-surface);
+  box-sizing: border-box;
+  color: var(--hud-text);
+  display: flex;
+  flex-direction: column;
+  height: 280px;
+  margin: 0;
+  overflow: hidden;
+  padding: var(--space-3);
+  width: 420px;
+}
+
+.hud-chrome,
+.hud-command,
+.hud-status,
+.hud-footer {
+  flex: none;
+}
+
+/* Two corrections that the row arithmetic above depends on, both found by
+   measuring the running window rather than by reading the file.
+
+   `box-sizing` — every sized control here carries a 1px border, and the row
+   heights are the budget those controls fit inside. Without this the record
+   button was 40px in a 38px row: the border sat outside the height.
+
+   `min-height` — the settings workspace sets `button { min-height: 40px }`, a
+   comfort target for a 880px-wide page of forms. It is an element selector, so it
+   loses to these class selectors only for the properties they actually declare —
+   and these declare `height`, not `min-height`. The 40px therefore leaked in and
+   overrode every height below it: the 18px status chips and the 20px chrome icons
+   were both being rendered at 40px, overflowing the rows meant to contain them.
+   Resetting it here lets each control's own `height` govern. Controls that want a
+   floor rather than a fixed height set `min-height` again in their own rule
+   further down, which wins by coming later. */
+.hud-primary,
+.hud-settings,
+.hud-mic,
+.hud-chip,
+.hud-icon {
+  box-sizing: border-box;
+  min-height: 0;
+}
+
+/* The strip that is this undecorated window's entire titlebar. The wordmark
+   fills the half that used to be empty, so the app finally says its own name
+   somewhere, and gives the drag region something visible to grab. */
+.hud-chrome {
+  align-items: center;
+  cursor: grab;
+  display: flex;
+  gap: var(--space-1);
+  height: 20px;
+  /* Reaches the window edges so there is somewhere to grab that is not a
+     control, without the row itself growing. */
+  margin: calc(var(--space-3) * -1) calc(var(--space-3) * -1) 0;
+  padding: var(--space-3) var(--space-3) 0;
+}
+
+.hud-chrome:active {
+  cursor: grabbing;
+}
+
+.hud-wordmark {
+  color: var(--hud-text-muted);
+  flex: 1;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* The record button takes every spare pixel, Settings is fixed on the right. The
+   button used to size to its longest label so a state change could not make it
+   jump width; filling the row keeps that property for the same reason. */
+.hud-command {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+  height: 38px;
+  margin-top: var(--space-2);
+}
+
+/* Recording is never signalled by colour alone: the button's label changes, the
+   dot appears, and the level meter moves. */
+.capture-hud[data-session="listening"] .hud-primary-label::before {
+  /* Not `--recording`: on the recording tone the fill *is* that red, so the dot
+     has to be the label's own colour to be visible at all. */
+  background: var(--hud-text);
+  border-radius: 50%;
+  content: "";
+  display: inline-block;
+  height: 0.6em;
+  margin-right: 0.45em;
+  width: 0.6em;
+}
+
+/* ── The status row ──────────────────────────────────────────────────────
+   Left half narrates, right half acts. Both halves are always in the DOM, so
+   neither can reflow the row when its contents change. */
+.hud-status {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+  height: 18px;
+  justify-content: space-between;
+  margin-top: var(--space-1);
+}
+
+.hud-status-main {
+  font-size: 0.76rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-status-main[data-tone="quiet"] {
+  color: var(--hud-text-muted);
+}
+
+/* Running figures: full contrast and tabular digits, so a clock counting up does
+   not jitter as its digit widths change. */
+.hud-status-main[data-tone="live"] {
+  color: var(--hud-text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.hud-status-main[data-tone="warn"] {
+  color: var(--hud-warning);
+}
+
+.hud-status-side {
+  align-items: center;
+  display: flex;
+  flex: none;
+  gap: var(--space-1);
+}
+
+.hud-ceiling {
+  color: var(--hud-warning);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+/* Cancel, Copy and Done. Sized to the 18px status row rather than to a comfort
+   target: they are pointer-only (WCAG 2.5.8 applies, 2.5.5 does not), and every
+   pixel this row takes comes out of the transcript. */
+.hud-chip {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--hud-border);
+  border-radius: 4px;
+  color: var(--hud-text);
+  cursor: pointer;
+  display: flex;
+  flex: none;
+  font: inherit;
+  font-size: 0.68rem;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.hud-chip:hover {
+  background: var(--hud-hover);
+}
+
+/* ── The footer ──────────────────────────────────────────────────────────── */
+.hud-footer {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+  height: 28px;
+  margin-top: var(--space-2);
+}
+
+.hud-mic {
+  background: var(--hud-raised);
+  /* `--hud-border`, not `--hud-line`: an interactive control's boundary needs 3:1
+     against what is behind it, and the lighter line colour measured 2.11:1. */
+  border: 1px solid var(--hud-border);
+  border-radius: var(--radius);
+  color: var(--hud-text);
+  /* Full width now that it owns the footer. Long device names still truncate
+     rather than widening a window that cannot grow (§6.4), but at 396px most of
+     them no longer have to — reading which microphone is selected is the whole
+     point of the control, and it used to be capped at 192px beside a level
+     meter. */
+  flex: 1;
+  font: inherit;
+  font-size: 0.76rem;
+  min-height: 28px;
+  min-width: 0;
+  padding: 2px 2px 2px 6px;
+  text-overflow: ellipsis;
+}
+
+.hud-icon {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--hud-text);
+  cursor: pointer;
+  display: flex;
+  /* Pointer-only targets (WCAG 2.5.8) on the thinnest strip in the window. */
+  height: 20px;
+  justify-content: center;
+  padding: 0;
+  width: 24px;
+}
+
+.hud-icon:hover {
+  background: var(--hud-hover);
+}
+
+/* The pin reports its own state in colour *and* in its accessible name, which
+   says "Staying on top" rather than "Pin". Under forced-colors the fill flattens
+   and the name is what remains. */
+.hud-icon[aria-pressed="true"] {
+  background: var(--hud-raised);
+  color: var(--hud-ready);
+}
+
+/* The gear with its caption under it. Raised rather than transparent like the
+   chrome icons: it is a peer of the primary action, and a bare glyph next to a
+   filled full-width button reads as decoration. */
+.hud-settings {
+  align-items: center;
+  background: var(--hud-raised);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--radius);
+  color: var(--hud-text);
+  cursor: pointer;
+  display: grid;
+  flex: none;
+  font: inherit;
+  gap: 1px;
+  justify-items: center;
+  /* Matches `.hud-primary` so the two read as one row. */
+  height: 38px;
+  padding: 3px 8px;
+  width: 56px;
+}
+
+.hud-settings:hover {
+  background: var(--hud-hover);
+}
+
+.hud-settings-label {
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+.hud-close:hover {
+  background: var(--danger);
+  color: var(--hud-surface);
+}
+
+/* ── The level meter, as the record button's fill ─────────────────────────
+   Absolutely positioned to fill the button, behind its label. Still a native
+   `<meter>`: the element is what survives `forced-colors: active` and what
+   carries the accessible name — only its position changed.
+
+   `appearance: none` plus the two WebKit pseudo-elements is what the WebView2
+   renderer needs to draw a transparent track with a translucent fill. Without
+   the pseudo-element rules the platform bar paints its own opaque background and
+   hides the label behind it. */
+.hud-level {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  bottom: 0;
+  height: auto;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+
+.hud-level::-webkit-meter-inner-element,
+.hud-level::-webkit-meter-bar {
+  background: transparent;
+  border: 0;
+}
+
+.hud-level::-webkit-meter-optimum-value {
+  /* The label sits on the recording red, so the fill has to be the label's own
+     colour at low alpha — a green fill here would compete with the text it sits
+     behind rather than qualifying it. */
+  background: rgb(242 244 238 / 0.22);
+  transition: inline-size 100ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-level::-webkit-meter-optimum-value {
+    transition: none;
+  }
+}
+
+/* Under forced-colors an overlay cannot be trusted to stay behind the label, and
+   the system palette gives it no translucency. Recording is still carried by the
+   button's label and the dot, so dropping the fill here costs nothing that
+   §11 requires. */
+@media (forced-colors: active) {
+  .hud-level {
+    display: none;
+  }
+}
+
+/* Dark text on the light coral, not white: the transcriber's surface never
+   follows the system theme, so its accent must not either. White on this coral is
+   1.9:1.
+
+   The coral is the base and the `recover` fallback; every other state overrides
+   it by tone below. It stays the default so a tone the CSS has not heard of
+   still renders as a legible primary action rather than as an unstyled box. */
+.hud-primary {
+  align-items: center;
+  background: var(--hud-accent);
+  border: 1px solid var(--hud-accent);
+  border-radius: var(--radius);
+  color: var(--hud-accent-text);
+  cursor: pointer;
+  display: flex;
+  flex: 1;
+  font: inherit;
+  /* Larger than the controls it replaced, because it is now the transcriber's
+     state readout as well as its one action (§6.1). */
+  font-size: 0.95rem;
+  font-weight: 600;
+  gap: var(--space-2);
+  height: 38px;
+  /* Centred because it fills the row now. Left-aligned, the label drifted away
+     from the button it labels as the states changed length. */
+  justify-content: center;
+  min-width: 0;
+  /* Both for the level meter, which fills the button behind its label: the
+     button is the meter's containing block, and clips it to the border radius. */
+  overflow: hidden;
+  padding: 6px 14px;
+  position: relative;
+  white-space: nowrap;
+}
+
+/* The meter is absolutely positioned, so it would otherwise paint over these —
+   positioned elements paint above static ones regardless of source order. */
+.hud-primary-glyph,
+.hud-primary-label {
+  position: relative;
+}
+
+.hud-primary-glyph {
+  flex: none;
+}
+
+.hud-primary[data-tone="ready"] {
+  background: var(--hud-ready);
+  border-color: var(--hud-ready);
+}
+
+/* One tone for the three states that are not ready to record — the model
+   loading, the transcript arriving, and setup outstanding. Under forced-colors
+   every tone here flattens to the system palette, which is why each one also
+   changes the button's label: the colour is never the only difference. */
+.hud-primary[data-tone="loading"],
+.hud-primary[data-tone="processing"],
+.hud-primary[data-tone="setup"] {
+  background: var(--hud-busy);
+  border-color: var(--hud-busy);
+}
+
+.hud-primary[data-tone="recording"] {
+  background: var(--recording);
+  border-color: var(--recording);
+  color: var(--hud-text);
+}
+
+/* The record button keeps full opacity while disabled, unlike everything else.
+   Fading it is what §6.3 would cost here: measured over the surface, 0.75
+   opacity takes the recording tone's label from 4.56:1 to 3.79:1, below AA, and
+   `Starting…` is a disabled recording-tone state. It does not need the fade to
+   read as inert either — every disabled tone spells out why in its own label. */
+.hud-primary:disabled {
+  cursor: default;
+}
+
+/* Setup and failure text. It no longer sits *above* the transcript in a row of
+   its own — in both states there is nothing to transcribe, so it takes the
+   transcript's own space and scrolls there on the same terms. */
+.hud-notice {
+  flex: 1;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  margin: var(--space-1) 0 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.hud-error {
+  color: var(--hud-danger);
+}
+
+/* The transcript is the only thing that scrolls, and it gets every pixel the
+   rows around it do not take. `min-height: 0` is what lets it shrink instead of
+   pushing the window past 280px. */
+.hud-transcript {
+  flex: 1;
+  margin-top: var(--space-1);
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.hud-disclosure {
+  color: var(--hud-text-muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  margin: 0 0 var(--space-1);
+}
+
+.hud-text {
+  margin: 0;
+  /* Transcript text keeps a serif: this is the one place it reads better. */
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.hud-stable {
+  color: var(--hud-text);
+  font-weight: 700;
+}
+
+.hud-mutable {
+  color: var(--hud-text-muted);
+  font-style: italic;
+}
+
+/* The authoritative final is green and that is load-bearing. It uses the
+   transcriber's own fixed green, because `--success` darkens in light mode and
+   this surface stays dark. */
+.hud-final {
+  color: var(--hud-final);
+  display: block;
+  font-style: normal;
+}
+
+/* ── The side dock ──────────────────────────────────────────────────────────
+   A second presentation of the compact transcriber: a narrow card that clings
+   to a screen edge instead of floating mid-screen. Fixed 130x360 logical,
+   matching the `hud-dock` entry in `tauri.conf.json` — there is no size to
+   negotiate here either, same reasoning as `.capture-hud`'s own fixed 420x280.
+
+   62 wide, where this was 130 and then 96 (owner decision 2026-08-13: 35%
+   thinner again). 130 was a measured floor and the floor is real — Windows
+   clamps a window to the default minimum tracking size while it is being
+   created, and 60, 96, and 96-with-a-matching-minWidth all came back at ~130 on
+   this machine. What was not tried was resizing the window *after* creation,
+   which the clamp does not apply to; `enforce_dock_size` in `composition.rs`
+   does that, and any width holds. Anything in here that would have to be
+   retuned at the next width is expressed as a proportion
+   (§ `MAX_BAR_PERCENT`) rather than as a pixel count.
+
+   52px of card is the constraint everything below answers to, and the one
+   control it genuinely strains is the Stop button: measured in the running
+   window "Stop" needs about 23px at 0.68rem, so the row's inset and the
+   button's own padding are 4px rather than 8px each. The word survives. An
+   icon-only stop was the alternative and it is worse — the dock is the
+   presentation with no transcript and no status line, so the button's label is
+   the only text that says what pressing it does.
+
+   Five rows, in a fixed order and none of them conditional:
+
+     20px  .hud-dock-chrome    the close button
+    104px  .hud-dock-wordmark  vertical, and this window's whole titlebar
+      1fr  .hud-dock-level     the waveform — 134px, the same in every state
+     16px  .hud-dock-clock     elapsed, while a dictation is running
+     28px  .hud-dock-action    Stop, the working dots, or how it ended
+
+   The 5px gutter below leaves the card 350 tall inside the 360 window. With
+   8px padding top and bottom and four 8px gaps that is 216 + 134 = 350. The
+   last two rows are empty outside a dictation rather than absent, so the
+   waveform's box cannot move under a running recording.
+
+   The wordmark took the 18px the meter gave up. It was set at 0.62rem, which
+   is smaller than any type anywhere else in the app, and in a column this
+   narrow it is the only thing on the card that says what the card is.
+
+   The window is transparent and the card is inset by `body`'s padding, which
+   is what the rounded corners and the drop shadow need to sit in. */
+.hud-dock {
+  align-items: center;
+  background: var(--hud-surface);
+  border-radius: 14px;
+  /* What separates the card from whatever it is floating over. Two layers,
+     both of which have to fit: a cast shadow can only render into the gutter
+     `body` reserves, and the 20px blur this started as was clipped to nothing
+     against the window edge in the running build — invisible, and the reason
+     the card read as pasted onto the desktop. 5px of gutter buys a 5px blur.
+     The inset hairline does the rest, and costs no gutter at all; it is what
+     holds the edge on a desktop dark enough for the shadow to disappear into.
+
+     Not a `border`: `--hud-border` is tuned for controls sitting on the
+     surface, and at full strength around the whole card it reads as a grey
+     picture frame. */
+  box-shadow:
+    0 2px 5px rgb(0 0 0 / 0.55),
+    inset 0 0 0 1px rgb(242 244 238 / 0.09);
+  box-sizing: border-box;
+  color: var(--hud-text);
+  cursor: grab;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* Off the viewport, not `height: 100%`. The card's parent is `#root`, whose
+     own height is auto, so a percentage there has nothing definite to resolve
+     against — measured against the running window it left the card 321px tall
+     inside a 360px one, sized to its contents with the shortfall showing
+     through as transparent desktop under the Stop button. */
+  height: calc(100vh - var(--dock-gutter) * 2);
+  margin: 0;
+  overflow: hidden;
+  padding: var(--space-2) 0;
+  width: 100%;
+}
+
+.hud-dock:active {
+  cursor: grabbing;
+}
+
+/* `box-sizing` is not decoration here: measured in the running window this row
+   came out 128px wide inside a 120px card, because `width: 100%` and the 4px
+   padding were adding. The card's `overflow: hidden` swallowed the difference,
+   so what it actually cost was the close button being pushed 4px past the
+   card's right edge and clipped there — visible as a slightly cropped ×, and
+   worse the narrower the card gets. */
+.hud-dock-chrome {
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  height: 20px;
+  justify-content: flex-end;
+  padding: 0 var(--space-1);
+  width: 100%;
+}
+
+/* Sideways, reading top to bottom — `writing-mode` alone, with the glyphs
+   rotated as a unit the way a spine label is set.
+   `text-orientation: upright` plus a 180° rotation, which is what this was,
+   stacked the letters individually *and* flipped each one, so the running
+   window showed an upside-down "SPEAKEASY" read bottom-up. */
+.hud-dock-wordmark {
+  color: var(--hud-text-muted);
+  flex: none;
+  font-size: 0.86rem;
+  font-weight: 600;
+  height: 104px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+}
+
+.hud-dock-level-wrap {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  min-height: 0;
+  width: 100%;
+}
+
+/* One row per retained sample, newest in the middle (§ `DockLevelMeter`). The
+   rows are centred rather than left-aligned, so the silhouette is symmetric
+   about the dock's own axis. */
+.hud-dock-level {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2.5px;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+}
+
+.hud-dock-level-bars {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2.5px;
+  justify-content: center;
+  width: 100%;
+}
+
+/* Grey at rest, and coloured only while capture is actually running.
+   `LevelMeter` solves the same problem by rendering nothing at all when it is
+   inactive — a resting bar invites the reading that the app is listening. The
+   dock cannot borrow that answer: it is a mostly empty card, and the waveform
+   is the only thing in it that says where the meter lives. What it does
+   instead is make the resting state a different thing rather than a quiet
+   version of the same thing — a flat rail of grey dots, never the varying
+   coloured bars, so shape and colour both carry it (§11).
+
+   `min-width` is the resting dot. It used to be a `MIN_BAR` constant added to
+   every computed width in JS, which meant the meter had to know how many
+   pixels the card was; the widths are percentages now, and 0% with a 3px floor
+   draws the same mark without that. */
+.hud-dock-level-bar {
+  background: var(--hud-text-muted);
+  border-radius: 2px;
+  flex: none;
+  height: 4px;
+  min-width: 3px;
+  opacity: 0.55;
+  transition: width 100ms linear;
+}
+
+/* Loud is purple, middling is blue, quiet is green — the band comes off the
+   sample's own loudness (§ `barTone`), so a bar keeps the colour of the moment
+   it recorded as it ages outward. Width is what moves first and carries the
+   level on its own; the hue is a second reading of it, not the only one. */
+.hud-dock-level[data-active="true"] .hud-dock-level-bar {
+  opacity: 1;
+}
+
+.hud-dock-level[data-active="true"] .hud-dock-level-bar[data-tone="low"] {
+  background: var(--hud-level);
+}
+
+.hud-dock-level[data-active="true"] .hud-dock-level-bar[data-tone="mid"] {
+  background: var(--hud-level-mid);
+}
+
+.hud-dock-level[data-active="true"] .hud-dock-level-bar[data-tone="high"] {
+  background: var(--hud-level-high);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-dock-level-bar {
+    transition: none;
+  }
+}
+
+/* Same accommodation `.hud-level` takes on the default HUD: the system palette
+   has no translucency and no second accent to spend on decoration, and the
+   clock and the Stop button below already say a dictation is running. */
+@media (forced-colors: active) {
+  .hud-dock-level-bars {
+    display: none;
+  }
+}
+
+.hud-dock-clock {
+  align-items: center;
+  display: flex;
+  flex: none;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  height: 16px;
+  justify-content: center;
+}
+
+/* The card itself has no horizontal padding — the waveform is centred and
+   wants the full width — so the inset the full-width button needs is here.
+   4px, not 8: at a 52px card the row's inset comes straight out of the only
+   word in the dock that names an action. */
+.hud-dock-action {
+  align-items: center;
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  height: 28px;
+  justify-content: center;
+  padding: 0 var(--space-1);
+  width: 100%;
+}
+
+/* The record button's recording tone, exactly (owner decision 2026-08-12).
+   This was the quiet raised treatment `.hud-chip` uses, on the argument that
+   the waveform should hold the eye — but the two presentations are the same
+   control in two windows, and the default HUD paints *its* stop as
+   `.hud-primary[data-tone="recording"]`. A user who has seen one and then
+   docks should not have to learn a second appearance for the same press.
+
+   So the fill below is `.hud-primary[data-tone="recording"]`'s and is meant to
+   stay equal to it: `--recording` fill and border, `--hud-text` label at 4.56:1
+   on it, and 3.30:1 for the fill against the surface (§1.4.11).
+
+   The red is on a `[data-session="listening"]` rule rather than on the button,
+   which is not decoration. Red carries one operational meaning here — active
+   capture — and the scaffold suite enforces that by reading the selector of
+   every rule that spends `--recording`. `.hud-dock-stop` alone would be a
+   button that *happens* to be rendered only while listening, in a component
+   that could stop doing that; this is the state saying so. The structural rule
+   below is the fallback if it ever does, and it is the quiet raised treatment
+   rather than a capture colour that has stopped meaning capture.
+
+   Colour is not the only signal: the button is absent outside a dictation, and
+   it says "Stop". */
+.hud-dock-stop {
+  background: var(--hud-raised);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--radius);
+  box-sizing: border-box;
+  color: var(--hud-text);
+  cursor: pointer;
+  font: inherit;
+  /* 0.68rem, the catalog's caption size — the smallest step on the three-size
+     scale, and the size at which "Stop" fits a 44px button on a 52px card. */
+  font-size: 0.68rem;
+  font-weight: 600;
+  height: 28px;
+  min-height: 0;
+  /* Fills the row, the way `.hud-primary` fills the command row it sits in.
+     Sized to its label instead, it read as a chip floating in the card. */
+  padding: 0 var(--space-1);
+  width: 100%;
+}
+
+.hud-dock[data-session="listening"] .hud-dock-stop {
+  background: var(--recording);
+  border-color: var(--recording);
+  color: var(--hud-text);
+}
+
+/* ── The action row's other two occupants ────────────────────────────────
+   What the dock says between the user releasing the key and the text landing,
+   and what it says when the text does not land. Both sit in the row Stop
+   vacates, so nothing moves.
+
+   Amber, and specifically `--hud-busy`: that is already the record button's
+   tone for the three states that are neither ready nor recording, so the two
+   presentations agree about what "working" looks like rather than each
+   inventing a colour. */
+.hud-dock-working {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  height: 28px;
+  justify-content: center;
+}
+
+.hud-dock-working-dot {
+  background: var(--hud-busy);
+  border-radius: 50%;
+  height: 5px;
+  width: 5px;
+  animation: hud-dock-working 1.2s ease-in-out infinite;
+}
+
+.hud-dock-working-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.hud-dock-working-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+/* Bottoms out at 0.3 rather than 0, so no dot is ever fully absent: the count
+   is what says "working" and a dot that disappears makes it two. */
+@keyframes hud-dock-working {
+  0%,
+  70%,
+  100% {
+    opacity: 0.3;
+  }
+  35% {
+    opacity: 1;
+  }
+}
+
+/* Three static dots, not one. The animation is a phase offset per dot, so
+   removing it leaves the mark intact — the shape carries the meaning and the
+   motion only makes it lively (§11, and WCAG 2.3.3). */
+@media (prefers-reduced-motion: reduce) {
+  .hud-dock-working-dot {
+    animation: none;
+    opacity: 0.85;
+  }
+}
+
+/* How it ended, when it did not end with text in the user's app. The glyph
+   differs between the two — a clipboard and a triangle — so they are told
+   apart by outline where `forced-colors: active` flattens both fills to the
+   same system colour. */
+.hud-dock-outcome {
+  align-items: center;
+  display: flex;
+  height: 28px;
+  justify-content: center;
+}
+
+.hud-dock-outcome[data-outcome="refused"] {
+  color: var(--hud-warning);
+}
+
+.hud-dock-outcome[data-outcome="failed"] {
+  color: var(--hud-danger);
+}
+
+/* No `:hover` fill change. `.hud-primary` has none either — it is a solid
+   accent button, and darkening or lightening the one red that means "capturing"
+   is a change of meaning rather than a hover affordance. */
+
+.sr-only {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  width: 1px;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+main {
+  margin: 0 auto;
+  padding: var(--space-6) 0;
+  width: min(1200px, calc(100% - var(--space-6)));
+}
+
+/* Interface type is the sans-serif set on `:root`. Three separate rules used to
+   opt eyebrows, term labels and buttons into Trebuchet MS, which was the last of
+   the old identity left in the workspace (§11). */
+.eyebrow {
+  color: var(--accent);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* 3rem was a landing-page heading. This is a settings workspace 880 px wide. */
+h1 {
+  font-size: 1.75rem;
+  letter-spacing: 0;
+  margin: 0 0 var(--space-5);
+}
+
+dt {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+dd {
+  margin: var(--space-2) 0 0;
+}
+
+.result-text {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  margin: var(--space-4) 0;
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.section-heading {
+  align-items: end;
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+}
+
+.section-heading h2,
+.model-row h3 {
+  margin: 0;
+}
+
+/* Deliberately no `text-transform: capitalize`. It was applied when this only
+   ever held a single state word, and it title-cased the session-log's
+   "1 transcript this session" into "1 Transcript This Session". Catalog strings
+   arrive correctly cased; re-casing them can only make them wrong. */
+.section-heading output {
+  text-align: right;
+}
+
+.warning {
+  color: var(--warning);
+}
+
+.model-row {
+  border-block: 1px solid var(--border);
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5) 0;
+}
+
+.model-row p {
+  line-height: 1.5;
+  margin: var(--space-2) 0 0;
+}
+
+.confirmation {
+  align-items: center;
+  display: flex;
+  gap: var(--space-3);
+}
+
+.confirmation input {
+  height: 18px;
+  width: 18px;
+}
+
+button {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-4);
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+/* Destructive actions name their scope in the label; the border carries the
+   warning without relying on colour alone to convey it. */
+button.destructive {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+/* ── First-run setup (§10) ─────────────────────────────────────────────────
+   A compact vertical stepper, shown only while setup is unfinished or the user
+   asks to walk it again. It replaces a seven-column progress grid that used to
+   sit above every settings page permanently — scaffolding for a one-time task,
+   which at 720 px wide gave each of seven columns barely 90 px. */
+.setup {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-6);
+  padding: var(--space-5);
+}
+
+.setup-steps {
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+  margin: var(--space-4) 0;
+  padding: 0;
+}
+
+.setup-steps li {
+  border-left: 4px solid var(--border);
+  color: var(--text-muted);
+  padding: var(--space-1) 0 var(--space-1) var(--space-3);
+}
+
+.setup-step-label {
+  align-items: baseline;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.setup-steps li[data-state="done"] {
+  border-left-color: var(--success);
+}
+
+.setup-steps li[data-state="current"] {
+  border-left-color: var(--accent);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.setup-step-note {
+  color: var(--success);
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+
+/* Only the current step is expanded; its body carries normal-weight prose. */
+.setup-step-body {
+  font-weight: 400;
+  margin-top: var(--space-2);
+}
+
+.setup-step-body p {
+  line-height: 1.5;
+  margin: 0 0 var(--space-2);
+  max-width: 60ch;
+}
+
+/* ── The settings workspace ────────────────────────────────────────────────
+   A nav rail beside one scrolling content column (§9). Never two scroll
+   regions: the rail is fixed and the content moves. */
+.settings-body {
+  display: grid;
+  gap: var(--space-6);
+  grid-template-columns: 200px minmax(0, 1fr);
+}
+
+.settings-rail {
+  align-content: start;
+  border-right: 1px solid var(--border);
+  display: grid;
+  gap: var(--space-1);
+  padding-right: var(--space-3);
+  position: sticky;
+  top: var(--space-4);
+}
+
+.settings-rail button {
+  background: transparent;
+  border: 0;
+  border-left: 4px solid transparent;
+  border-radius: 0;
+  min-height: 44px;
+  text-align: left;
+}
+
+.settings-rail button[aria-selected="true"] {
+  border-left-color: var(--accent);
+  font-weight: 700;
+}
+
+/* Content is bounded for readable line length (§9) regardless of window width. */
+.settings-content {
+  max-width: 720px;
+  min-width: 0;
+}
+
+[role="tabpanel"] {
+  padding-bottom: var(--space-5);
+}
+
+[role="tabpanel"] > section {
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+}
+
+[role="tabpanel"] h3 {
+  margin: 0 0 var(--space-2);
+}
+
+.setting-detail,
+.setting-status {
+  line-height: 1.5;
+  margin: 0 0 var(--space-3);
+  max-width: 60ch;
+}
+
+.setting-status {
+  font-weight: 700;
+}
+
+.setting-fields {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin: var(--space-3) 0;
+}
+
+.setting-fields label,
+.setting-field {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  max-width: 360px;
+  min-width: 0;
+}
+
+/* A `select` sizes itself to its longest option, and it does not shrink below
+   that on its own. One option here reads "Hands-free (press to start, automatic
+   stop is not implemented; use Stop)", which was wide enough to push the content
+   column past the window and produce a horizontal scrollbar — banned outright by
+   §13 and UI-GUIDE's responsive rules. Every control is bounded by its container
+   instead, and long option text truncates. */
+.settings select,
+.settings input,
+.settings textarea,
+.settings progress,
+.settings meter {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.settings select,
+.settings input,
+.settings textarea {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  min-height: 40px;
+  padding: var(--space-2);
+}
+
+.settings select {
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+.settings textarea {
+  min-height: 96px;
+  width: 100%;
+}
+
+/* Checkbox and radio inputs are sized by the `.confirmation` row, not stretched. */
+.settings .confirmation input {
+  width: 18px;
+}
+
+/* `pre` does not wrap by default, so an untrusted snippet body or transcript on
+   one long line would scroll the page sideways. UI-GUIDE requires `<pre>` *with
+   wrapping* for exactly this reason. */
+.settings pre {
+  margin: var(--space-2) 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.input-level {
+  height: 14px;
+  width: 100%;
+}
+
+.plain-list {
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+}
+
+/* ── Disclosure panels (§9.3, §9.5) ─────────────────────────────────────── */
+.disclosure {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+}
+
+.disclosure > summary {
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 32px;
+  padding: var(--space-1) 0;
+}
+
+.disclosure > summary:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.disclosure-hint {
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: var(--space-1) 0 var(--space-3);
+}
+
+/* Exact identifiers: truncated so a long revision cannot stretch the column, a
+   full-value tooltip on hover, and one click selects the whole value so Ctrl+C
+   copies it. There is no Copy button by design — that would need a command that
+   writes arbitrary frontend text to the clipboard, which is broader authority
+   than anything this app grants. */
+.exact-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: all;
+  white-space: nowrap;
+}
+
+/* ── The session transcript log (§9.4) ──────────────────────────────────── */
+.session-log-entry {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+
+.session-log-meta {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.session-log-entry .result-text {
+  margin: 0;
+  max-height: 160px;
+}
+
+.warning-panel {
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+}
+
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+  min-width: 0;
+  padding: var(--space-4);
+}
+
+fieldset > label:not(.confirmation) {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 320px;
+}
+
+/* A `fieldset` is a grid here, so a button would otherwise stretch the full
+   content width and read as a banner rather than an action. */
+.settings fieldset > button,
+.settings section > button {
+  justify-self: start;
+}
+
+.fact-grid {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  margin: var(--space-4) 0 0;
+}
+
+.fact-grid div {
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--border));
+  border-radius: var(--radius);
+  min-width: 0;
+  padding: var(--space-3);
+}
+
+.fact-grid dd {
+  margin: var(--space-2) 0 0;
+  overflow-wrap: anywhere;
+}
+
+.tag {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  display: inline-block;
+  margin: 2px var(--space-1) 2px 0;
+  padding: 2px var(--space-2);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #121915;
+    --surface-raised: #1b2520;
+    --text: #f2f4ee;
+    --text-muted: #becabf;
+    --accent: #ff9a7f;
+    --success: #8ee0ab;
+    --warning: #ffd08a;
+    --danger: #ff9aa6;
+    --border: #66736b;
+    --border-strong: #8b9a90;
+    --focus: #8bc4ff;
+    /* The transcriber's own tokens are deliberately absent here. Its surface does
+       not follow the system theme, so flipping its palette is what produced the
+       1.9:1 primary button in the first place. */
+  }
+}
+
+@media (forced-colors: active) {
+  * {
+    forced-color-adjust: auto;
+  }
+
+  /* Both the rail's selected page and the stepper's current step are marked by a
+     border colour, which forced-colors would otherwise flatten away — leaving no
+     indication of where the user is. */
+  .settings-rail button[aria-selected="true"],
+  .setup-steps li[data-state="current"] {
+    border-left-color: Highlight;
+  }
+
+  .setup-steps li[data-state="done"] {
+    border-left-color: GrayText;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+@media (max-width: 560px) {
+  main {
+    padding: var(--space-5) 0;
+  }
+
+  .section-heading {
+    align-items: start;
+    flex-direction: column;
+  }
+}
+
+/* Below 760 px the rail stops being a rail (§9, UI-GUIDE "Responsive"). It
+   becomes a full-width row of buttons above the content — still one tablist,
+   still the same keyboard pattern, no horizontal scroll trap. */
+@media (max-width: 760px) {
+  .settings-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-rail {
+    border-bottom: 1px solid var(--border);
+    border-right: 0;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    padding: 0 0 var(--space-2);
+    position: static;
+  }
+
+  .settings-rail button {
+    border-bottom: 4px solid transparent;
+    border-left: 0;
+    text-align: center;
+  }
+
+  .settings-rail button[aria-selected="true"] {
+    border-bottom-color: var(--accent);
+    border-left-color: transparent;
+  }
+}

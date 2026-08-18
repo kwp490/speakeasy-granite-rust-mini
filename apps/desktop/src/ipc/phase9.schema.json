@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ai.speakeasy.desktop/ipc/phase9.schema.json",
+  "title": "SpeakEasy Phase 9 narrow IPC",
+  "schema_version": 1,
+  "additionalProperties": false,
+  "commands": {
+    "profile_status": {
+      "response": "ProfileView",
+      "window": "main",
+      "mutates": false
+    },
+    "onboarding_advance": {
+      "response": "ProfileView",
+      "window": "main",
+      "mutates": true
+    },
+    "history_configure": {
+      "response": "ProfileView",
+      "window": "main",
+      "mutates": true
+    },
+    "delivery_configure": {
+      "response": "ProfileView",
+      "window": "main",
+      "mutates": true
+    },
+    "recording_feedback_configure": {
+      "response": "ProfileView",
+      "window": "main",
+      "mutates": true
+    },
+    "history_list": {
+      "response": "TranscriptResult[]",
+      "window": "main",
+      "mutates": false
+    },
+    "history_export": {
+      "response": "file_name",
+      "window": "main",
+      "mutates": true
+    },
+    "history_delete_all": {
+      "response": "unit",
+      "window": "main",
+      "mutates": true
+    },
+    "startup_status_view": {
+      "response": "boolean",
+      "window": "main",
+      "mutates": false
+    },
+    "startup_configure": {
+      "response": "ProfileView",
+      "window": "main",
+      "mutates": true
+    },
+    "credential_status": {
+      "response": "CredentialStatusView",
+      "window": "main",
+      "mutates": false
+    },
+    "import_preview": {
+      "response": "ImportPreview|null",
+      "window": "main",
+      "mutates": false
+    },
+    "import_commit": {
+      "response": "ImportReport",
+      "window": "main",
+      "mutates": true
+    },
+    "reset_preview": {
+      "response": "ResetPreviewView",
+      "window": "main",
+      "mutates": false
+    },
+    "reset_commit": {
+      "response": "ProfileView",
+      "window": "main",
+      "mutates": true
+    },
+    "diagnostics_status": {
+      "response": "DiagnosticsView",
+      "window": "main",
+      "mutates": false
+    },
+    "diagnostics_export": {
+      "response": "DiagnosticsExportView",
+      "window": "main",
+      "mutates": true
+    },
+    "model_catalog": {
+      "response": "ModelCatalogItem[]",
+      "window": "main",
+      "mutates": false
+    },
+    "gpu_status": {
+      "response": "GpuStatusView",
+      "window": "main",
+      "mutates": false
+    },
+    "cuda_runtime_status": {
+      "response": "CudaRuntimeView",
+      "window": "main",
+      "mutates": false
+    },
+    "cuda_runtime_install_start": {
+      "response": "unit",
+      "window": "main",
+      "mutates": true
+    },
+    "cuda_runtime_install_cancel": {
+      "response": "unit",
+      "window": "main",
+      "mutates": true
+    },
+    "model_install_start": {
+      "response": "unit",
+      "window": "main",
+      "mutates": true
+    },
+    "model_install_cancel": {
+      "response": "unit",
+      "window": "main",
+      "mutates": true
+    },
+    "model_install_status": {
+      "response": "ModelInstallView",
+      "window": "main",
+      "mutates": false
+    },
+    "model_remove": {
+      "response": "unit",
+      "window": "main",
+      "mutates": true
+    },
+    "session_transcript_log": {
+      "response": "SessionTranscriptEntryView[]",
+      "window": "main|log",
+      "mutates": false
+    },
+    "session_transcript_copy": {
+      "response": "u32",
+      "window": "main|log",
+      "mutates": false
+    },
+    "hud_transcript_copy": {
+      "response": "clipboard_sequence",
+      "window": "main|hud-dock",
+      "mutates": true
+    },
+    "capture_hud_status": {
+      "response": "CaptureHudView",
+      "window": "hud-dock",
+      "mutates": false
+    },
+    "dictation_start": {
+      "response": "unit",
+      "window": "main|hud-dock",
+      "mutates": true
+    },
+    "dictation_stop": {
+      "response": "unit",
+      "window": "main|hud-dock",
+      "mutates": true
+    },
+    "dictation_retry": {
+      "response": "unit",
+      "window": "main",
+      "mutates": true
+    },
+    "capture_transcribe_cancel": {
+      "response": "unit",
+      "window": "main|hud-dock",
+      "mutates": true
+    },
+    "capture_devices": {
+      "response": "CaptureDeviceView[]",
+      "window": "main|hud-dock",
+      "mutates": false
+    },
+    "capture_device_configure": {
+      "response": "unit",
+      "window": "main|hud-dock",
+      "mutates": true
+    },
+    "capture_level": {
+      "response": "CaptureLevelView",
+      "window": "main",
+      "mutates": false
+    },
+    "app_quit": {
+      "response": "unit",
+      "window": "main",
+      "mutates": true
+    },
+    "capture_wizard_status": {
+      "response": "CaptureWizardView",
+      "window": "main|hud-dock",
+      "mutates": false
+    },
+    "hotkey_status": {
+      "response": "HotkeyView",
+      "window": "main|hud-dock",
+      "mutates": false
+    },
+    "open_settings_window": {
+      "response": "unit",
+      "window": "main|hud-dock",
+      "mutates": true
+    },
+    "hud_dock_placement_configure": {
+      "response": "unit",
+      "window": "main|hud-dock",
+      "mutates": true
+    },
+    "hud_dock_context_menu": {
+      "response": "unit",
+      "window": "main|hud-dock",
+      "mutates": false
+    },
+    "transcript_log_pin": {
+      "response": "unit",
+      "window": "main",
+      "mutates": false
+    },
+    "transcript_log_unpin": {
+      "response": "unit",
+      "window": "main|log",
+      "mutates": false
+    }
+  },
+  "forbidden_frontend_authority": [
+    "arbitrary_filesystem",
+    "arbitrary_network",
+    "arbitrary_sql",
+    "credential_values",
+    "raw_audio",
+    "shell_or_process",
+    "model_install_primitive",
+    "os_input"
+  ]
+}

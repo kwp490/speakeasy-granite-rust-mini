@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ai.speakeasy.desktop/ipc/phase10.schema.json",
+  "title": "SpeakEasy Phase 10 inert personalization IPC",
+  "schema_version": 1,
+  "additionalProperties": false,
+  "commands": {
+    "personalization_status": { "response": "PersonalizationView", "window": "main", "mutates": false },
+    "correction_record": { "response": "PersonalizationView", "window": "main", "mutates": true },
+    "snippet_save": { "response": "PersonalizationView", "window": "main", "mutates": true },
+    "personalization_delete": { "response": "PersonalizationView", "window": "main", "mutates": true },
+    "personalization_import_preview": { "response": "PersonalizationImportPreviewView", "window": "main", "mutates": false },
+    "personalization_import_commit": { "response": "PersonalizationView", "window": "main", "mutates": true },
+    "personalization_export": { "response": "file_name", "window": "main", "mutates": true },
+    "personalization_reset": { "response": "PersonalizationView", "window": "main", "mutates": true }
+  },
+  "limits": {
+    "import_bytes": 1048576,
+    "dictionary_entries": 1024,
+    "snippets": 256,
+    "snippet_body_bytes": 65536
+  },
+  "forbidden_capabilities": [
+    "contacts",
+    "code_execution",
+    "shell_or_process",
+    "url_or_file_launch",
+    "synthetic_enter",
+    "cursor_or_caret_action",
+    "partial_hypothesis_expansion"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "qualification": "unqualified_identity",
+  "cases": [
+    { "locale": "fr-FR", "input": "été 12,50 €" },
+    { "locale": "de-DE", "input": "1.234,50 €" },
+    { "locale": "es-ES", "input": "3 de mayo" },
+    { "locale": "pt-BR", "input": "12h30" },
+    { "locale": "ja-JP", "input": "東京、１２時" },
+    { "locale": "zh-CN", "input": "人民币１２元" },
+    { "locale": "ar", "input": "١٢:٣٠، سلام" },
+    { "locale": "he-IL", "input": "שלום 12:30" }
+  ]
+}

@@ -1,0 +1,72 @@
+[graph]
+all-features = false
+targets = ["x86_64-pc-windows-msvc"]
+
+[advisories]
+yanked = "deny"
+ignore = [
+    "RUSTSEC-2025-0075",
+    "RUSTSEC-2025-0080",
+    "RUSTSEC-2025-0081",
+    "RUSTSEC-2025-0098",
+    "RUSTSEC-2025-0100",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+deny = []
+skip = []
+skip-tree = []
+
+[licenses]
+confidence-threshold = 0.93
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+# Scoped to one crate rather than added to `allow` above, because this licence is
+# acceptable here for a specific reason that does not generalise.
+#
+# `webpki-roots` is a root-certificate bundle reached only through `ureq`, which
+# is an unconditional *build*-dependency of `sherpa-onnx-sys`. That build
+# dependency exists to download prebuilt native libraries over HTTPS — a path
+# this workspace disables by pointing `SHERPA_ONNX_LIB_DIR` at pre-fetched,
+# hash-verified archives (see `.cargo/config.toml` and
+# `scripts/Get-GpuRuntime.ps1`). So these certificates are never loaded, never
+# linked, and never shipped; the crate is in the graph because the build
+# dependency is not feature-gated, not because anything uses it.
+#
+# Widening `allow` would have accepted CDLA-Permissive-2.0 for code that does
+# ship. If sherpa-onnx-sys ever gates its downloader behind a feature, drop this.
+exceptions = [
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# One entry, and it is meant to go away. `llama-cpp-sys-2` is patched to a fork of
+# llama-cpp-rs 0.1.153 whose only change is repointing its llama.cpp submodule at
+# `9e3b928` plus a cherry-pick of ggml-org/llama.cpp#24357 — three lines of C++,
+# without which Granite Speech emits one token and stops. No Rust source differs
+# from the published crate. See `[patch.crates-io]` in Cargo.toml for the full
+# reasoning and for what retires it.
+#
+# `unknown-git = "deny"` stays: this allows one named repository, not git sources
+# in general. Note cargo-deny reads Rust crate metadata, so it does not inspect
+# the llama.cpp submodule inside this dependency — the C++ licences are covered by
+# packaging/THIRD-PARTY-NOTICES.txt instead.
+allow-git = [
+    "https://github.com/kwp490/llama-cpp-rs",
+    "https://github.com/handy-computer/transcribe.cpp",
+]

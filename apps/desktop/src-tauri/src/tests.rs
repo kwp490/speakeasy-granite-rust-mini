@@ -1,0 +1,816 @@
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_diagnostic_paths_are_redacted_before_persistence() {
+        let panic = r"thread 'main' panicked at C:\Users\Alice\SpeakEasy\src\worker.rs:42:7";
+        let native = r"loader failed file=/home/alice/models/nemotron/model.onnx";
+        let panic_redacted = redact_diagnostic_text(panic);
+        let native_redacted = redact_diagnostic_text(native);
+        assert!(!panic_redacted.contains("Alice"));
+        assert!(!panic_redacted.contains("worker.rs"));
+        assert!(!native_redacted.contains("/home/alice"));
+        assert!(!native_redacted.contains("model.onnx"));
+        assert!(panic_redacted.contains("<redacted-path>"));
+        assert!(native_redacted.contains("file=<redacted-path>"));
+    }
+
+    #[test]
+    fn diagnostic_rotation_preserves_one_previous_generation() {
+        let root = tempfile::tempdir().expect("temporary diagnostic root");
+        let path = root.path().join("logs/speakeasy.log");
+        let old = "old-diagnostic\n";
+        let mut oversized = old.to_owned();
+        oversized.push_str(&"x".repeat(usize::try_from(DIAGNOSTICS_LOG_MAX_BYTES).unwrap() + 1));
+        append_diagnostics_line(&path, &oversized).expect("seed diagnostic log");
+        append_diagnostics_line(&path, "event=after_rotation\n").expect("rotate diagnostic log");
+        let rotated = path.with_extension("log.1");
+        assert!(rotated.is_file());
+        assert!(
+            fs::read_to_string(rotated)
+                .expect("read rotated log")
+                .contains("old-diagnostic")
+        );
+        assert!(
+            fs::read_to_string(path)
+                .expect("read active log")
+                .contains("after_rotation")
+        );
+    }
+
+    #[test]
+    fn diagnostics_reason_codes_are_always_on_bounded_and_redacted() {
+        let diagnostics = DiagnosticsRuntimeCoordinator::default();
+        diagnostics
+            .record_event("123 event=worker_failed path=C:\\Users\\Alice\\SpeakEasy\\worker.exe");
+        for index in 0..=DIAGNOSTICS_EVENT_CAPACITY {
+            diagnostics.record_event(&format!("{index} event=bounded_failure reason=code"));
+        }
+
+        let events = diagnostics.recent_reason_codes();
+        assert_eq!(events.len(), DIAGNOSTICS_EVENT_CAPACITY);
+        assert!(!events.iter().any(|event| event.contains("Alice")));
+        assert!(
+            events
+                .iter()
+                .all(|event| event.len() <= DIAGNOSTIC_EVENT_MAX_BYTES)
+        );
+        assert!(
+            events
+                .last()
+                .is_some_and(|event| event.contains("event=bounded_failure"))
+        );
+    }
+
+    #[test]
+    fn install_payload_uses_every_granite_file_and_preserves_archive_packs() {
+        let manifest = bundled_manifest().expect("bundled manifest");
+        let temp = tempfile::tempdir().expect("download root");
+        let granite = manifest
+            .packs()
+            .iter()
+            .find(|pack| pack.id() == "granite-speech-4.1-2b-q4_k_m-cpu")
+            .expect("Granite pack");
+        let ModelInstallPayload::Loose(files) =
+            model_install_payload(granite, temp.path()).expect("Granite payload")
+        else {
+            panic!("Granite must install as loose files");
+        };
+        assert_eq!(files.len(), 2);
+        assert_eq!(
+            files
+                .iter()
+                .map(|(path, request)| (path.as_path(), request.expected_bytes))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    Path::new("granite-speech-4.1-2b-Q4_K_M.gguf"),
+                    1_139_247_200
+                ),
+                (Path::new("mmproj-model-f16.gguf"), 1_159_354_752),
+            ]
+        );
+
+        // The archive branch, on a pack derived from the shipped one.
+        //
+        // No pack in this catalog is an archive pack any more: both Granite
+        // packs are the loose-GGUF shape, and the `.tar.gz`/`.tar.bz2` packs
+        // were the streaming engine's. Asking the manifest for one, which is
+        // what this test used to do, now finds nothing and panics.
+        //
+        // The branch is kept rather than deleted because the manifest schema
+        // still admits archive packs and the GPU Granite pack is likely to be
+        // one -- a CUDA worker plus its two redistributable DLLs is an archive,
+        // not a loose file set. So the coverage is kept too, by adding an
+        // `archive` block to the real pack and re-parsing. Deriving it from the
+        // shipped pack rather than hand-writing a fixture means the rest of the
+        // pack stays valid against whatever the schema requires, which a
+        // hand-written one would silently drift from.
+        let mut catalog: serde_json::Value =
+            serde_json::from_slice(speakeasy_models::BUNDLED_TRUSTED_MANIFEST_BYTES)
+                .expect("bundled manifest parses as JSON");
+        let pack = catalog["packs"]
+            .as_array_mut()
+            .expect("packs array")
+            .iter_mut()
+            .find(|pack| pack["id"] == "granite-speech-4.1-2b-q4_k_m-cpu")
+            .expect("Granite pack");
+        pack["id"] = serde_json::json!("granite-speech-4.1-2b-q4_k_m-archived");
+        pack["archive_prefix"] = serde_json::json!("granite-speech-4.1-2b-q4_k_m");
+        pack["archive"] = serde_json::json!({
+            "url": "https://example.invalid/granite-q4-k-m.tar.gz",
+            "bytes": 2_298_601_952_u64,
+            "sha256": "0".repeat(64),
+        });
+        let archived = speakeasy_models::TrustedManifest::parse(
+            &serde_json::to_vec(&catalog).expect("re-serialize catalog"),
+        )
+        .expect("derived catalog is still valid");
+        let archive_pack = archived
+            .packs()
+            .iter()
+            .find(|pack| pack.id() == "granite-speech-4.1-2b-q4_k_m-archived")
+            .expect("derived archive pack");
+
+        let ModelInstallPayload::Archive(request) =
+            model_install_payload(archive_pack, temp.path()).expect("archive payload")
+        else {
+            panic!("an archive pack must keep the archive payload shape");
+        };
+        assert_eq!(
+            request.destination,
+            temp.path().join(format!(
+                "{}-{}.archive",
+                archive_pack.id(),
+                archive_pack.revision()
+            ))
+        );
+    }
+
+    /// Probe: reports what UI Automation actually offers in whatever window is
+    /// focused when it runs. Live external typing needs to track the exact range
+    /// `SpeakEasy` inserted, and that is only possible if the target exposes
+    /// readable document offsets — which Electron apps frequently do not.
+    ///
+    /// Answering this empirically decides the adapter design, so run it against
+    /// each target you care about before any of it is written (`--nocapture` is
+    /// required, otherwise the report is swallowed):
+    ///
+    /// ```text
+    /// cargo test -p speakeasy-desktop --lib probe_focused -- --ignored --nocapture
+    /// ```
+    ///
+    /// You have ten seconds after starting it to click into the target's text
+    /// box and type a couple of words.
+    #[test]
+    #[ignore = "interactive probe; focus a target window while it runs"]
+    fn probe_focused_target_uia_capability() {
+        let observer = TargetObserver::spawn().expect("uia observer");
+        println!("\nFocus the target's text field and type a few words. Probing in 10s...");
+        std::thread::sleep(Duration::from_secs(10));
+
+        let snapshot = match observer.inspect(new_session_id()) {
+            Ok(snapshot) => snapshot,
+            Err(refusal) => {
+                println!("REFUSED: {refusal:?}");
+                return;
+            }
+        };
+        println!("app            : {}", snapshot.executable.path);
+        println!("integrity      : {:?}", snapshot.integrity);
+        println!("capability     : {:?}", snapshot.capability);
+        println!("read_only      : {}", snapshot.is_read_only);
+        println!("password       : {}", snapshot.is_password);
+        println!(
+            "patterns       : text={} text2(caret)={} value={}",
+            snapshot.patterns.text, snapshot.patterns.text2, snapshot.patterns.value
+        );
+        match &snapshot.selection {
+            Some(selection) => println!(
+                "selection      : start={:?} end={:?} caret={:?} empty={}",
+                selection.start, selection.end, selection.caret, selection.is_empty
+            ),
+            None => println!("selection      : NONE"),
+        }
+        println!(
+            "content f.print: {}",
+            if snapshot.content_fingerprint.is_some() {
+                "readable"
+            } else {
+                "NONE"
+            }
+        );
+
+        // The verdict that actually decides the design.
+        let offsets = snapshot
+            .selection
+            .as_ref()
+            .is_some_and(|selection| selection.start.is_some() && selection.end.is_some());
+        println!(
+            "\nVERDICT: {}",
+            if offsets {
+                "document offsets readable - an insertion range can be tracked and \
+                 verified, so a real select-and-replace is possible here."
+            } else if snapshot.patterns.text {
+                "TextPattern present but NO usable offsets - the inserted range \
+                 cannot be verified. Append-only with a refuse-to-correct fallback."
+            } else {
+                "no TextPattern - blind typing only. Nothing can be verified or \
+                 corrected in place; this target must stay commit-on-finish."
+            }
+        );
+    }
+
+    #[test]
+    fn fake_flow_is_ordered_and_redacted_audit_omits_content() {
+        let coordinator = Phase1Coordinator::default();
+        let response = coordinator
+            .run_fake(&FakeFlowRequest {
+                schema_version: DOMAIN_SCHEMA_VERSION,
+                failure: None,
+            })
+            .expect("fake flow");
+        assert_eq!(response.states.last().expect("state").session, "delivered");
+        assert!(
+            response
+                .states
+                .windows(2)
+                .all(|pair| pair[0].sequence < pair[1].sequence)
+        );
+        let audit = coordinator.audit.lock().expect("audit");
+        assert_eq!(audit[0].code, "completed");
+        assert_eq!(audit[0].transcript_characters, FAKE_TRANSCRIPT.len());
+    }
+
+    #[test]
+    fn every_failure_is_recoverable_as_sanitized_state() {
+        for failure in [
+            FakeFailure::AudioStart,
+            FakeFailure::Finalize,
+            FakeFailure::Delivery,
+        ] {
+            let response = Phase1Coordinator::default()
+                .run_fake(&FakeFlowRequest {
+                    schema_version: DOMAIN_SCHEMA_VERSION,
+                    failure: Some(failure),
+                })
+                .expect("failure response");
+            let last = response.states.last().expect("state");
+            assert_eq!(last.session, "failed");
+            assert!(last.error_code.is_some());
+        }
+    }
+
+    #[test]
+    fn result_view_retains_text_and_provenance_without_fabricating_empty_output() {
+        let coordinator = ResultCoordinator::default();
+        let session_id = SessionId::from_bytes([9; 16]);
+        coordinator
+            .accept(FinalTranscript {
+                session_id,
+                raw_text: "  exact engine output  ".to_owned(),
+                text: "exact engine output".to_owned(),
+                provenance: TranscriptProvenance::FinalizedStream,
+                metrics: speakeasy_domain::FinalAsrMetrics {
+                    input_samples: 16_000,
+                    final_segments: 1,
+                    draft_revisions: 2,
+                },
+            })
+            .expect("accept result");
+        let view = coordinator.view().expect("result view");
+        assert_eq!(view.text.as_deref(), Some("exact engine output"));
+        assert_eq!(view.provenance.as_deref(), Some("finalized_stream"));
+        assert_eq!(view.input_samples, Some(16_000));
+
+        assert_eq!(
+            coordinator.accept(FinalTranscript {
+                session_id,
+                raw_text: String::new(),
+                text: String::new(),
+                provenance: TranscriptProvenance::LastValidDraft,
+                metrics: speakeasy_domain::FinalAsrMetrics::default(),
+            }),
+            Err("empty_result_rejected")
+        );
+    }
+
+    /// Composition stand-in for the halves of the HUD view that come from the
+    /// other coordinators. Deliberately not "everything is fine": the default
+    /// is a profile that cannot dictate, so a test has to opt in to readiness.
+    fn idle_composition() -> HudComposition {
+        HudComposition {
+            session: "idle",
+            level: 0.0,
+            device_diagnostic: "not_opened".to_owned(),
+            device_name: String::new(),
+            hotkey_binding: "Ctrl+Alt+L".to_owned(),
+            hotkey_registration: "registered".to_owned(),
+            can_start: true,
+            can_stop: false,
+            setup_complete: true,
+            setup_reason: None,
+            elapsed_ms: 0,
+            ceiling_ms: 30_000,
+            preferred_device_id: String::new(),
+            // Warmed, so these tests stay about composition rather than about
+            // the load. The warm states are covered in `streaming_engine`.
+            engine: "ready",
+            queue_depth: 0,
+            error_code: None,
+        }
+    }
+
+    /// The warm state has to reach the frontend, and has to move `sequence` when
+    /// it changes.
+    ///
+    /// Without it, `Loading model` is unimplementable: a verified-on-disk model
+    /// makes `setup_complete`, `can_start` and `session: "idle"` all report
+    /// ready from the moment the window appears, while the launch warm is still
+    /// loading — and a start landing in that window blocks inside
+    /// `dictation_start` on the load's own mutex.
+    #[test]
+    fn the_engines_warm_state_is_published_and_advances_the_sequence() {
+        let hud = CaptureHudCoordinator::default();
+        let warming = hud
+            .view(HudComposition {
+                engine: "warming",
+                ..idle_composition()
+            })
+            .expect("HUD status");
+        assert_eq!(warming.engine, "warming");
+        // Nothing else about the profile changed, so the load finishing is the
+        // only thing the stale-response guard has to notice here.
+        let ready = hud.view(idle_composition()).expect("HUD status");
+        assert_eq!(ready.engine, "ready");
+        assert!(ready.sequence > warming.sequence);
+    }
+
+    #[test]
+    fn hud_defaults_to_explicit_final_only_claim_block() {
+        let hud = CaptureHudCoordinator::default();
+        let view = hud.view(idle_composition()).expect("HUD status");
+        assert_eq!(view.streaming_mode, "final_only");
+        assert!(view.mutable_text.is_empty());
+        assert!(view.stable_display_text.is_empty());
+        assert!(view.final_text.is_empty());
+    }
+
+    #[test]
+    fn delivery_outcome_is_reported_as_it_happened() {
+        let hud = CaptureHudCoordinator::default();
+        let session_id = SessionId::from_bytes([9; 16]);
+
+        hud.begin(session_id);
+        // Before delivery resolves, the view must not claim any outcome.
+        assert_eq!(
+            hud.view(idle_composition())
+                .expect("HUD status")
+                .delivery_outcome,
+            "held"
+        );
+
+        hud.finish("the text a password box refused", "refused", None);
+        let view = hud.view(idle_composition()).expect("HUD status");
+        assert_eq!(view.delivery_outcome, "refused");
+        assert_eq!(
+            view.final_text, "the text a password box refused",
+            "a refused paste must leave the text recoverable, not discard it"
+        );
+    }
+
+    /// A dictation shows no text until there is a real one.
+    ///
+    /// This was `authoritative_final_replaces_the_live_guess`, and it proved
+    /// the delivered transcript overwrote the streaming hypotheses that had
+    /// been on screen while the user spoke. There are no hypotheses to
+    /// overwrite. What is worth pinning instead is that the window between
+    /// starting and finishing is genuinely empty -- the failure this guards
+    /// against is a stale transcript from the *previous* dictation still
+    /// standing while the current one records.
+    #[test]
+    fn a_recording_shows_no_text_until_the_engine_returns_one() {
+        let hud = CaptureHudCoordinator::default();
+        let first = SessionId::from_bytes([9; 16]);
+        hud.begin(first);
+        hud.finish("Ever tried? Ever failed?", "inserted", None);
+        assert_eq!(
+            hud.view(idle_composition()).expect("HUD status").final_text,
+            "Ever tried? Ever failed?"
+        );
+
+        hud.begin(SessionId::from_bytes([10; 16]));
+        let recording = hud.view(idle_composition()).expect("HUD status");
+        assert!(
+            recording.final_text.is_empty(),
+            "the previous dictation's text must not stand while a new one records"
+        );
+        assert!(recording.stable_display_text.is_empty());
+        assert!(recording.mutable_text.is_empty());
+
+        hud.finish("No matter. Try again.", "inserted", None);
+        let delivered = hud.view(idle_composition()).expect("HUD status");
+        assert_eq!(delivered.final_text, "No matter. Try again.");
+    }
+
+    #[test]
+    fn capture_states_map_to_the_states_the_user_is_shown() {
+        // Streaming may be unavailable — no model, no worker — and these still
+        // have to be right, which is why they derive from capture, not the tap.
+        assert_eq!(hud_session_of("arming"), "starting");
+        assert_eq!(hud_session_of("capturing"), "streaming");
+        assert_eq!(hud_session_of("draining"), "stopping");
+        assert_eq!(hud_session_of("captured"), "stopping");
+        assert_eq!(hud_session_of("finalizing"), "finalizing");
+        assert_eq!(hud_session_of("complete"), "complete");
+        assert_eq!(hud_session_of("failed"), "failed");
+        assert_eq!(hud_session_of("unavailable"), "failed");
+        assert_eq!(hud_session_of("idle"), "idle");
+        assert_eq!(hud_session_of("something-new"), "idle");
+    }
+
+    #[test]
+    fn desktop_operation_gate_blocks_model_changes_during_retained_dictation() {
+        let operations = OperationCoordinator::default();
+        let session_id = SessionId::from_bytes([7; 16]);
+        operations.begin_dictation(session_id).expect("dictation");
+        assert_eq!(
+            operations.begin(ExclusiveOperation::ModelInstall),
+            Err("dictation_active_operation_deferred")
+        );
+        assert_eq!(
+            operations.begin(ExclusiveOperation::ModelDelete),
+            Err("dictation_active_operation_deferred")
+        );
+        assert_eq!(
+            operations.begin(ExclusiveOperation::ApplicationUpdate),
+            Err("dictation_active_operation_deferred")
+        );
+        assert_eq!(
+            operations.begin(ExclusiveOperation::StorageMigration),
+            Err("dictation_active_operation_deferred")
+        );
+        operations.finish_dictation();
+        assert_eq!(operations.begin(ExclusiveOperation::ModelInstall), Ok(()));
+    }
+
+    #[test]
+    fn completed_dictation_can_be_replaced_for_an_explicit_recapture() {
+        let operations = OperationCoordinator::default();
+        let first = SessionId::from_bytes([7; 16]);
+        let second = SessionId::from_bytes([8; 16]);
+        operations.begin_dictation(first).expect("first dictation");
+        operations
+            .replace_completed_dictation(second)
+            .expect("replacement dictation");
+        assert_eq!(
+            operations.begin(ExclusiveOperation::ModelInstall),
+            Err("dictation_active_operation_deferred")
+        );
+        operations.finish_dictation();
+        assert_eq!(operations.begin(ExclusiveOperation::ModelInstall), Ok(()));
+    }
+
+    #[test]
+    fn safe_final_scenario_applies_explicit_correction_and_final_boundary_snippet_only() {
+        let mut transcript = FinalTranscript {
+            session_id: SessionId::from_bytes([7; 16]),
+            raw_text: "open ai met an open air pilot".to_owned(),
+            text: "open ai met an open air pilot".to_owned(),
+            provenance: TranscriptProvenance::FinalizedStream,
+            metrics: speakeasy_domain::FinalAsrMetrics::default(),
+        };
+        let state = PersonalizationBundle {
+            dictionary: vec![DictionaryEntry {
+                id: "proper".to_owned(),
+                locale: "en-US".to_owned(),
+                source: "open ai".to_owned(),
+                replacement: "OpenAI".to_owned(),
+                case_policy: speakeasy_transforms::CasePolicy::InsensitiveCanonical,
+                boundary_policy: speakeasy_transforms::BoundaryPolicy::UnicodeWord,
+                origin: speakeasy_transforms::DictionaryOrigin::ExplicitCorrection,
+                precedence: 100,
+                protected: true,
+                enabled: true,
+            }],
+            snippets: vec![Snippet {
+                id: "sig".to_owned(),
+                name: "signature".to_owned(),
+                body: "Regards,\nAda".to_owned(),
+                enabled: true,
+            }],
+            ..PersonalizationBundle::default()
+        };
+        apply_final_personalization(
+            &mut transcript,
+            state.clone(),
+            "en-US",
+            &WritingRulePreferences::default(),
+        )
+        .unwrap();
+        assert_eq!(transcript.raw_text, "open ai met an open air pilot");
+        assert_eq!(transcript.text, "OpenAI met an open air pilot");
+
+        transcript.raw_text = "snippet signature".to_owned();
+        transcript.text.clone_from(&transcript.raw_text);
+        apply_final_personalization(
+            &mut transcript,
+            state,
+            "en-US",
+            &WritingRulePreferences::default(),
+        )
+        .unwrap();
+        assert_eq!(transcript.text, "Regards,\nAda");
+        assert!(!transcript.text.ends_with('\n'));
+    }
+
+    /// `immediate_repetitions` and `self_corrections` never run, whatever the
+    /// user's writing-rule settings say.
+    ///
+    /// This used to assert the bypass was *engine-conditional*: off for a
+    /// Granite transcript, on for a streaming one, because
+    /// `resolve_self_correction` discards everything before `" I mean "` --
+    /// live data loss on any transcript, and it fires more often on Granite's
+    /// fluent output specifically (`docs/handoff/granite-final-pass.md`, Phase
+    /// 6). Every delivered transcript is Granite's now, so the condition is
+    /// gone and the bypass is absolute.
+    ///
+    /// The test is kept, and pinned harder, precisely because the rules are
+    /// unreachable: the two settings toggles that used to reach them were
+    /// removed, so nothing in the UI would notice if a future change wired
+    /// them back up. This would.
+    #[test]
+    fn the_two_destructive_cleanup_rules_never_run_even_when_settings_ask_for_them() {
+        let rules = WritingRulePreferences {
+            enabled: true,
+            filler_words: false,
+            immediate_repetitions: true,
+            self_corrections: true,
+            spoken_lists: false,
+        };
+        let transcript_with = |text: &str| FinalTranscript {
+            session_id: SessionId::from_bytes([8; 16]),
+            raw_text: text.to_owned(),
+            text: text.to_owned(),
+            provenance: TranscriptProvenance::FinalizedStream,
+            metrics: speakeasy_domain::FinalAsrMetrics::default(),
+        };
+
+        let mut self_correction = transcript_with("This is what I mean is important");
+        apply_final_personalization(
+            &mut self_correction,
+            PersonalizationBundle::default(),
+            "en-US",
+            &rules,
+        )
+        .unwrap();
+        assert_eq!(
+            self_correction.text, "This is what I mean is important",
+            "self-correction resolution would have discarded everything before \" I mean \""
+        );
+
+        let mut repetition = transcript_with("the the cat cat sat");
+        apply_final_personalization(
+            &mut repetition,
+            PersonalizationBundle::default(),
+            "en-US",
+            &rules,
+        )
+        .unwrap();
+        assert_eq!(repetition.text, "the the cat cat sat");
+    }
+
+    #[test]
+    fn the_dock_is_seated_in_from_the_edge_it_clings_to() {
+        // A 1920x1080 display with a 40px taskbar along the bottom: the work
+        // area is what the dock is placed against, so it is 1040 tall here.
+        let work = PhysicalBounds {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1040,
+        };
+        let dock_width = 130;
+        let margin = edge_margin(1.0, work, dock_width);
+        assert_eq!(margin, 24);
+
+        // Both edges keep the same gap, measured from the outside in.
+        assert_eq!(edge_x(work, HudDockEdge::Left, dock_width, margin), 24);
+        assert_eq!(edge_x(work, HudDockEdge::Right, dock_width, margin), 1766);
+
+        // The margin is logical, so it grows with the display's scale factor
+        // rather than shrinking to a hairline on a 150% panel.
+        assert_eq!(edge_margin(1.5, work, dock_width), 36);
+        assert_eq!(edge_margin(2.0, work, dock_width), 48);
+
+        // A monitor left of the primary: virtual-screen x is legitimately
+        // negative and the gap must still be measured from that origin.
+        let left = PhysicalBounds {
+            x: -2560,
+            y: -200,
+            width: 2560,
+            height: 1440,
+        };
+        let left_margin = edge_margin(1.0, left, dock_width);
+        assert_eq!(edge_x(left, HudDockEdge::Left, dock_width, left_margin), -2536);
+        assert_eq!(edge_x(left, HudDockEdge::Right, dock_width, left_margin), -154);
+    }
+
+    #[test]
+    fn a_display_too_narrow_for_both_margins_narrows_them_rather_than_overlapping() {
+        // Narrower than the dock plus two 24px margins. The margin gives way;
+        // the dock does not go off-screen and the two edges do not cross.
+        let cramped = PhysicalBounds {
+            x: 0,
+            y: 0,
+            width: 160,
+            height: 600,
+        };
+        let margin = edge_margin(1.0, cramped, 130);
+        assert_eq!(margin, 15);
+        assert_eq!(edge_x(cramped, HudDockEdge::Left, 130, margin), 15);
+        assert_eq!(edge_x(cramped, HudDockEdge::Right, 130, margin), 15);
+
+        // Narrower than the dock itself: `saturating_sub` floors the available
+        // room at zero rather than producing a negative margin that would push
+        // the window off the left of the display.
+        let tiny = PhysicalBounds {
+            x: 100,
+            y: 100,
+            width: 90,
+            height: 600,
+        };
+        let tiny_margin = edge_margin(1.0, tiny, 130);
+        assert_eq!(tiny_margin, 0);
+        assert_eq!(edge_x(tiny, HudDockEdge::Left, 130, tiny_margin), 100);
+        assert_eq!(edge_x(tiny, HudDockEdge::Right, 130, tiny_margin), 100);
+    }
+
+    #[test]
+    fn the_dock_is_clamped_into_the_work_area_not_the_whole_display() {
+        // 1080 tall display, 40px taskbar: a dock dragged to the bottom must
+        // land above the taskbar, not behind it. It is `alwaysOnTop` and
+        // `skipTaskbar`, so there would be nothing to click to get it back.
+        let work = PhysicalBounds {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1040,
+        };
+        assert_eq!(clamp_y_to_bounds(work, 5_000, 360), 680);
+        assert_eq!(clamp_y_to_bounds(work, -500, 360), 0);
+        assert_eq!(clamp_y_to_bounds(work, 300, 360), 300);
+
+        // Taller than the work area it is being placed in: still the origin
+        // rather than an inverted clamp range.
+        let short = PhysicalBounds {
+            x: 0,
+            y: 60,
+            width: 1920,
+            height: 200,
+        };
+        assert_eq!(clamp_y_to_bounds(short, 5_000, 360), 60);
+
+        // A monitor above and left of the primary, where virtual-screen
+        // coordinates are legitimately negative. This case came from the
+        // deleted large-HUD placement tests and is kept here because it is not
+        // specific to that window: the dock can be dragged onto exactly such a
+        // monitor, and the arithmetic must neither wrap nor clamp to zero.
+        let above_primary = PhysicalBounds {
+            x: -2560,
+            y: -200,
+            width: 2560,
+            height: 1440,
+        };
+        assert_eq!(clamp_y_to_bounds(above_primary, 100, 360), 100);
+        assert_eq!(clamp_y_to_bounds(above_primary, -9_999, 360), -200);
+    }
+
+    #[test]
+    fn the_hud_poll_never_reaches_for_state_that_can_panic() {
+        // `app.state::<T>()` panics when `T` is not managed, and a panic raised
+        // inside a WebView callback cannot unwind, so the whole process aborts.
+        // Windows declared in `tauri.conf.json` load their document before
+        // `setup` finishes managing the coordinators, and two of them poll
+        // `capture_hud_status` at 10 Hz — so that window is reachable, not
+        // theoretical. The first installed build carrying the side dock
+        // aborted on every launch with `0xc0000409` and
+        // `state() called before manage() for CaptureWizardCoordinator`.
+        //
+        // Scoped to the poll and its helper rather than the whole file: every
+        // other command in here runs from a user action, long after `setup`.
+        let source = include_str!("commands/capture.rs");
+        let start = source
+            .find("fn capture_hud_status")
+            .expect("capture_hud_status must exist");
+        let end = source[start..]
+            .find("\nfn ")
+            .map_or(source.len(), |offset| start + offset);
+        let poll = &source[start..end];
+        assert!(
+            !poll.contains("app.state::<") && !poll.contains(".state::<"),
+            "capture_hud_status must resolve coordinators with try_state; \
+             app.state::<T>() aborts the process when T is not managed yet"
+        );
+        assert!(poll.contains("try_state::<"));
+
+        let helper_start = source
+            .find("fn setup_requirement")
+            .expect("setup_requirement must exist");
+        let helper_end = source[helper_start..]
+            .find("\nfn ")
+            .map_or(source.len(), |offset| helper_start + offset);
+        assert!(
+            !source[helper_start..helper_end].contains(".state::<"),
+            "setup_requirement is called from the HUD poll and must not panic either"
+        );
+    }
+
+    #[test]
+    fn only_the_session_controls_are_reachable_from_the_transcriber() {
+        // Asserted against the source rather than trusted to review. Any command
+        // that gains `require_main_or_hud_window` has to be added here
+        // deliberately — that is the point of the test.
+        //
+        // Decision 3's clipboard prohibition is amended rather than dropped, and
+        // `hud_transcript_copy` is the whole of the amendment: the transcriber may
+        // copy the final it just produced. It takes no argument and resolves the
+        // newest entry in Rust, so it cannot name anything else, and the
+        // addressable `session_transcript_copy` stays main-only — asserted in the
+        // forbidden list below so the two cannot be confused for each other.
+        let sources = [
+            include_str!("commands/capture.rs"),
+            include_str!("commands/dictation.rs"),
+            include_str!("commands/profile.rs"),
+        ];
+        let allowed = [
+            "dictation_start",
+            "dictation_stop",
+            "capture_transcribe_cancel",
+            "capture_devices",
+            "capture_device_configure",
+            "capture_wizard_status",
+            "hotkey_status",
+            "open_settings_window",
+            "hud_transcript_copy",
+            "hud_dock_placement_configure",
+            "hud_dock_context_menu",
+        ];
+
+        let mut hud_reachable = Vec::new();
+        let mut current_command: Option<&str> = None;
+        for source in sources {
+            for line in source.lines() {
+                let trimmed = line.trim_start();
+                if let Some(rest) = trimmed
+                    .strip_prefix("fn ")
+                    .or_else(|| trimmed.strip_prefix("async fn "))
+                    && let Some(name) = rest.split('(').next()
+                {
+                    current_command = Some(name);
+                }
+                if trimmed.starts_with("require_main_or_hud_window(&window)")
+                    && let Some(name) = current_command
+                {
+                    hud_reachable.push(name);
+                }
+            }
+        }
+
+        hud_reachable.sort_unstable();
+        hud_reachable.dedup();
+        let mut expected: Vec<&str> = allowed.to_vec();
+        expected.sort_unstable();
+        assert_eq!(
+            hud_reachable, expected,
+            "the transcriber's allowlist changed; §8.2 and the IPC schema must change with it"
+        );
+
+        // The specific authorities that must never be reachable from a
+        // no-activate window, named so a regression is unmissable.
+        for forbidden in [
+            "result_copy",
+            // The addressable transcript copy. `hud_transcript_copy` is allowed
+            // above and this is not, which is exactly the line the amendment to
+            // decision 3 draws: copying the last final is permitted, naming any
+            // entry in the session log is not.
+            "session_transcript_copy",
+            "session_transcript_log",
+            "history_export",
+            "history_delete_all",
+            "model_install_start",
+            "model_remove",
+            "personalization_import_commit",
+            "diagnostics_export",
+            "reset_commit",
+            "credential_status",
+            "hud_placement_reset",
+        ] {
+            assert!(
+                !hud_reachable.contains(&forbidden),
+                "{forbidden} must stay refused from the hud window"
+            );
+        }
+    }
+}

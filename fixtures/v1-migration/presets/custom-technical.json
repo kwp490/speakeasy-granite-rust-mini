@@ -1,0 +1,9 @@
+{
+  "name": "Fixture Technical",
+  "system_prompt": "Keep CASE-000 and FixtureTerm unchanged.",
+  "fix_tone": true,
+  "fix_grammar": true,
+  "fix_punctuation": true,
+  "vocabulary": "CASE-000, FixtureTerm",
+  "extension_owned_by_future_v1": "round-trip-only"
+}

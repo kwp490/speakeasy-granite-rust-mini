@@ -1,0 +1,8 @@
+{
+  "name": "Fixture Collision",
+  "system_prompt": "Second synthetic preset with the duplicate name.",
+  "fix_tone": false,
+  "fix_grammar": true,
+  "fix_punctuation": false,
+  "vocabulary": "BetaFixture"
+}

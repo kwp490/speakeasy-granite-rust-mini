@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ai.speakeasy.desktop/ipc/phase1.schema.json",
+  "title": "SpeakEasy Phase 1 fake-flow IPC",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "states"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "states": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "sequence",
+          "readiness",
+          "session",
+          "engine",
+          "delivery",
+          "transcript",
+          "error_code"
+        ],
+        "properties": {
+          "schema_version": { "const": 1 },
+          "sequence": { "type": "integer", "minimum": 0 },
+          "readiness": { "type": "string", "maxLength": 32 },
+          "session": { "type": "string", "maxLength": 32 },
+          "engine": { "type": "string", "maxLength": 32 },
+          "delivery": { "type": "string", "maxLength": 32 },
+          "transcript": { "type": ["string", "null"], "maxLength": 4096 },
+          "error_code": { "type": ["string", "null"], "maxLength": 64 }
+        }
+      }
+    }
+  }
+}

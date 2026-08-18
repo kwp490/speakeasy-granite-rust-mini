@@ -1,0 +1,23 @@
+{
+  "engine": "unknown-engine",
+  "model_path": "Z:\\FixtureUnavailable\\Granite",
+  "model_source": {
+    "type": "local_dir",
+    "path": "Z:\\FixtureUnavailable\\Granite"
+  },
+  "device": "quantum",
+  "language": "xx-invalid",
+  "speech_task": "summarize",
+  "translation_target_language": "Klingon",
+  "keyword_bias": null,
+  "inference_timeout": -5,
+  "punctuation": "not-a-boolean",
+  "formatting_style": "unknown-style",
+  "sample_rate": 96000,
+  "silence_threshold": 0,
+  "silence_margin_ms": -20,
+  "provider": "unknown-provider",
+  "dev_panel_active_tab": "removed-tab",
+  "dev_panel_width": 100,
+  "dev_panel_height": 100
+}

@@ -1,0 +1,8 @@
+{
+  "name": "General Professional",
+  "system_prompt": "Synthetic user override of a v1 built-in name.",
+  "fix_tone": false,
+  "fix_grammar": false,
+  "fix_punctuation": false,
+  "vocabulary": "FixtureOverride"
+}

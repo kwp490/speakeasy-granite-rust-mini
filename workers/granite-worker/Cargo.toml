@@ -1,0 +1,24 @@
+[package]
+name = "speakeasy-granite-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Forwards to `speakeasy-granite`'s own `cuda` feature — see that crate's
+# `[features]` for why it is opt-in rather than default-on.
+cuda = ["speakeasy-granite/cuda"]
+
+[dependencies]
+# Deliberately not `speakeasy-asr`: the whole point of this crate living apart
+# from `workers/inference-worker` is that Granite's process never links ONNX
+# Runtime. The wire protocol both workers speak is unchanged and lives in
+# `speakeasy-domain` for exactly this reason — see that crate's
+# `worker_protocol` module.
+speakeasy-domain.workspace = true
+speakeasy-granite.workspace = true
+
+[lints]
+workspace = true

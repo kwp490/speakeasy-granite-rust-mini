@@ -1,0 +1,20 @@
+{
+  "name": "speakeasy-v2-workspace",
+  "private": true,
+  "engines": {
+    "node": "=22.16.0",
+    "npm": "=10.9.2"
+  },
+  "packageManager": "npm@10.9.2",
+  "workspaces": [
+    "apps/desktop"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @speakeasy/desktop",
+    "dev": "npm run dev --workspace @speakeasy/desktop",
+    "lint": "npm run lint --workspace @speakeasy/desktop",
+    "tauri": "npm run tauri --workspace @speakeasy/desktop --",
+    "test": "npm run test --workspace @speakeasy/desktop",
+    "typecheck": "npm run typecheck --workspace @speakeasy/desktop"
+  }
+}

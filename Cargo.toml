@@ -1,0 +1,167 @@
+[workspace]
+resolver = "3"
+members = [
+    "apps/desktop/src-tauri",
+    "apps/bootstrapper",
+    "crates/speakeasy-domain",
+    "crates/speakeasy-audio",
+    "crates/speakeasy-worker",
+    "crates/speakeasy-granite",
+    "crates/speakeasy-models",
+    "crates/speakeasy-delivery",
+    "crates/speakeasy-transforms",
+    "crates/speakeasy-storage",
+    "crates/speakeasy-windows",
+    "crates/speakeasy-test-support",
+    "workers/granite-worker",
+]
+# `.tools/` holds fetched third-party checkouts, and a Cargo package inside a
+# workspace's directory tree is assumed to belong to it unless excluded — which
+# made a patched `llama-cpp-2` try to inherit *this* workspace's
+# `[workspace.dependencies]` and fail on one it does not declare.
+exclude = [".tools"]
+
+[workspace.package]
+version = "1.4.2"
+edition = "2024"
+rust-version = "1.97.1"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+allocation-counter = { version = "=0.8.1" }
+# sherpa-onnx publishes its model packs as .tar.bz2; the self-exported CUDA
+# pack ships as .tar.gz. The installer has to read both, so the decoder is
+# picked per archive.
+bzip2 = { version = "=0.4.4" }
+cpal = { version = "=0.18.1" }
+semver = { version = "=1.0.28" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.150" }
+sha2 = { version = "=0.10.9" }
+# Granite Speech 4.1 runs on llama.cpp, a second inference runtime beside
+# sherpa-onnx/ORT — see `docs/handoff/migrate-to-nvidia-gpu.md` item 10. Unlike
+# `sherpa-onnx`, whose `-sys` crate downloads prebuilt libraries, this one
+# *compiles* llama.cpp with CMake, so a C++ toolchain is a build prerequisite.
+#
+# `default-features = false` drops `openmp`, whose benefit over llama.cpp's own
+# thread pool is unmeasured here and which adds a runtime dependency, and the
+# Android stdc++ variants. `mtmd` is not optional — it is the multimodal
+# projector, and without it the audio half of a speech model cannot run at all.
+#
+# It does NOT drop `common`, and cannot. An earlier version of this comment
+# claimed it did. `llama-cpp-2` declares its own dependency on `llama-cpp-sys-2`
+# without `default-features = false`, so the sys crate's `default = ["common"]`
+# is enabled no matter what this line says. Verified 2026-08-04 from the build
+# itself: `CMakeCache.txt` records `LLAMA_BUILD_COMMON:BOOL=ON` and
+# `llama-common.lib` is linked. That also means `llama.cpp/vendor/cpp-httplib` is
+# compiled in — llama.cpp's own model downloader is off (`build.rs` sets
+# `LLAMA_CURL=OFF`), but an HTTP client is in the binary. The only real fix is
+# upstream, on `llama-cpp-2`'s dependency declaration.
+#
+# CUDA is deliberately NOT enabled here. It is an opt-in feature of
+# `speakeasy-granite`; see the reasoning in that crate's `[features]`.
+llama-cpp-2 = { version = "=0.1.153", default-features = false, features = ["mtmd"] }
+flate2 = { version = "=1.1.9" }
+fs2 = { version = "=0.4.3" }
+reqwest = { version = "=0.13.4", default-features = false, features = ["blocking", "rustls", "system-proxy"] }
+base64 = { version = "=0.22.1" }
+getrandom = { version = "=0.4.3" }
+rustls = { version = "=0.23.42", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
+subtle = { version = "=2.6.1" }
+rusqlite = { version = "=0.40.1", features = ["backup", "bundled"] }
+sysinfo = { version = "=0.39.6", default-features = false, features = ["disk", "system"] }
+tar = { version = "=0.4.46" }
+# NVIDIA publishes every CUDA and cuDNN redistributable for Windows as a zip,
+# and the Decisions table has us fetch them from NVIDIA's own hosts rather than
+# rehosting, so the installer has to read zip as well as tar.
+#
+# `default-features = false` with only `deflate`: the redistributables are plain
+# deflate, and the default feature set drags in aes, zstd, lzma and bzip2
+# variants that would widen the attack surface of an extraction path this
+# workspace treats as a trust boundary. cuDNN needs zip64 — 1.9 GB compressed,
+# 4.3 GB extracted — which is core support, not a feature.
+zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2"] }
+tempfile = { version = "=3.27.0" }
+unicode-normalization = { version = "=0.1.25" }
+unicode-segmentation = { version = "=1.13.3" }
+uiautomation = { version = "=0.25.0", default-features = false, features = ["clipboard", "control", "input"] }
+winreg = { version = "=0.55.0" }
+# Loaded at runtime from the Nvidia driver's own nvml.dll, so this neither needs
+# the CUDA toolkit at build time nor a GPU on the build machine — required, since
+# the product gates on hardware CI does not have.
+nvml-wrapper = { version = "=0.12.1" }
+keyring = { version = "=4.1.5", default-features = false, features = ["v1", "windows-native-keyring-store"] }
+win32job = { version = "=2.0.3" }
+winsafe = { version = "=0.0.27", features = ["advapi", "kernel", "user"] }
+# Path only, deliberately no `version` requirement. The workspace is
+# `publish = false`, so a version requirement on an internal path dependency
+# constrains nothing that cargo would not already resolve through the path — but
+# spelled as `=1.0.0` it made the version un-bumpable: raising
+# `[workspace.package] version` above left eleven exact requirements pointing at a
+# version no crate had any more, and cargo fails to resolve before any test or
+# script gets a chance to run.
+speakeasy-domain = { path = "crates/speakeasy-domain" }
+speakeasy-audio = { path = "crates/speakeasy-audio" }
+speakeasy-worker = { path = "crates/speakeasy-worker" }
+speakeasy-granite = { path = "crates/speakeasy-granite" }
+speakeasy-models = { path = "crates/speakeasy-models" }
+speakeasy-delivery = { path = "crates/speakeasy-delivery" }
+speakeasy-transforms = { path = "crates/speakeasy-transforms" }
+speakeasy-storage = { path = "crates/speakeasy-storage" }
+speakeasy-windows = { path = "crates/speakeasy-windows" }
+speakeasy-test-support = { path = "crates/speakeasy-test-support" }
+tauri = { version = "=2.11.5", features = ["tray-icon"] }
+tauri-build = { version = "=2.6.3" }
+tauri-plugin-global-shortcut = { version = "=2.3.2" }
+tauri-plugin-single-instance = { version = "=2.4.3" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = "symbols"
+
+# Granite Speech does not transcribe on the llama.cpp that `llama-cpp-2` 0.1.153
+# vendors (`9e3b928`, 2026-06-07): it emits end-of-generation as its *first*
+# sampled token, so the transcript comes back empty with the audio having been
+# read, projected and decoded perfectly. Nothing errors.
+#
+# The fix is upstream — ggml-org/llama.cpp#24357, merged as `d73cd07` — and it is
+# three lines in `src/llama-graph.cpp`. The fork below is `9e3b928` with exactly
+# that commit cherry-picked, and `llama-cpp-rs` at tag 0.1.153 with its submodule
+# repointed at it. No Rust source is changed in either.
+#
+# Why a cherry-pick and not a bump to `d73cd07`. The 32 commits in between
+# include `8f83d6c27` (mtmd video input), which changes
+# `mtmd_helper_bitmap_init_from_file` from returning a pointer to returning a
+# struct by value, forcing a matching edit to `llama-cpp-2/src/mtmd.rs`. An
+# earlier attempt here did exactly that and carried a hand-written binding patch.
+# Cherry-picking makes the fork contain no local invention, which is what keeps
+# the next bump cheap. Verified 2026-08-04: the pinned transcript in
+# `speakeasy-granite`'s smoke test is byte-identical either way.
+#
+# Only `llama-cpp-sys-2` is patched. The fix lives entirely in the vendored C++,
+# so `llama-cpp-2` stays a registry crate with its lockfile checksum intact.
+#
+# Retire this — and empty `$allowedPatchedSources` in Test-DependencyPolicy.ps1,
+# which will then fail until it is emptied — when `llama-cpp-rs` vendors a
+# llama.cpp containing `d73cd07`. As of 0.1.153 (published 2026-07-28) it still
+# vendors 2026-06-07, so there is no known date.
+# The pinned fork is hosted under the maintainer's personal GitHub account and
+# is accepted as-is for this private tool shared with a few friends (2026-08-07).
+[patch.crates-io]
+llama-cpp-sys-2 = { git = "https://github.com/kwp490/llama-cpp-rs", rev = "d989ffdb0caf3d809cdcff1850629bd3da6ed067" }
+
+[workspace.metadata.dependency-policy]
+direct-version-requirement = "exact"
+lockfiles-required = true
+implicit-build-downloads = false
+review-file = "docs/ARCHITECTURE.md"
+advisory-allowlist = "dependency-policy/advisory-allowlist.json"

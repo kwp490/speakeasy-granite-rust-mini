@@ -1,0 +1,22 @@
+# Workspace-local toolchains and downloaded artifacts
+/.tools/
+
+# Common local output
+*.pdb
+*.ilk
+*.dmp
+*.wav
+
+# Production workspace output
+/target/
+/artifacts/streaming-qualification/
+/artifacts/transcribe-cpp-benchmark/
+scripts/__pycache__/
+/node_modules/
+**/node_modules/
+/apps/desktop/dist/
+/apps/desktop/src-tauri/proof-stage/
+*.tsbuildinfo
+
+# Generated repository review output
+/repository-review-*.html
