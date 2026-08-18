@@ -114,9 +114,13 @@ most of what it offers over a silent degradation.
   it — see the `max_new_tokens` trap below.
 - **Every reason code needs a real instruction.** A code that falls through to
   `errorUnknown` fails the rule that errors report a specific, actionable
-  condition in the words used for everything else. Failures surface in three
-  places: the dock's action row, a Windows toast (OS-owned, so it never takes
-  the foreground), and the settings Status page with the full explanation.
+  condition in the words used for everything else. Failures surface in two
+  places: the dock's action row, and a panel at the top of Settings →
+  Transcription carrying the reason and the fix. A Windows toast was specified
+  and rejected — the WinRT route needs an AUMID from an installed Start Menu
+  shortcut and otherwise displays nothing while reporting success, which is the
+  silent-success shape most of this file exists to avoid. `docs/UI-GUIDE.md`
+  records the trade.
 - **A CPU install running on CPU is normal; a GPU install that cannot load
   CUDA is an error.** Setup records which configuration it installed precisely
   so those two can be told apart — they were previously the same silent

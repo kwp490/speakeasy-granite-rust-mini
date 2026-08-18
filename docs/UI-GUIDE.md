@@ -255,8 +255,17 @@ titlebar), the level meter, the elapsed clock, and the action row.
 let go of the key. It holds Stop during a recording, then a working indicator,
 then how the dictation ended. That last state matters more here than it did in
 SpeakEasy: with no fallback engine, "ended" is sometimes "failed", and the dock
-is where the user finds out. It shows the failure and a short code; the toast
-carries the one-line reason; settings carries the fix.
+is where the user finds out. It shows the failure; **Settings → Transcription**
+carries the reason and the fix, in a panel that appears only when the last
+dictation failed.
+
+Two surfaces, not three. A Windows toast was specified here and is deliberately
+not built: the WinRT route needs an AppUserModelID from an installed Start Menu
+shortcut, so it succeeds and displays nothing in a dev run or any install
+without one — a silent success, which is the exact failure shape this project
+spends most of its comments avoiding. The cost is honestly stated: a user
+looking away from the dock sees only a small failed state, and has to open
+settings to learn why. That is worse discoverability and not a false claim.
 
 Stop is on the dock despite dictation being hotkey-driven, because the hotkey
 has a hands-free mode in which no key ends a recording at all — a dock without
