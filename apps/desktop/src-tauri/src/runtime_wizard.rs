@@ -5,34 +5,39 @@ use std::time::{Duration, Instant};
 use speakeasy_domain::CancelToken;
 use speakeasy_windows::CrashThrottle;
 
-/// What an ordinary dictation needs: the streaming worker's resident model,
-/// the Tauri host, and the operating system underneath both.
+/// What an ordinary dictation needs: Granite's resident model, the Tauri host,
+/// and the operating system underneath both.
 ///
-/// Raised from 2 GiB to 4 GiB in Phase 9 of
-/// `docs/handoff/granite-final-pass.md`. The old number was stale against
-/// measurement, not just against Granite: `inference-worker.exe`'s own
-/// resident working set on this machine is **1,263 MiB**, sampled through a
-/// full 12-clip transcription run, so the 2 GiB floor was under twice the
-/// streaming worker's own cost before the host process or Windows itself were
-/// counted at all. 4 GiB leaves the measured worker roughly its own size again
-/// in headroom. The host and OS shares are *not* measured — this rig is not
-/// the packaged app — so this is a defensible raise, not a derived optimum.
+/// **This is deliberately Granite's floor**, and it is the same number as
+/// `granite_engine::GRANITE_MINIMUM_TOTAL_MEMORY_BYTES` because Granite is the
+/// only engine. It was 4 GiB, and the two were split on purpose: this gate is
+/// asked before the engine is chosen, so keeping it below Granite's meant a
+/// mid-range machine still got its dictation from the streaming path and merely
+/// declined the second pass. The reasoning was sound and its premise is gone.
 ///
-/// Deliberately **not** Granite's floor. Granite is a second resident
-/// ~3.1 GiB process, and gating the whole of `run_retained_transcription` on
-/// what *it* needs would take dictation away from machines that run the
-/// streaming path perfectly well — this gate gets asked before the engine is
-/// chosen, so a raise here refuses the dictation outright rather than
-/// declining the second pass. Granite's own floor lives with Granite, in
-/// `granite_engine::GRANITE_MINIMUM_TOTAL_MEMORY_BYTES`, where falling short
-/// costs the user a second pass instead of their transcript.
-const MINIMUM_TOTAL_MEMORY_BYTES: u64 = 4 * 1_024 * 1_024 * 1_024;
+/// What the split left behind was a window. A machine with, say, 6 GiB passed
+/// this gate, recorded, waited out the whole post-recording pass, and then got
+/// `Ok(None)` from a Granite that could never have run — `GraniteUnavailable`,
+/// after the user had already spoken. There is nothing to fall back to, so
+/// admitting that dictation only bought the user a delay before the same
+/// refusal. Refusing at `begin`, before a single sample is captured, says the
+/// same thing at the only moment it is useful.
+///
+/// The old 4 GiB was derived from `inference-worker.exe`'s measured 1,263 MiB
+/// resident set. That worker no longer exists, so the number had lost its
+/// evidence as well as its purpose.
+///
+/// `granite_engine` still checks its own floor before spawning, and that check
+/// is now defence in depth rather than the load-bearing one: it is what keeps
+/// the two from silently diverging again, and a test asserts this constant
+/// never falls below it.
+const MINIMUM_TOTAL_MEMORY_BYTES: u64 = 8 * 1_024 * 1_024 * 1_024;
 const LOCAL_POLISH_MINIMUM_MEMORY_BYTES: u64 = 8 * 1_024 * 1_024 * 1_024;
 
 /// The dictation floor, for the one caller outside this module that has to
-/// reason about it: `granite_engine` asserts its own, higher floor stays above
-/// this one, because the moment that ordering inverts the split stops meaning
-/// anything and nobody would notice.
+/// reason about it: `granite_engine` asserts this never falls below its own,
+/// because a dictation admitted under Granite's floor is one the user is
+/// allowed to speak and guaranteed to lose.
 #[cfg(test)]
 pub const fn minimum_total_memory_bytes() -> u64 {
     MINIMUM_TOTAL_MEMORY_BYTES

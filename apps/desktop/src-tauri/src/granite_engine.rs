@@ -722,9 +722,18 @@ fn admitted_granite_pack<'a>(
 ///
 /// `Ok(None)` means Granite is not part of this install — no worker binary,
 /// no resolvable manifest pack, or its files are not staged under
-/// `install_root` — and the caller must treat this identically to "Granite
-/// doesn't exist": no quarantine check, no disclosure, the ordinary
-/// single-engine fallback runs exactly as it did before this engine existed.
+/// `install_root` — and it is the caller's job to turn that into a named
+/// refusal. It used to mean "the ordinary single-engine fallback runs exactly
+/// as it did before this engine existed", which described a streaming path
+/// that no longer exists; there is nothing to fall back to now.
+///
+/// The behaviour is unchanged and still correct, which is why this is a
+/// comment fix rather than a bug fix: `judge_granite_pass` maps `Ok(None)` to
+/// `FinalSourceReason::GraniteUnavailable`, so the dictation ends with a
+/// reason the user can act on rather than silence. The distinction this
+/// return value still carries is between "not installed" and "failed" — the
+/// first is not a fault, takes no quarantine strike, and must never be
+/// reported as a crash.
 ///
 /// The third of those became true in Phase 9, when
 /// [`admitted_granite_pack`] grew a presence check. Before it, a machine that
@@ -1061,22 +1070,28 @@ mod tests {
         );
     }
 
-    /// A machine under the Granite floor still dictates — it just does not get
-    /// the second pass.
+    /// Too little memory declines Granite without faulting — and the outer gate
+    /// now refuses the dictation before it is ever asked.
     ///
-    /// This is the whole point of splitting the floor in two. `runtime_wizard`'s
-    /// `MINIMUM_TOTAL_MEMORY_BYTES` gates `run_retained_transcription` as a
-    /// whole, so raising *that* to Granite's requirement would have taken
-    /// dictation away from machines the streaming path serves fine. The assert
-    /// on the two constants' ordering is not decoration: if a later edit ever
-    /// pushed the dictation floor above Granite's, the split would silently
-    /// stop meaning anything.
+    /// The ordering assert used to run the other way: the dictation floor was
+    /// held strictly *below* Granite's, so a mid-range machine still dictated
+    /// through the streaming path and merely lost the second pass. With one
+    /// engine that split only bought the user a delay — they passed the outer
+    /// gate, spoke, waited out the pass, and got `GraniteUnavailable` anyway.
+    /// `MINIMUM_TOTAL_MEMORY_BYTES` is now Granite's floor, and this asserts it
+    /// never drops back below it.
+    ///
+    /// The check below is therefore defence in depth rather than the gate that
+    /// fires in practice, and it is still worth pinning: it is what keeps a
+    /// machine that somehow reaches here from reading as a *fault*. Too little
+    /// memory is "Granite is not part of this install", never a crash to
+    /// quarantine over.
     #[test]
-    fn a_machine_under_the_granite_floor_declines_granite_rather_than_the_dictation() {
+    fn too_little_memory_declines_granite_without_faulting() {
         assert!(
             crate::runtime_wizard::minimum_total_memory_bytes()
-                < GRANITE_MINIMUM_TOTAL_MEMORY_BYTES,
-            "the dictation floor must stay below Granite's, or the split is meaningless"
+                >= GRANITE_MINIMUM_TOTAL_MEMORY_BYTES,
+            "the dictation floor must not sit below Granite's, or a dictation is              admitted that cannot possibly finish"
         );
 
         let coordinator = GraniteEngineCoordinator::default();
