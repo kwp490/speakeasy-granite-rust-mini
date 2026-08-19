@@ -1,3 +1,19 @@
+//! A supervised worker child process, and the framed-protocol client for it.
+//!
+//! Lives here rather than in `speakeasy-worker` because the two things it owns
+//! are Windows concerns that this crate already holds: `ProcessSupervisor` and
+//! `OwnedProcessTree` for the job-object ownership, and `CREATE_NO_WINDOW` for
+//! the console that would otherwise steal the foreground from delivery.
+//! `speakeasy-worker` deliberately links nothing native and checks in seconds;
+//! putting this there would have pulled `keyring`, `uiautomation` and
+//! `win32job` in behind it.
+//!
+//! It moved out of `apps/desktop` on 2026-08-19 so `apps/bootstrapper` can run
+//! the setup smoke test through the identical spawn. A second spawn written
+//! beside this one would be a second place for `CREATE_NO_WINDOW` to go
+//! missing, and the symptom of that is a dictation delivered into a console
+//! window rather than an error.
+
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
@@ -6,8 +22,8 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::Duration;
 
+use crate::{OwnedProcessTree, ProcessSupervisor, StopOutcome};
 use speakeasy_domain::{CancelToken, Clock, Deadline, DomainError, ErrorCode};
-use speakeasy_windows::{OwnedProcessTree, ProcessSupervisor, StopOutcome};
 use speakeasy_worker::{
     ProtocolError, RequestId, WORKER_PROTOCOL_VERSION, WorkerClient, WorkerCommand,
     WorkerErrorCode, WorkerEvent, WorkerRequest, WorkerResponse, read_frame,
@@ -312,8 +328,8 @@ const fn domain_error(code: ErrorCode) -> DomainError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{CrashThrottle, ProcessDeadlines};
     use speakeasy_domain::SystemClock;
-    use speakeasy_windows::{CrashThrottle, ProcessDeadlines};
 
     fn supervisor() -> ProcessSupervisor {
         ProcessSupervisor::new(

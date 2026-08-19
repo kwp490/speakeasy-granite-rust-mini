@@ -3,7 +3,6 @@
 mod capture_wizard;
 mod granite_engine;
 mod native_catalog;
-mod process_worker;
 mod runtime_wizard;
 
 // These sections intentionally share one private namespace. The split is a

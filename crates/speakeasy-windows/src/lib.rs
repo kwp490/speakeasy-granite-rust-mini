@@ -8,9 +8,11 @@ mod commit;
 mod confirm;
 mod credentials;
 mod diagnostic_wav;
+mod diagnostics;
 mod input;
 mod startup;
 mod target;
+mod worker_process;
 
 pub use activity::{
     ActivityHookEvidence, ActivityMonitor, InputActivityEpoch, capture_input_activity,
@@ -27,11 +29,13 @@ pub use credentials::{
 pub use diagnostic_wav::{
     DiagnosticWavConsent, DiagnosticWavFile, DiagnosticWavPolicy, save_diagnostic_wav,
 };
+pub use diagnostics::{DIAGNOSTICS_LOG_MAX_BYTES, append_diagnostics_line, redact_diagnostic_text};
 pub use input::{activation_modifiers_released, wait_for_activation_modifiers};
 pub use startup::{STARTUP_VALUE_NAME, StartupStatus};
 #[cfg(windows)]
 pub use startup::{migrate_legacy_startup, set_startup_with_windows, startup_status};
 pub use target::TargetObserver;
+pub use worker_process::ProcessWorkerClient;
 
 use std::collections::VecDeque;
 use std::io;

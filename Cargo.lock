@@ -4277,6 +4277,8 @@ dependencies = [
  "sha2",
  "speakeasy-delivery",
  "speakeasy-domain",
+ "speakeasy-worker",
+ "tempfile",
  "uiautomation",
  "win32job",
  "winreg",

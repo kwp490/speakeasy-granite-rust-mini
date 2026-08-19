@@ -38,6 +38,29 @@ async function readSources(extensions) {
   return sources.join("\n");
 }
 
+/**
+ * Every `.rs` in the workspace, as `[repo-relative path, body]` pairs, skipping
+ * `target/`.
+ *
+ * Pairs rather than one concatenation because the rules that need this are about
+ * *where* something appears, not merely whether it does — the single-spawn rule
+ * below has to be able to name the file that broke it.
+ */
+async function readAllRustSources() {
+  const root = fileURLToPath(new URL("../../../", import.meta.url));
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  const files = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".rs"))
+    .map((entry) => join(entry.parentPath, entry.name))
+    .filter((file) => !file.slice(root.length).replace(/\\/g, "/").startsWith("target/"));
+  return Promise.all(
+    files.map(async (file) => [
+      file.slice(root.length).replace(/\\/g, "/"),
+      await readFile(file, "utf8"),
+    ]),
+  );
+}
+
 /** Every `.tsx` in `src/`. Use for rules about **markup**. */
 function readComponents() {
   return readSources([".tsx"]);
@@ -187,14 +210,39 @@ test("the shipped binary is windowed, not a console app", async () => {
   // own visible window — which then takes the foreground and becomes the delivery
   // target. Fixing only the attribute above traded one stray console for one per
   // worker, so both assertions belong together.
+  //
+  // The spawn moved to `speakeasy-windows` on 2026-08-19 so `apps/bootstrapper`
+  // could run setup's smoke test through it rather than writing a second one.
+  // This assertion followed it deliberately: a second spawn is exactly how the
+  // flag goes missing again, and it is checked here because this is the suite
+  // that already owns the foreground-target rule.
   const worker = await readFile(
-    new URL("../src-tauri/src/process_worker.rs", import.meta.url),
+    new URL("../../../crates/speakeasy-windows/src/worker_process.rs", import.meta.url),
     "utf8",
   );
   assert.match(
     worker,
     /CREATE_NO_WINDOW: u32 = 0x0800_0000;\s*command\.creation_flags\(CREATE_NO_WINDOW\)/,
     "workers must be spawned with CREATE_NO_WINDOW or each opens a console window",
+  );
+
+  // And there is still only one place that sets it. A second would be a second
+  // place for it to be forgotten, and the symptom is a dictation delivered into
+  // a console window rather than an error.
+  //
+  // `CREATE_NO_WINDOW` specifically, not `creation_flags`: the bootstrapper sets
+  // `DETACHED_PROCESS` in `relaunch_detached` for a different job — re-launching
+  // *itself* to draw the wizard while the parent exits so a script's capture
+  // returns. That one is console-free by having no console at all, which is why
+  // it is a different constant and why this rule must not sweep it up.
+  const rustSources = await readAllRustSources();
+  const noWindowSites = rustSources
+    .filter(([, body]) => /creation_flags\(CREATE_NO_WINDOW\)/.test(body))
+    .map(([name]) => name);
+  assert.deepEqual(
+    noWindowSites,
+    ["crates/speakeasy-windows/src/worker_process.rs"],
+    "every worker spawn must go through the one function that sets CREATE_NO_WINDOW",
   );
 });
 

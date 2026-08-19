@@ -92,7 +92,16 @@ $allowedDependencies = @{
     'speakeasy-delivery' = @('speakeasy-domain', 'unicode-segmentation')
     'speakeasy-transforms' = @('serde', 'serde_json', 'sha2', 'unicode-normalization', 'unicode-segmentation')
     'speakeasy-storage' = @('serde', 'serde_json', 'sha2', 'rusqlite', 'speakeasy-domain', 'speakeasy-transforms', 'tempfile')
-    'speakeasy-windows' = @('keyring', 'sha2', 'speakeasy-delivery', 'speakeasy-domain', 'uiautomation', 'win32job', 'winreg', 'winsafe')
+    # `speakeasy-worker` for the framed protocol `worker_process` speaks, and
+    # `tempfile` for its own tests. The worker spawn moved here on 2026-08-19 so
+    # `apps/bootstrapper` could run setup's smoke test through the identical
+    # spawn rather than a second one -- and this crate, not `speakeasy-worker`,
+    # because the spawn's two hard parts are Windows concerns already living
+    # here: job-object ownership and `CREATE_NO_WINDOW`. Putting it in
+    # `speakeasy-worker` would have pulled `keyring`, `uiautomation` and
+    # `win32job` into the crate that deliberately links nothing native.
+    'speakeasy-windows' = @('keyring', 'sha2', 'speakeasy-delivery', 'speakeasy-domain',
+        'speakeasy-worker', 'tempfile', 'uiautomation', 'win32job', 'winreg', 'winsafe')
     'speakeasy-test-support' = @('speakeasy-domain', 'speakeasy-windows')
     # No `speakeasy-granite` here, and that is the architecture rather than an
     # omission: Granite runs in a supervised child process, so the desktop crate

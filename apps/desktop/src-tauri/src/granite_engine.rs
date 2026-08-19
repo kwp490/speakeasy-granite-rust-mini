@@ -33,7 +33,7 @@ use speakeasy_models::{
 use speakeasy_windows::{CrashThrottle, ProcessDeadlines, ProcessSupervisor};
 use speakeasy_worker::{WorkerClient, WorkerCommand, WorkerEvent, WorkerFinalAdapter};
 
-use crate::process_worker::ProcessWorkerClient;
+use speakeasy_windows::ProcessWorkerClient;
 
 /// Why a dictation is running on the provider it is running on.
 ///

@@ -19,7 +19,6 @@ use granite_engine::{
     GraniteEngineCoordinator, GraniteEnvironment, run_granite_final_pass,
     warm_granite_if_configured, GraniteSelection, granite_selection,
 };
-use process_worker::ProcessWorkerClient;
 use runtime_wizard::RuntimeWizardCoordinator;
 #[cfg(test)]
 use serde::Deserialize;
@@ -60,10 +59,15 @@ use speakeasy_transforms::{
     PersonalizationBundle, PipelineMode, PipelineRequest, RuleCleanupConfig, RuleCleanupMode,
     Snippet, SnippetSet, TransformPipeline,
 };
+// Only the log-rotation test seeds a file past this, so a non-test build has no
+// use for the number.
+#[cfg(test)]
+use speakeasy_windows::DIAGNOSTICS_LOG_MAX_BYTES;
 use speakeasy_windows::{
-    ClipboardWriter, CommitWriter, Confirmation, LegacyCredentialSource, TargetObserver,
-    WindowsCredentialManager, confirm_destructive_action, migrate_legacy_startup,
-    set_startup_with_windows, startup_status,
+    ClipboardWriter, CommitWriter, Confirmation,
+    LegacyCredentialSource, ProcessWorkerClient, TargetObserver, WindowsCredentialManager,
+    append_diagnostics_line, confirm_destructive_action, migrate_legacy_startup,
+    redact_diagnostic_text, set_startup_with_windows, startup_status,
 };
 use tauri::Manager;
 use tauri::menu::{Menu, MenuItem};

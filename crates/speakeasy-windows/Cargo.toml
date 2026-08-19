@@ -10,6 +10,9 @@ publish.workspace = true
 sha2.workspace = true
 speakeasy-domain.workspace = true
 speakeasy-delivery.workspace = true
+# The framed worker protocol `worker_process` speaks. Types only -- this crate
+# owns the process and the pipe, `speakeasy-worker` owns the wire format.
+speakeasy-worker.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 keyring.workspace = true
@@ -17,6 +20,9 @@ uiautomation.workspace = true
 win32job.workspace = true
 winsafe.workspace = true
 winreg.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true
