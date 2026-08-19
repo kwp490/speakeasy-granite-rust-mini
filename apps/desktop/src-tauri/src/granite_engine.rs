@@ -1,11 +1,10 @@
-//! Granite Speech as the desktop's second, independent final-pass engine.
+//! Granite Speech as the desktop's only final-pass engine.
 //!
 //! Resident across dictations: `GraniteEngineCoordinator` spawns
 //! `workers/granite-worker` once and keeps the process (and its loaded ~2 GB
-//! model) alive rather than spawning and tearing it down per dictation,
-//! mirroring `StreamingEngineCoordinator`'s own resident-worker shape
-//! (`streaming_engine.rs`). See `docs/handoff/granite-final-pass.md`'s
-//! residency decision.
+//! model) alive rather than spawning and tearing it down per dictation. The
+//! shape was copied from the streaming engine's own resident-worker
+//! coordinator, which left with that engine.
 //!
 //! `verify_pack_files` runs once, at warm time, not on every dictation —
 //! `WorkerFinalAdapter::run_locked` still sends `LoadModel` before every
@@ -44,8 +43,8 @@ use crate::process_worker::ProcessWorkerClient;
 /// machine has no GPU or has a perfectly good one whose worker was never
 /// built, and those two owe the user different sentences.
 ///
-/// This lived in `streaming_engine.rs` and was shared by both engines. There
-/// is one engine now, so it lives with it.
+/// This lived with the streaming engine and was shared by both. There is one
+/// engine now, so it lives with it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EngineChoiceReason {
     /// The GPU probe's preferred provider, and its pack is installed.
@@ -72,13 +71,13 @@ impl EngineChoiceReason {
     }
 }
 
-/// The resident adapter type: same generic client/clock pair
-/// `StreamingEngineCoordinator` uses for its own resident worker.
+/// The resident adapter type: the generic client/clock pair the streaming
+/// coordinator also used for its own resident worker.
 type ResidentGraniteAdapter =
     WorkerFinalAdapter<ProcessWorkerClient<SystemClock>, Arc<SystemClock>>;
 
-/// Bound on getting the resident worker up and the model loaded. Mirrors
-/// `streaming_engine.rs`'s `WARM_TIMEOUT` — Granite's own measured load is
+/// Bound on getting the resident worker up and the model loaded. Inherited from
+/// the streaming engine's `WARM_TIMEOUT` — Granite's own measured load is
 /// far under this (~3.5 s on this machine), so the margin is generous on
 /// purpose rather than tuned to the measurement.
 const GRANITE_WARM_TIMEOUT: Duration = Duration::from_mins(1);
@@ -133,16 +132,17 @@ const GRANITE_CUDA_WORKER_ASSUMED_BEFORE_ANY_WORKER_SPEAKS: bool = false;
 ///
 /// Measured, not guessed at, though the margin above the measurement is a
 /// judgment call. On this machine, sampled through a full transcription run:
-/// `granite-worker.exe` holds a **3,164 MiB** working set and
-/// `inference-worker.exe` another **1,263 MiB**, so the two resident workers
-/// alone are ~4.3 GiB before the Tauri host, the `WebView2` processes, or
-/// Windows. 8 GiB is the smallest round floor that leaves any of those room;
+/// `granite-worker.exe` holds a **3,164 MiB** working set. The floor was set
+/// when the streaming worker was resident beside it at another **1,263 MiB** —
+/// ~4.3 GiB of workers before the Tauri host, the `WebView2` processes, or
+/// Windows. That second worker is gone and the floor is deliberately unchanged:
+/// 8 GiB is the smallest round floor that leaves the rest room;
 /// below it Granite would be paging, and a model that swaps is far slower than
 /// no second pass at all — which is the opposite of what this engine is for.
 ///
 /// Falling short is **not** an error and not a per-dictation disclosure. It is
 /// a static property of the machine, the same category as "the GGUFs were
-/// never fetched", and Phase 6 already settled how that class behaves:
+/// never fetched", and that class of condition behaves one way:
 /// `Ok(None)`, the ordinary single-engine path, no HUD noise on every
 /// dictation forever. It is still not silent — the coordinator records
 /// `memory_below_granite_floor` and `lib.rs`'s `granite_warm` logs it once per
@@ -177,7 +177,7 @@ const fn granite_memory_is_sufficient(total_memory_bytes: Option<u64>) -> bool {
 /// value makes them impossible to give different inputs by accident.
 pub struct GraniteEnvironment<'a> {
     /// The staged worker binary, when this install carries one. `None` on any
-    /// install built before Phase 7's packaging, and on any that dropped it.
+    /// install built before the worker was packaged, and on any that dropped it.
     pub granite_worker_exe: Option<&'a Path>,
     /// `ModelCoordinator.root.join("models")` — the same root
     /// `InstallManager::new` takes.
@@ -195,8 +195,7 @@ pub struct GraniteEnvironment<'a> {
 /// measurement, which is a 10 s clip.
 const GRANITE_FINISH_STREAM_DEADLINE: Duration = Duration::from_secs(90);
 
-/// Static identity for the CPU Granite pack. Mirrors
-/// `streaming_engine::CPU_PACK_CAPABILITIES`: the packs are a fixed,
+/// Static identity for the CPU Granite pack. The packs are a fixed,
 /// compile-time-known set, which is why `EngineCapabilities`'s fields are
 /// `&'static str` at all.
 const CPU_PACK_CAPABILITIES: EngineCapabilities = EngineCapabilities {
@@ -217,17 +216,17 @@ const CPU_PACK_CAPABILITIES: EngineCapabilities = EngineCapabilities {
 /// The capability identity of the Granite pack running on `provider`, or
 /// `None` when this project ships no Granite pack for it.
 ///
-/// `streaming_engine::capabilities_for` is the shape this mirrors, with one
-/// deliberate difference: that one returns a value for every provider because
-/// both Nemotron packs are real. Here `None` for CUDA is the honest answer
+/// The streaming engine's equivalent is the shape this mirrors, with one
+/// deliberate difference: that one returned a value for every provider because
+/// it shipped a real pack for each. Here `None` for CUDA is the honest answer
 /// rather than a gap. There is no CUDA Granite GGUF in the manifest and no
 /// CUDA-enabled worker binary has ever been compiled
-/// ([`GRANITE_CUDA_WORKER_ASSUMED_BEFORE_ANY_WORKER_SPEAKS`]), so there is no revision to name and no
-/// runtime ABI to claim -- and inventing placeholders for a pack that does not
-/// exist is exactly how a wrong `artifact_revision` reaches a transcript's
-/// provenance. The day both exist, this becomes a second arm holding that
-/// pack's real values; [`choose_granite_pack`] already routes around it, so
-/// nothing else changes.
+/// ([`GRANITE_CUDA_WORKER_ASSUMED_BEFORE_ANY_WORKER_SPEAKS`]), so there is no
+/// revision to name and no runtime ABI to claim -- and inventing placeholders
+/// for a pack that does not exist is exactly how a wrong `artifact_revision`
+/// reaches a transcript's provenance. The day both exist, this becomes a second
+/// arm holding that pack's real values; [`choose_granite_pack`] already routes
+/// around it, so nothing else changes.
 const fn capabilities_for(provider: ExecutionProvider) -> Option<EngineCapabilities> {
     match provider {
         ExecutionProvider::Cpu => Some(CPU_PACK_CAPABILITIES),
@@ -242,18 +241,16 @@ const fn domain_error(code: ErrorCode) -> DomainError {
     }
 }
 
-/// The second, independent crash throttle the plan calls for — separate from
-/// the streaming/retained-pass throttles in `RuntimeWizardCoordinator` and
-/// `StreamingEngineCoordinator`, so a run of Granite crashes never quarantines
-/// ordinary dictation and vice versa. Persists across dictations (unlike
-/// `transcribe_retained`'s per-call throttle) because quarantine only means
+/// A crash throttle independent of `RuntimeWizardCoordinator`'s, so a run of
+/// Granite crashes never quarantines ordinary dictation and vice versa. It was
+/// the second of three when the streaming engine had one too. Persists across
+/// dictations, rather than being per-call, because quarantine only means
 /// anything if it survives past the one call that tripped it.
 ///
-/// Also owns the resident worker adapter, the same way
-/// `StreamingEngineCoordinator` owns its own: warming is idempotent (a second
-/// `ensure_ready` while one is already loaded just clones the `Arc`) and
-/// retryable (a failed warm is not cached, so the next dictation tries again
-/// rather than latching a permanent failure).
+/// Also owns the resident worker adapter, as the streaming coordinator owned
+/// its own: warming is idempotent (a second `ensure_ready` while one is already
+/// loaded just clones the `Arc`) and retryable (a failed warm is not cached, so
+/// the next dictation tries again rather than latching a permanent failure).
 pub struct GraniteEngineCoordinator {
     crashes: Mutex<CrashThrottle>,
     started_at: std::time::Instant,
@@ -386,8 +383,8 @@ impl GraniteEngineCoordinator {
     /// Discards the resident worker so the next [`Self::ensure_ready`] builds
     /// a new one.
     ///
-    /// See `StreamingEngineCoordinator::invalidate` for why this exists at
-    /// all: without it, one fault that leaves the worker process itself
+    /// The streaming coordinator had the same method for the same reason:
+    /// without it, one fault that leaves the worker process itself
     /// unusable (rather than just this dictation) would mean every dictation
     /// after it fails against the same corpse forever.
     pub fn invalidate(&self) {
@@ -529,8 +526,8 @@ const fn granite_worker_is_unusable(code: ErrorCode) -> bool {
 }
 
 /// Warms the resident worker if Granite is part of this install; called once
-/// at app launch (`lib.rs`'s `warm_granite_engine`), the same way
-/// `StreamingEngineCoordinator` is warmed at launch.
+/// at app launch (`lib.rs`'s `warm_granite_engine`), as the streaming engine
+/// was warmed at launch before it.
 ///
 /// `Ok(())` when there is no worker binary or no resolvable manifest pack —
 /// identical to [`run_granite_final_pass`]'s own "not configured" handling,
@@ -601,13 +598,13 @@ pub fn warm_granite_if_configured(
 /// Which Granite pack a dictation will run on, where it lives, and why that
 /// engine rather than another.
 ///
-/// Mirrors `streaming_engine::AsrPackChoice`. It carries the [`Pack`] because
-/// Granite admission uses its complete manifest metadata when verifying the
-/// selected CPU/GPU variant.
-/// `AsrPackChoice` carries a typed `provider` alongside its spec; this does
-/// not, because [`capabilities_for`] has already resolved the provider into
-/// the identity that actually travels anywhere (`capabilities.provider`), and
-/// a second copy of the same fact is a second thing that can disagree.
+/// Mirrors the streaming engine's `AsrPackChoice`. It carries the [`Pack`]
+/// because Granite admission uses its complete manifest metadata when verifying
+/// the selected CPU/GPU variant. `AsrPackChoice` carries a typed `provider`
+/// alongside its spec; this does not, because [`capabilities_for`] has already
+/// resolved the provider into the identity that actually travels anywhere
+/// (`capabilities.provider`), and a second copy of the same fact is a second
+/// thing that can disagree.
 pub struct GranitePackChoice<'a> {
     /// The pack to load.
     pub pack: &'a Pack,
@@ -626,9 +623,9 @@ pub struct GranitePackChoice<'a> {
 /// The Granite engine decision itself, with the GPU probe and the disk
 /// factored out.
 ///
-/// Split from [`admitted_granite_pack`] for exactly the reason
-/// `streaming_engine::choose_asr_pack` is split from `admitted_asr_pack`, and
-/// it is not incidental there either: a decision function that reaches for
+/// Split from [`admitted_granite_pack`] for exactly the reason the streaming
+/// engine split its own choice function from its admission function, and
+/// it was not incidental there either: a decision function that reaches for
 /// `NvmlGpuProbe` and the real filesystem itself can only ever be exercised as
 /// whatever the developer's own machine happens to be, and the case this one
 /// exists for — preferring CUDA and having to fall back — is a case no machine
@@ -735,13 +732,13 @@ fn admitted_granite_pack<'a>(
 /// first is not a fault, takes no quarantine strike, and must never be
 /// reported as a crash.
 ///
-/// The third of those became true in Phase 9, when
-/// [`admitted_granite_pack`] grew a presence check. Before it, a machine that
-/// had never fetched the GGUFs reached `verify_pack_files` and failed with
-/// `AdapterFailed`, which meant a disclosure on every dictation forever —
-/// exactly the noise Phase 6's `Ok(None)` gates exist to prevent, arrived at
-/// from the one direction they did not cover. A *corrupt* pack still fails
-/// loudly; see [`choose_granite_pack`] on presence versus verification.
+/// The third of those became true when [`admitted_granite_pack`] grew a
+/// presence check. Before it, a machine that had never fetched the GGUFs
+/// reached `verify_pack_files` and failed with `AdapterFailed`, which meant a
+/// disclosure on every dictation forever — exactly the noise the `Ok(None)`
+/// gates exist to prevent, arrived at from the one direction they did not
+/// cover. A *corrupt* pack still fails loudly; see [`choose_granite_pack`] on
+/// presence versus verification.
 ///
 /// # Errors
 ///
@@ -768,7 +765,7 @@ pub async fn run_granite_final_pass(
     // Ahead of pack resolution, not after it. Quarantine can only be reached
     // by a Granite that was configured and crashed, so resolving first would
     // change nothing on a healthy machine — but once resolution learned to
-    // check the disk (Phase 9), a quarantined engine whose files went missing
+    // check the disk, a quarantined engine whose files went missing
     // would answer `Ok(None)` and the user would never be told it was
     // quarantined at all. `SecondPassQuarantined` exists precisely so that is
     // not silent.
@@ -790,7 +787,7 @@ pub async fn run_granite_final_pass(
         coordinator.ensure_ready(granite_worker_exe, &choice, environment.diagnostic_log)?;
 
     // Built from the resident adapter's own clock, not a fresh one -- see
-    // `WorkerFinalAdapter::clock`'s doc comment (Known risk #12, Phase 9.6).
+    // `WorkerFinalAdapter::clock`'s doc comment for the shipped bug this caused.
     // A fresh `SystemClock::default()` here read as already-expired the
     // moment the worker had been resident longer than 90s, deterministically,
     // regardless of how much real per-request time had actually elapsed.
@@ -829,8 +826,8 @@ pub struct GraniteSelection {
 
 /// What Granite would run right now, or `None` when no pack is installed.
 ///
-/// This is the replacement for `streaming_engine::admitted_asr_pack_with_preference`,
-/// which several callers outside the engine used to ask the same question of
+/// This is the replacement for the streaming engine's provider-preferring
+/// admission call, which several callers outside the engine used to ask of
 /// the streaming pack. It takes no provider override: the streaming engine had
 /// one because both its packs were downloadable and the user could sensibly
 /// prefer either, whereas Granite's provider follows whether a CUDA-capable
@@ -959,7 +956,7 @@ mod tests {
         assert_eq!(pack.role(), PackRole::FinalAsr);
     }
 
-    /// Guards the one drift the Phase 9 quantization swap made easy to get
+    /// Guards the one drift the Q8_0-to-Q4_K_M quantization swap made easy to get
     /// half-right. `workers/granite-worker` hardcodes its own artifact id and
     /// GGUF filename and never reads the manifest -- it deliberately links no
     /// manifest reader -- so nothing but this test connects the worker's idea
@@ -1442,7 +1439,7 @@ mod tests {
         assert!(!coordinator.is_quarantined());
     }
 
-    /// Reproduction harness for Known risk #12 (Phase 9.6): on the installed
+    /// Reproduction harness for the stale-clock deadline bug: on the installed
     /// build, 2026-08-04, the resident worker failed on 2 of 4 real
     /// dictations, always fast (~9.6-9.8 s, nowhere near the 90 s deadline)
     /// and silent (no worker stderr, no Windows Application-log entry), and
@@ -1467,10 +1464,9 @@ mod tests {
     /// whatever `protocol_error_kind` (added this phase, alongside this
     /// test) recorded, since that is the detail this bug had none of before.
     ///
-    /// Idle gap defaults to 300 s, matching the shorter of the two real
-    /// gaps that produced a failure (`GRANITE_IDLE_GAP_SECS` overrides it —
-    /// sweep shorter values to find the real threshold, per Phase 9.6 item
-    /// 18). Same fixture requirements as
+    /// Idle gap defaults to 300 s, matching the shorter of the two real gaps
+    /// that produced a failure (`GRANITE_IDLE_GAP_SECS` overrides it — sweep
+    /// shorter values to find the real threshold). Same fixture requirements as
     /// [`granite_final_pass_transcribes_the_fixture_through_the_real_worker_process`].
     #[test]
     #[ignore = "hardware: needs target/debug/proof/granite-worker.exe and the staged GGUF files; sleeps for the idle gap (default 300s)"]

@@ -2,13 +2,12 @@
 //!
 //! `InstallManager::reverify` already does this for archive-based, app-owned
 //! installs. This is for packs `InstallManager` cannot install at all yet --
-//! Granite's archive-less, loose-GGUF packs (see `docs/handoff/
-//! granite-final-pass.md`, Phase 5 and 6) -- where a caller resolves its own
+//! Granite's archive-less, loose-GGUF packs -- where a caller resolves its own
 //! `model_root` by hand and still needs to check the bytes there against the
-//! manifest before trusting them. Deliberately duplicates
-//! `workers/inference-worker`'s private `verify_file`: that copy is internal to
-//! a worker binary, and this one has to be callable from `apps/desktop`
-//! without depending on a worker's internals.
+//! manifest before trusting them. Deliberately duplicated the streaming
+//! worker's private `verify_file` rather than sharing it: that copy was
+//! internal to a worker binary, and this one has to be callable from
+//! `apps/desktop` without depending on a worker's internals.
 
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};

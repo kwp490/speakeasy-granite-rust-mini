@@ -129,8 +129,7 @@ pub fn run_phase2_installed_smoke(archive: &Path, root: &Path) -> Result<(), &'s
     let pack = manifest
         .select_sole_install_eligible(
             speakeasy_models::PackRole::StreamingAsr,
-            // Probed, same as `streaming_engine::admitted_asr_pack`: GPU
-            // preferred, CPU fallback, decided in one place.
+            // Probed: GPU preferred, CPU fallback, decided in one place.
             speakeasy_models::admit(&NvmlGpuProbe.probe()).preferred_provider(),
         )
         .map_err(|_| "pack_not_admitted")?;
@@ -519,7 +518,7 @@ pub struct ResetPreviewView {
     excludes_credentials: bool,
 }
 
-/// Everything the compact transcriber needs, in one 100 ms poll (§8.3).
+/// Everything the compact transcriber needs, in one 100 ms poll.
 ///
 /// The device name, shortcut binding and gating flags live here rather than in
 /// three extra commands because the alternative triples IPC traffic at 10 Hz
@@ -557,7 +556,8 @@ pub struct CaptureHudView {
     /// OS-reported default exactly as `hotkey_capture_device` does.
     preferred_device_id: String,
     /// What actually happened to the final: `inserted` only when
-    /// `CommitWriter::write_focused` returned `Ok`. See §6.3.
+    /// `CommitWriter::write_focused` returned `Ok`. See UI-GUIDE's
+    /// truthful-disclosure rule.
     delivery_outcome: String,
     /// The resident engine's warm state: `cold`, `warming`, `ready`, or an
     /// error code.
@@ -594,7 +594,7 @@ struct HudLiveState {
     stable_display_text: String,
     final_text: String,
     delivery_outcome: Option<&'static str>,
-    /// A [`speakeasy_asr::FinalSourceReason`] code, e.g. `granite_failed`,
+    /// A [`speakeasy_worker::FinalSourceReason`] code, e.g. `granite_failed`,
     /// disclosing why Granite did not deliver. `None` when Granite delivered
     /// or was never configured for this dictation.
     final_source_reason: Option<&'static str>,
@@ -603,8 +603,8 @@ struct HudLiveState {
 #[derive(Debug)]
 pub struct CaptureHudCoordinator {
     live: Mutex<HudLiveState>,
-    /// The last view served, so `sequence` advances on any observable change —
-    /// including one where only the §8.3 fields moved.
+    /// The last view served, so `sequence` advances on any observable change —
+    /// including one where only the composed fields moved.
     published: Mutex<CaptureHudView>,
 }
 
@@ -742,8 +742,8 @@ impl HotkeyCoordinator {
     ///
     /// Deliberately the same `active_session`, `activation` reducer and
     /// `last_press` debounce the shortcut uses. A button press and a shortcut
-    /// press are therefore competing for one session rather than opening two —
-    /// the single-controller rule §5 exists to enforce.
+    /// press are therefore competing for one session rather than opening two —
+    /// the single-controller rule exists to enforce.
     fn request_start(&self) -> Option<HotkeyAction> {
         let mut active_session = self.active_session.lock().ok()?;
         let mut activation = self.activation.lock().ok()?;
@@ -919,7 +919,7 @@ fn hotkey_capture_device(app: &tauri::AppHandle) -> Result<String, &'static str>
 ///
 /// There is deliberately no second start path: `capture_start` stops and does
 /// not deliver, so a dictation begun through it would silently skip the paste
-/// that the identical action from the shortcut performs. §8.1.
+/// that the identical action from the shortcut performs.
 fn start_dictation(app: &tauri::AppHandle, session_id: SessionId) -> Result<(), &'static str> {
     let device_id = hotkey_capture_device(app)?;
     let capture = app.state::<CaptureWizardCoordinator>();
@@ -986,7 +986,7 @@ fn announce_capture_stopped(app: &tauri::AppHandle) {
 /// Waits for the capture to drain, transcribes it and delivers the final.
 ///
 /// Shared by the user-initiated stop and by the safety ceiling, so both reach
-/// delivery through exactly the same code (§8.8).
+/// delivery through exactly the same code.
 fn transcribe_and_deliver(app: &tauri::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -1148,11 +1148,11 @@ fn wait_for_captured_audio(app: &tauri::AppHandle) -> Result<(), &'static str> {
 /// Copies and pastes the final transcript into the target focused right now.
 ///
 /// Refusals no longer go unmentioned: the transcriber reports what actually
-/// happened, because §6.3 forbids showing "Text inserted" unless
-/// `CommitWriter::write_focused` returned `Ok`. The text stays recoverable
-/// either way, and refusals are still logged (sanitized: refusal reason only,
-/// never the text) when disk logging is enabled.
-/// Delivers an accepted final, and reports what became of it.
+/// happened, because UI-GUIDE's truthful-disclosure rule forbids showing "Text
+/// inserted" unless `CommitWriter::write_focused` returned `Ok`. The text stays
+/// recoverable either way, and refusals are still logged (sanitized: refusal
+/// reason only, never the text) when disk logging is enabled. Delivers an
+/// accepted final, and reports what became of it.
 ///
 /// This used to carry a `source_reason` alongside the text: why Granite had
 /// not delivered, on a transcript the streaming fallback had produced

@@ -70,7 +70,7 @@
           "tool_versions": [
             "gguf-conversion-tool=undisclosed-by-ibm"
           ],
-          "provenance": "Downloaded from IBM's own published GGUF repository at commit 8267dad2adc84209b0efd2702ec68a98356125eb (repo lastModified 2026-05-11). Per-file length and SHA-256 verified against Hugging Face's own X-Linked-Size/X-Linked-ETag response headers and against the LFS `oid` reported by the repo's file-tree API, and re-verified byte-identical against the local files already staged at .tools/granite-speech-4.1-2b/ (2026-08-03). No local conversion is performed; these are IBM's release bytes verbatim. Recorded as a catalog alternative alongside Q4_K_M, which is the selected quantization as of 2026-08-04: measured ~21% faster on a 120 s utterance with an identical transcript but for one punctuation choice \u2014 see docs/handoff/granite-final-pass.md, Phase 8 and Phase 9."
+          "provenance": "Downloaded from IBM's own published GGUF repository at commit 8267dad2adc84209b0efd2702ec68a98356125eb (repo lastModified 2026-05-11). Per-file length and SHA-256 verified against Hugging Face's own X-Linked-Size/X-Linked-ETag response headers and against the LFS `oid` reported by the repo's file-tree API, and re-verified byte-identical against the local files already staged at .tools/granite-speech-4.1-2b/ (2026-08-03). No local conversion is performed; these are IBM's release bytes verbatim. Recorded as a catalog alternative alongside Q4_K_M, which is the selected quantization as of 2026-08-04: measured ~21% faster on a 120 s utterance with an identical transcript but for one punctuation choice."
         }
       },
       "installed_bytes": 3115509696,
@@ -126,7 +126,7 @@
           "name": "MIT License",
           "text_url": "https://github.com/kwp490/llama.cpp/blob/speakeasy/9e3b928-granite-embd-scale/LICENSE",
           "attribution": "ggml-org contributors",
-          "modification_notice": "Vendored via a cherry-pick fork (kwp490/llama.cpp, speakeasy/9e3b928-granite-embd-scale) adding one upstream commit (ggml-org/llama.cpp#24357) on top of pinned commit 9e3b928; see docs/handoff/granite-final-pass.md Phase 1",
+          "modification_notice": "Vendored via a cherry-pick fork (kwp490/llama.cpp, speakeasy/9e3b928-granite-embd-scale) adding one upstream commit (ggml-org/llama.cpp#24357) on top of pinned commit 9e3b928",
           "redistribution": "allowed"
         }
       ],
@@ -153,7 +153,7 @@
           "tool_versions": [
             "gguf-conversion-tool=undisclosed-by-ibm"
           ],
-          "provenance": "Downloaded from IBM's own published GGUF repository at commit 8267dad2adc84209b0efd2702ec68a98356125eb (repo lastModified 2026-05-11). Per-file length and SHA-256 verified against Hugging Face's own X-Linked-Size/X-Linked-ETag response headers and against the LFS `oid` reported by the repo's file-tree API, and re-verified byte-identical against the local files already staged at .tools/granite-speech-4.1-2b/ (2026-08-03). No local conversion is performed; these are IBM's release bytes verbatim. The selected quantization as of 2026-08-04, replacing Q8_0 on measurement rather than by decision: ~21% faster on a 120 s utterance (RTF 0.277 versus 0.352) with an identical transcript but for one punctuation choice, and byte-identical on the beckett fixture \u2014 see docs/handoff/granite-final-pass.md, Phase 8 and Phase 9. Q8_0 remains in this catalog as the recorded alternative."
+          "provenance": "Downloaded from IBM's own published GGUF repository at commit 8267dad2adc84209b0efd2702ec68a98356125eb (repo lastModified 2026-05-11). Per-file length and SHA-256 verified against Hugging Face's own X-Linked-Size/X-Linked-ETag response headers and against the LFS `oid` reported by the repo's file-tree API, and re-verified byte-identical against the local files already staged at .tools/granite-speech-4.1-2b/ (2026-08-03). No local conversion is performed; these are IBM's release bytes verbatim. The selected quantization as of 2026-08-04, replacing Q8_0 on measurement rather than by decision: ~21% faster on a 120 s utterance (RTF 0.277 versus 0.352) with an identical transcript but for one punctuation choice, and byte-identical on the beckett fixture. Q8_0 remains in this catalog as the recorded alternative."
         }
       },
       "installed_bytes": 2298601952,
@@ -209,7 +209,7 @@
           "name": "MIT License",
           "text_url": "https://github.com/kwp490/llama.cpp/blob/speakeasy/9e3b928-granite-embd-scale/LICENSE",
           "attribution": "ggml-org contributors",
-          "modification_notice": "Vendored via a cherry-pick fork (kwp490/llama.cpp, speakeasy/9e3b928-granite-embd-scale) adding one upstream commit (ggml-org/llama.cpp#24357) on top of pinned commit 9e3b928; see docs/handoff/granite-final-pass.md Phase 1",
+          "modification_notice": "Vendored via a cherry-pick fork (kwp490/llama.cpp, speakeasy/9e3b928-granite-embd-scale) adding one upstream commit (ggml-org/llama.cpp#24357) on top of pinned commit 9e3b928",
           "redistribution": "allowed"
         }
       ],

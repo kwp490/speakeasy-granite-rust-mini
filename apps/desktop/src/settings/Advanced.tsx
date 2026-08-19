@@ -13,12 +13,12 @@ import type {
 import type { ProfileController } from "./useProfile";
 
 /**
- * Advanced (§9.5): runtime status, performance, credentials, maintenance, About.
+ * Advanced: runtime status, performance, credentials, maintenance, About.
  *
- * This is the one page that keeps the product-contract vocabulary (§12), and it
- * carries two things the other four do not:
+ * This is the one page that keeps the product-contract vocabulary (UI-GUIDE
+ * "Two vocabulary registers"), and it carries two things the other five do not:
  *
- * - The **display-name translation** from §9.5, so the summary reads
+ * - The **display-name translation**, so the summary reads
  *   "ONNX Runtime · CPU" rather than `onnxruntime_cpu`.
  * - A **Show raw values** disclosure holding the untranslated identifiers, because
  *   those are what the diagnostic log and an exported bundle actually contain, and

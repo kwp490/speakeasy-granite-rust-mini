@@ -9,7 +9,7 @@ import type { SessionTranscriptEntry } from "./types";
 const LOG_INTERVAL_MS = 1_500;
 
 /**
- * The session transcript log (§9.4, decision 5).
+ * The session transcript log.
  *
  * This is where the recoverable result went when it left the transcriber. Every
  * finished transcript from this run of the app, newest first, each with Copy.

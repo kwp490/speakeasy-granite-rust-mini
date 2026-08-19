@@ -24,11 +24,10 @@ use speakeasy_domain::{
     TranscriptProvenance, UtteranceAudio,
 };
 
-// The framed-JSON worker protocol lives in `speakeasy-domain` (see that
-// crate's `worker_protocol` module) so a second inference runtime can speak it
-// without linking ONNX Runtime. Re-exported here unchanged so this crate's own
-// use of it below, and every existing caller's `use speakeasy_asr::{...}`,
-// keep working without churn.
+// The framed-JSON worker protocol lives in `speakeasy-domain` (see that crate's
+// `worker_protocol` module) so a worker can speak it without linking an engine's
+// native libraries. Re-exported here unchanged, which is what let this crate's
+// own use of it below survive the rename from `speakeasy-asr` without churn.
 pub use speakeasy_domain::{
     MAX_AUDIO_SAMPLES_PER_REQUEST, MAX_FRAME_BYTES, ProtocolError, RequestId,
     WORKER_PROTOCOL_VERSION, WorkerClient, WorkerCommand, WorkerErrorCode, WorkerEvent,
@@ -95,18 +94,17 @@ impl<C, K> WorkerFinalAdapter<C, K> {
     /// The clock this adapter was constructed with.
     ///
     /// `Deadline::after` and `Deadline::expired` only compare meaningfully
-    /// against the *same* clock instance -- `SystemClock::now()` is relative
-    /// to when that particular `SystemClock` was constructed
-    /// (`crates/speakeasy-domain/src/contracts.rs`), not to a shared origin.
-    /// A caller building a deadline for a call into this adapter must build
-    /// it from *this* clock, not a fresh one of its own, or the deadline can
-    /// read as already-expired the moment the adapter has been resident
-    /// longer than the deadline's own duration. Exists because Known risk
-    /// #12 (Phase 9.6, `docs/handoff/granite-final-pass.md`) was exactly
-    /// that mistake: `run_granite_final_pass` built its 90 s deadline from a
-    /// brand-new `SystemClock::default()` every call, while the resident
-    /// adapter's own clock kept counting from whenever it first warmed --
-    /// so any dictation more than 90 s after that warm failed instantly,
+    /// against the *same* clock instance -- `SystemClock::now()` is relative to
+    /// when that particular `SystemClock` was constructed
+    /// (`crates/speakeasy-domain/src/contracts.rs`), not to a shared origin. A
+    /// caller building a deadline for a call into this adapter must build it
+    /// from *this* clock, not a fresh one of its own, or the deadline can read
+    /// as already-expired the moment the adapter has been resident longer than
+    /// the deadline's own duration. Exists because this was a shipped bug
+    /// rather than a hypothetical one: `run_granite_final_pass` built its 90 s
+    /// deadline from a brand-new `SystemClock::default()` every call, while the
+    /// resident adapter's own clock kept counting from whenever it first warmed
+    /// -- so any dictation more than 90 s after that warm failed instantly,
     /// deterministically, with no I/O ever attempted.
     pub const fn clock(&self) -> &K {
         &self.clock
@@ -140,18 +138,18 @@ impl<C: WorkerClient, K: Clock> WorkerFinalAdapter<C, K> {
 /// `LoadModel`, `StartStream`, the whole utterance in frames, `FinishStream`.
 ///
 /// Factored out of [`WorkerFinalAdapter`] rather than left as a method on it
-/// because two different adapters now need the identical pass over two
+/// because two adapters once needed the identical pass over two
 /// differently-owned clients: [`WorkerFinalAdapter`] owns a client of its own
 /// (Granite's resident worker, and the retained pass's spawn-per-dictation
-/// fallback), while [`StreamingPackAdapter`] shares one with whatever live
-/// session is using it. Duplicating the sequence into the second one would
-/// have meant two places for the delivered transcript's shape to drift apart —
-/// and the shape is load-bearing (see the `final_lines.join(" ")` comment
-/// below, and Phase 2's `NoSpeechDetected` split in
-/// `docs/handoff/granite-final-pass.md`).
+/// fallback), while a streaming-pack adapter shared one with whatever live
+/// session was using it. That second adapter left with the streaming engine, so
+/// this now has a single caller — still factored, because the delivered
+/// transcript's shape is load-bearing (see the `final_lines.join(" ")` comment
+/// below, and the `NoSpeechDetected` split in
+/// `admissible_delivered_transcript`).
 ///
-/// Borrows rather than owns every field so neither adapter has to clone its
-/// identity per dictation.
+/// Borrows rather than owns every field so the adapter does not have to clone
+/// its identity per dictation.
 pub(crate) struct BatchFinalPass<'a, K> {
     /// **The client's own clock, never a fresh one.** See
     /// [`WorkerFinalAdapter::clock`] for why that distinction is not cosmetic.

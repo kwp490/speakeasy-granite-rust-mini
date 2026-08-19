@@ -18,9 +18,9 @@ throws.
 .PARAMETER PackId
 Which Granite pack to fetch. Defaults to whichever `final-asr` pack the
 manifest marks `install_eligible` — the Q4_K_M pack since 2026-08-04, when
-measurement replaced Q8_0 with it (docs/handoff/granite-final-pass.md, Phase
-9). Resolved from the manifest rather than hardcoded, so the default follows a
-future swap instead of silently fetching the pack the app no longer loads.
+measurement replaced Q8_0 with it. Resolved from the manifest rather than
+hardcoded, so the default follows a future swap instead of silently fetching
+the pack the app no longer loads.
 Pass an explicit id to fetch a recorded alternative such as
 `granite-speech-4.1-2b-q8_0-cpu`; it is not install-eligible, so nothing in
 the app will select it on its own.

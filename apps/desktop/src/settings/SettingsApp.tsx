@@ -10,7 +10,7 @@ import { Transcription } from "./Transcription";
 import { useProfile } from "./useProfile";
 
 /**
- * The settings workspace (§9).
+ * The settings workspace (UI-GUIDE "Information architecture").
  *
  * Five pages behind a nav rail, which is a vertical `tablist`: exactly one page is
  * visible at a time, which is what the tab pattern describes. The old horizontal

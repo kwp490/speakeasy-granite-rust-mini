@@ -2,8 +2,7 @@
 //!
 //! Native Win32 through `winsafe`, not a Tauri window: the thing that provisions
 //! `WebView2` is the thing this replaces, and repair mode has to draw on a
-//! machine where something is already broken. See
-//! `docs/handoff/setup-wizard-redesign.md`.
+//! machine where something is already broken.
 //!
 //! This is the chrome — the window, the step sequence, and the navigation
 //! between them. Each step's own controls arrive with the stage that implements

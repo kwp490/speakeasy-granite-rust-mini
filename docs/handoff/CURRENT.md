@@ -495,20 +495,71 @@ checked rather than assumed — so this was a comment fix.
 Found while bringing the markdown up to date on 2026-08-18. None of it breaks a
 build; all of it misleads a reader.
 
-- **25 comments across 21 source and script files cite deleted handoff
-  documents** — `docs/handoff/granite-final-pass.md`,
-  `setup-wizard-redesign.md`, `docs/archive/UI-REDESIGN.md`. `docs/handoff/`
-  holds only this file now, so every one of those citations dead-ends. They were
-  left alone deliberately rather than stripped in bulk: the comments around them
-  are load-bearing, and each needs deciding individually between dropping the
-  citation and rewriting it against something that still exists.
-- **`models/huggingface/nemotron-3.5-streaming-en-cuda/`** is publishing
-  material — README, NOTICE, licence, checksums — for a model this fork no
-  longer ships, references or lists in `models/trusted-manifest.json`. Nothing
-  in the workspace points at it. It is a candidate for deletion, left in place
-  because removing licence text is a decision rather than a tidy-up.
-  `packaging/licenses/OpenMDW-1.1.txt` exists for the same removed model and is
-  now unreferenced by any shipped notice.
+- **Named citations of deleted docs: done on 2026-08-19.** 35 of them across 27
+  files, not the 25 across 21 recorded here — the original count searched three
+  deleted docs and there were **six**: `granite-final-pass.md`,
+  `setup-wizard-redesign.md`, `hud-side-dock.md`, `migrate-to-nvidia-gpu.md`,
+  `transcribe-cpp-benchmark.md` and `docs/archive/UI-REDESIGN.md`. **None of the
+  six was ever in this repository's history** (`git log --all` finds no commit
+  touching any of them), so there was nothing to rewrite most citations
+  *against*: each one either dropped, or absorbed into the sentence the fact it
+  had been carrying. Four were rewritten against something that still exists —
+  three proof scripts now cite `docs/UI-GUIDE.md`, and `speakeasy-worker`'s
+  `BatchFinalPass` now points at `admissible_delivered_transcript` for the
+  `NoSpeechDetected` split. Bulk `sed` would have mangled these: the citation is
+  fused into the sentence in most of them.
+- **Nemotron licence material: deleted on 2026-08-19.**
+  `models/huggingface/nemotron-3.5-streaming-en-cuda/` (README, NOTICE, licence,
+  checksums) and `packaging/licenses/OpenMDW-1.1.txt`. Nothing bundled or copied
+  either — no packaging script touches `packaging/licenses/` or
+  `models/huggingface/` — and the fork distributes no NVIDIA model bytes, so no
+  licence obligation attached to keeping the text. Both are recoverable from git
+  if that judgement is ever revisited. Two further Nemotron residuals went with
+  them: `crates/speakeasy-models/examples/phase2_current_host.rs`, which
+  resolved the removed `nemotron-3.5-streaming-en-cpu` pack id and so could
+  never have succeeded since the fork, and the dead `nemotron_3_5_streaming`
+  row in `catalog.ts`'s display-name table.
+- **The rest of it went on 2026-08-19 too.** All four remaining categories, and
+  three defects found while doing it. `grep` for any of these now returns zero:
+  - **96 bare `§N` references across 30 files**, which pointed at
+    `UI-REDESIGN.md`'s section numbering. `docs/UI-GUIDE.md` does not number its
+    headings, so a number could not be carried across; each was mapped to a
+    named heading (`UI-GUIDE "Information architecture"`, matching the one
+    pre-existing citation of that form in `styles.css`) or dropped where it was
+    pointing at implementation rather than spec. **Every heading cited this way
+    is checked to exist** — replacing a dead reference with a new dead reference
+    is the failure mode to avoid here.
+  - **22 bare `Phase N` references across 6 files**, pointing at
+    `granite-final-pass.md`'s phases. Dropped, or replaced with the fact the
+    phase number was standing in for (`Phase 9` → `2026-08-04`, `Known risk #12`
+    → "the stale-clock deadline bug").
+  - **6 prose references** — "the handoff", "the brief", "the GPU migration
+    handoff, item 14" — which no grep for a filename or a `§` would have found.
+    Worth knowing that this class exists before believing a citation sweep is
+    complete.
+  - **51 references to deleted crates and files**, of which **12 remain
+    deliberately.** Every survivor is *history* that reads as history:
+    "It was `speakeasy-asr`, and it did link one", "the crate was renamed when
+    the streaming engine left", "were listed here until the fork removed the
+    engine". Those are correct and load-bearing — rewriting them would make them
+    wrong. What was fixed is the ~39 that made **present-tense claims** about
+    things that no longer exist.
+- **Three defects found while doing that pass**, none of which a citation sweep
+  was looking for:
+  - **`speakeasy-granite`'s crate doc claimed the wrong engine shipped.** Its
+    "What it is for" section said the delivered transcript came from the
+    *streaming* model run a second time over the retained audio. Corrected to
+    what the fork actually does.
+  - **8 invisible U+009D control characters** in comments across 5 files, each
+    an em-dash followed by a stray byte from some encoding round-trip, all
+    present since the first commit. They render as nothing and survive review.
+    Found only because a scripted replacement refused to match a line that
+    looked identical on screen — the failure was the instrument working.
+  - **A doc comment attached to the wrong item.** In
+    `workers/granite-worker/tests/granite_worker_smoke.rs`, the 11-line
+    description of the residency proof sat on the `run_dictation` *helper*
+    below it, so the helper's own three-line description was fused onto the end
+    of it and the test itself had none. Reattached.
 - **The shipped notices were describing a different product.**
   `THIRD-PARTY-NOTICES.txt` declared sherpa-onnx, ONNX Runtime and the CUDA
   redistributables as bundled, and `MODEL-NOTICES.md` described two Nemotron

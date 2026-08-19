@@ -329,8 +329,8 @@ impl Run {
     /// Safe to lose bytes over, because none are lost: the partial file and its
     /// resume metadata are written as the transfer goes, so a cancelled run
     /// continues from where it stopped rather than starting again. That is the
-    /// property this whole module exists to preserve, and the one the brief says
-    /// is most likely to be faked, so it is worth stating where it is relied on.
+    /// property this whole module exists to preserve, and the one most likely to
+    /// be faked, so it is worth stating where it is relied on.
     pub fn cancel(&self) {
         self.cancel.cancel();
     }

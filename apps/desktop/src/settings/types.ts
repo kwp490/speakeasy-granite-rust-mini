@@ -226,7 +226,7 @@ export type RecoverableResult = {
 };
 
 /**
- * One finished transcript from this run of the app (§9.4).
+ * One finished transcript from this run of the app.
  *
  * In memory only. There is no id that outlives the process and nothing to
  * delete, because nothing was stored.

@@ -3,7 +3,7 @@
 Drives the running SpeakEasy app the way a person would, and reports what it did.
 
 .DESCRIPTION
-docs/archive/UI-REDESIGN.md §19 is blunt that a successful compile is not verification, and
+A successful compile is not verification, and
 the streaming path has already produced bugs that were invisible without the
 real model. This is the harness that made the difference during the redesign:
 it clicks the transcriber's real buttons, speaks real audio at the real
@@ -29,7 +29,7 @@ unmuted; if the transcript comes back empty, check those first.
 
 .PARAMETER Driver
 For -Action dictate: `hotkey` uses Ctrl+Alt+L, `buttons` clicks the
-transcriber. Running both is how delivery parity (§16) is checked.
+transcriber. Running both is how delivery parity is checked.
 
 .EXAMPLE
 ./scripts/Invoke-TranscriberProof.ps1 -Action screenshot -Out hud.png

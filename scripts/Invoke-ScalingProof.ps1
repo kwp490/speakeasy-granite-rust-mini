@@ -1,7 +1,7 @@
 ﻿<#
 .SYNOPSIS
-Checks both SpeakEasy windows at the display scalings docs/archive/UI-REDESIGN.md §13 names:
-100%, 125%, 150% and 200%.
+Checks both SpeakEasy windows at the display scalings docs/UI-GUIDE.md's
+"Automated checks" table names for this script: 100%, 125%, 150% and 200%.
 
 .DESCRIPTION
 What Windows display scaling actually changes is how many **logical** CSS pixels a

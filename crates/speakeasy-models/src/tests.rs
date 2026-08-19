@@ -278,10 +278,9 @@ fn the_granite_packs_are_admitted_and_carry_per_file_digests_rather_than_an_arch
 
 #[test]
 fn the_authored_granite_packs_are_archive_less_and_q4_k_m_alone_is_admitted() {
-    // Phase 5 of docs/handoff/granite-final-pass.md: Hugging Face serves
-    // Granite's GGUFs as loose files, not one archive, so both packs are the
-    // schema-v3 archive-less shape — `archive` absent, each required file
-    // carrying its own URL.
+    // Hugging Face serves Granite's GGUFs as loose files, not one archive, so
+    // both packs are the schema-v3 archive-less shape — `archive` absent, each
+    // required file carrying its own URL.
     let manifest = bundled_manifest().expect("bundled manifest must validate");
     let pack = |id: &str| {
         manifest
@@ -312,7 +311,7 @@ fn the_authored_granite_packs_are_archive_less_and_q4_k_m_alone_is_admitted() {
         }
     }
 
-    // Q4_K_M is the shipped quantization since Phase 9, on Phase 8's
+    // Q4_K_M is the shipped quantization since 2026-08-04, on the
     // measurement (~21% faster on a 120 s utterance, identical transcript);
     // Q8_0 is now the recorded, non-selectable alternative. Exactly one of
     // the two is admitted, which is what keeps `select_sole_install_eligible`

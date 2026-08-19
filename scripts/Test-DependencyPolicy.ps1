@@ -123,10 +123,11 @@ $allowedDependencies = @{
         'semver', 'speakeasy-domain', 'speakeasy-models', 'speakeasy-storage',
         'speakeasy-windows', 'sysinfo', 'winreg', 'winsafe'
     )
-    # No `speakeasy-models` yet: there is no Granite entry in the trusted
-    # manifest until Phase 5 lands it, so `LoadModel` here checks that the
-    # conventional GGUF filenames exist on disk and nothing more. See
-    # `docs/handoff/granite-final-pass.md`, Phase 4 and Phase 5.
+    # No `speakeasy-models`: the trusted manifest does carry Granite packs, but
+    # the digest check is caller-side -- `apps/desktop` hashes the pack's files
+    # with `speakeasy_models::verify_pack_files` before it ever spawns this
+    # worker -- so `LoadModel` here checks that the conventional GGUF filenames
+    # exist on disk and nothing more.
     'speakeasy-granite-worker' = @('speakeasy-domain', 'speakeasy-granite')
 }
 
@@ -327,11 +328,11 @@ foreach ($block in ($lockText -split '(?ms)^\[\[package\]\]\s*$') | Select-Objec
         'must come from crates.io, be a workspace member, or be a reviewed patch.')
 }
 
-# Every crate with a build script must be inventoried in build-scripts.json (see
-# docs/handoff/granite-final-pass.md, known-risk item 6). `implicit-build-downloads
-# = false` is declared but nothing had ever enforced it; this at least forces a
-# human to look whenever a *new* build-script dependency shows up, rather than
-# discovering one only by reading every Cargo.lock diff by hand.
+# Every crate with a build script must be inventoried in build-scripts.json.
+# `implicit-build-downloads = false` is declared but nothing had ever enforced
+# it; this at least forces a human to look whenever a *new* build-script
+# dependency shows up, rather than discovering one only by reading every
+# Cargo.lock diff by hand.
 #
 # The filtering has to happen inside `node`, not `ConvertFrom-Json`, because the
 # full (non---no-deps) metadata graph is large enough to contain sibling object

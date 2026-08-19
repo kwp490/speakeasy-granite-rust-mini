@@ -205,12 +205,12 @@ foreach ($name in $expected.Keys) {
 
 # The planted/current-directory-DLL search-order probe this used to run
 # against `moonshine-bridge.exe` has no equivalent target: that binary is
-# retired along with Moonshine (see the GPU migration handoff, item 14), and
-# nothing has replaced it. `inference-worker.exe` is the process that now
-# loads onnxruntime.dll/sherpa-onnx's native DLLs and would be the right
-# subject for this probe, but it speaks a framed stdin/stdout protocol rather
-# than the bridge's single-argument CLI, so porting this test is nontrivial
-# and undone. Reported honestly rather than silently dropped.
+# retired along with Moonshine, and nothing has replaced it. The streaming
+# worker that loaded onnxruntime.dll and sherpa-onnx's native DLLs would have
+# been the right subject, but it left with the streaming engine and this fork
+# loads no such DLLs at all -- `granite-worker.exe` links llama.cpp statically.
+# So there is no planted-DLL target here to probe, and this check has nothing
+# left to do rather than something undone. Reported honestly either way.
 $maliciousDllProbe = 'not_run_native_bridge_retired'
 
 $defenderResult = $DefenderEvidence

@@ -8,7 +8,7 @@
 //! not error — it generates fluent text from the instruction alone. "It
 //! returned a non-empty string" therefore proves nothing at all about whether
 //! any audio was read, which is the same shape of failure as ONNX Runtime
-//! silently falling back to CPU (see `speakeasy-asr`'s `cuda_smoke`).
+//! silently falling back to CPU did.
 //!
 //! What distinguishes the two is *content*: only a run that actually consumed
 //! the waveform can produce the words that are in it. So the assertion is the
@@ -53,8 +53,8 @@ fn granite_dir() -> PathBuf {
 }
 
 /// The shipped quantization's model GGUF — `Q4_K_M` since 2026-08-04, when
-/// Phase 8's measurement replaced `Q8_0` with it (~21% faster on a 120 s
-/// utterance, identical transcript).
+/// measurement replaced `Q8_0` with it (~21% faster on a 120 s utterance,
+/// identical transcript).
 ///
 /// Every proof that is not specifically *about* the quantization loads this,
 /// so the next swap is one line here rather than a literal in each test. The
@@ -368,12 +368,10 @@ fn seconds(samples: usize) -> f64 {
 
 /// A realistic multi-minute utterance, not `beckett.wav`'s 10 s.
 ///
-/// Phase 8 of the Granite handoff needs this because every existing CPU
-/// latency number (`docs/handoff/granite-final-pass.md`'s "Measured"
-/// section) is on that one 10 s clip, which cannot answer whether Granite
-/// keeps up with a real dictation: encode/decode cost that is noise against a
-/// ~2 s model-load-and-teardown budget is not noise against two minutes of
-/// speech.
+/// This exists because every other CPU latency number recorded for Granite is
+/// on that one 10 s clip, which cannot answer whether Granite keeps up with a
+/// real dictation: encode/decode cost that is noise against a ~2 s
+/// model-load-and-teardown budget is not noise against two minutes of speech.
 ///
 /// Sliced from `.tools/downloads/Obama.wav`, 120 s starting 90 s in, past the
 /// applause `transcript_quality.rs`'s own module doc says dominates the
@@ -452,12 +450,12 @@ fn granite_transcribes_a_two_minute_utterance_on_cpu_resident() {
 /// The measurement that reversed the quantization decision, kept as a
 /// regression guard rather than retired with it.
 ///
-/// `Q8_0` used to be install-eligible by *decision*, not measurement; this
-/// test supplied the measurement (Phase 8), and Phase 9 made `Q4_K_M` the
-/// shipped pack on the strength of it. It stays because the claim it proves
-/// -- that the two quantizations agree on this fixture -- is what lets every
-/// other proof in this module keep the same pinned string across the swap.
-/// Same fixture, same options, nothing but the GGUF differing.
+/// `Q8_0` used to be install-eligible by *decision*, not measurement; this test
+/// supplied the measurement, and `Q4_K_M` became the shipped pack on the
+/// strength of it. It stays because the claim it proves -- that the two
+/// quantizations agree on this fixture -- is what lets every other proof in
+/// this module keep the same pinned string across the swap. Same fixture, same
+/// options, nothing but the GGUF differing.
 ///
 /// Correctness is checked by word match against the same ground truth every
 /// other `beckett.wav` proof in this module pins -- not by exact-string pin,
@@ -514,7 +512,7 @@ fn granite_q4_k_m_versus_q8_0_on_beckett() {
 /// the 2-minute clip: 10 s is too short for a quantization's throughput
 /// difference to be more than model-load noise, and throughput at the length
 /// that matters is what the Q4_K_M-versus-Q8_0 decision actually turned on.
-/// This is the test that produced the ~21% figure Phase 9 acted on.
+/// This is the test that produced the ~21% figure the swap acted on.
 #[test]
 #[ignore = "hardware: needs both Granite quantizations under .tools/granite-speech-4.1-2b/ and .tools/downloads/Obama.wav"]
 fn granite_q4_k_m_versus_q8_0_on_a_two_minute_utterance() {
@@ -582,9 +580,9 @@ fn granite_q4_k_m_versus_q8_0_on_a_two_minute_utterance() {
     }
 }
 
-/// The 120 s slice of `Obama.wav` every Phase 8/9/10 timing number is
-/// measured on, so the sweeps below and the figures already in the handoff
-/// are directly comparable rather than nearly so.
+/// The 120 s slice of `Obama.wav` every Granite timing number in this module
+/// is measured on, so the sweeps below and the figures recorded in
+/// `CLAUDE.md` are directly comparable rather than nearly so.
 fn two_minute_clip(source: &[f32]) -> &[f32] {
     let start = 90 * 16_000;
     let clip_len = 120 * 16_000;
@@ -604,13 +602,13 @@ fn tail_words(text: &str, count: usize) -> String {
     all[all.len().saturating_sub(count)..].join(" ")
 }
 
-/// Phase 10 item 14: `GraniteOptions` has never been tuned, and `n_threads`
-/// is the one that was obviously wrong.
+/// `GraniteOptions` has never been tuned, and `n_threads` is the one that was
+/// obviously wrong.
 ///
 /// The shipped default is 4 (`GraniteOptions::default`), chosen when this
 /// crate was a spike and never measured against an alternative. This machine
 /// has 24 cores / 32 logical processors, so the shipped configuration has
-/// been transcribing on a sixth of it. Every latency number in the handoff --
+/// been transcribing on a sixth of it. Every recorded latency number --
 /// including the RTF 0.278 that justified the `Q4_K_M` swap -- was measured at
 /// 4 threads.
 ///
@@ -627,7 +625,7 @@ fn tail_words(text: &str, count: usize) -> String {
 /// Whether the *shipped* budget truncates is the separate question
 /// `the_shipped_granite_defaults_hold_a_two_minute_utterance` asks.
 ///
-/// Run this alone. Phase 9 measured the same clip at RTF 0.278 by itself and
+/// Run this alone. The same clip measured RTF 0.278 by itself and
 /// 0.382 while six other hardware tests shared the CPU -- a bigger swing than
 /// any tuning win this sweep is likely to find.
 #[test]
@@ -723,9 +721,9 @@ fn granite_thread_count_sweep_on_a_two_minute_utterance() {
     );
 }
 
-/// Phase 10 item 14, the correctness half: `max_new_tokens` is a **silent**
-/// ceiling, and this pins both that it is real and that the shipped value
-/// clears it.
+/// The correctness half of the same tuning question: `max_new_tokens` is a
+/// **silent** ceiling, and this pins both that it is real and that the shipped
+/// value clears it.
 ///
 /// The generation loop stops on reaching `first_position + max_new_tokens`
 /// (`GraniteModel::transcribe`) with no error, no end-of-generation token and

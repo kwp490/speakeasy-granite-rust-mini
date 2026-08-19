@@ -1,5 +1,5 @@
 /**
- * The one state model for dictation (docs/archive/UI-REDESIGN.md §7).
+ * The one state model for dictation.
  *
  * Transcription state used to be spread across `CaptureWizardStatus.state` plus
  * three booleans, `CaptureHudView.session`, `RecoverableResult.state` and 30+
@@ -33,11 +33,12 @@ export type SetupReason =
 /**
  * What actually happened to the authoritative final.
  *
- * §6.3 forbids showing "Text inserted" unless `CommitWriter::write_focused`
- * returned `Ok`, so a refusal has to be representable. The brief's union lists
- * `inserted | copied`; `held` and `refused` are added because the two states
- * they describe are reachable today and silently mislabelling either of them
- * as `inserted` is exactly the lie §6.3 prohibits.
+ * UI-GUIDE's truthful-disclosure rule forbids showing "Text inserted" unless
+ * `CommitWriter::write_focused` returned `Ok`, so a refusal has to be
+ * representable. The original union listed `inserted | copied`; `held` and
+ * `refused` are added because the two states they describe are reachable today
+ * and silently mislabelling either of them as `inserted` is exactly the lie
+ * that rule prohibits.
  */
 export type DeliveryOutcome = "inserted" | "copied" | "held" | "refused";
 
@@ -63,7 +64,7 @@ export type TranscriberState =
       outcome: DeliveryOutcome;
       text: string;
       /**
-       * A `speakeasy_asr::FinalSourceReason` code (e.g. `granite_failed`)
+       * A `speakeasy_worker::FinalSourceReason` code (e.g. `granite_failed`)
        * disclosing why Granite did not deliver. `null` whenever Granite
        * delivered or was never configured for this dictation.
        */
@@ -72,7 +73,7 @@ export type TranscriberState =
   | { kind: "failed"; code: string; recoverable: boolean };
 
 /**
- * The extended `CaptureHudView` (§8.3). One 100 ms poll carries everything the
+ * The extended `CaptureHudView`. One 100 ms poll carries everything the
  * HUD needs, so the device name, shortcut and gating flags cost no extra IPC.
  */
 export type HudStatus = {
@@ -98,7 +99,7 @@ export type HudStatus = {
   ceiling_ms: number;
   preferred_device_id: string;
   delivery_outcome: string;
-  /** `cold`, `warming`, `ready`, or an error code. See `StreamingEngineCoordinator::status`. */
+  /** `cold`, `warming`, `ready`, or an error code. */
   engine: string;
   error_code: string | null;
   final_source_reason: string | null;
@@ -106,7 +107,7 @@ export type HudStatus = {
 
 /**
  * Everything a HUD component may read. `state` is the discriminated union; the
- * text tiers stay separate fields because §6.2 forbids collapsing them into one
+ * text tiers stay separate fields rather than being collapsed into one
  * string, and keeping them out of the union means a state transition can never
  * drop live text on the floor.
  */
@@ -310,7 +311,7 @@ export function transcriberReducer(
     case "status": {
       const { status } = action;
       // Both guards carried over from phase1Reducer.ts, applied to every field
-      // the extended view carries — including the §8.3 additions, which bump
+      // the extended view carries — including the extended additions, which bump
       // `sequence` on their own publishes.
       if (status.schema_version !== HUD_SCHEMA_VERSION) return current;
       if (status.sequence < current.sequence) return current;
@@ -327,8 +328,8 @@ export function transcriberReducer(
        * Whether this snapshot belongs to a session the user has dismissed.
        *
        * `stateFromStatus` already consults the dismissal, so Done put the *state*
-       * back to idle and it stayed there. The text tiers are separate fields by
-       * §6.2, and they were not consulted at all — so the poll 100 ms after Done
+       * back to idle and it stayed there. The text tiers are separate fields,
+       * and they were not consulted at all — so the poll 100 ms after Done
        * wrote `final_text` straight back and the transcript the outcome referred
        * to stayed on screen underneath an idle transcriber. Dismissing has to
        * clear both or it clears neither in any way the user can see.

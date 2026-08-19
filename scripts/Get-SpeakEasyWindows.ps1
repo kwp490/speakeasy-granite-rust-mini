@@ -4,14 +4,14 @@ Reports the real window state of a running SpeakEasy: which windows exist, which
 are visible, and which own a taskbar button.
 
 .DESCRIPTION
-The startup flip (docs/archive/UI-REDESIGN.md §17.6) makes four claims that all look alike
-from the code and differ only at runtime: the transcriber starts visible,
-settings starts hidden, the transcriber owns a taskbar button so minimize is
-recoverable, and settings can be re-created after it is closed.
+The startup flip makes four claims that all look alike from the code and differ
+only at runtime: the transcriber starts visible, settings starts hidden, the
+transcriber owns a taskbar button so minimize is recoverable, and settings can
+be re-created after it is closed.
 
 `Invoke-TranscriberProof.ps1` drives the transcriber's controls; this reports the
-window facts those claims rest on. Both exist because the handoff's §5 is a list
-of things that were "obviously fine" and were not.
+window facts those claims rest on. Both exist because each of these looked
+"obviously fine" from the code and was not.
 
 This no longer claims to know whether a window owns a taskbar button, because it
 cannot, and the previous answer was wrong.

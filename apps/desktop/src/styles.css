@@ -60,7 +60,8 @@
      decoration — the meter is the largest thing in the dock and a band that
      dropped out against the card would read as a gap in the waveform rather
      than as a quiet colour. They are never the only signal: loudness is
-     carried by the bar's width, which is what changes first (§11). */
+     carried by the bar's width, which is what changes first (UI-GUIDE
+     "Contrast, themes, and motion": never colour alone). */
   --hud-level-mid: #64a8f0;
   --hud-level-high: #b98cf5;
   --hud-final: #8ee0ab;
@@ -354,7 +355,7 @@ body:has(.hud-dock) {
   border-radius: var(--radius);
   color: var(--hud-text);
   /* Full width now that it owns the footer. Long device names still truncate
-     rather than widening a window that cannot grow (§6.4), but at 396px most of
+     rather than widening a window that cannot grow, but at 396px most of
      them no longer have to — reading which microphone is selected is the whole
      point of the control, and it used to be capped at 192px beside a level
      meter. */
@@ -474,7 +475,7 @@ body:has(.hud-dock) {
 /* Under forced-colors an overlay cannot be trusted to stay behind the label, and
    the system palette gives it no translucency. Recording is still carried by the
    button's label and the dot, so dropping the fill here costs nothing that
-   §11 requires. */
+   UI-GUIDE "Contrast, themes, and motion" requires. */
 @media (forced-colors: active) {
   .hud-level {
     display: none;
@@ -499,7 +500,7 @@ body:has(.hud-dock) {
   flex: 1;
   font: inherit;
   /* Larger than the controls it replaced, because it is now the transcriber's
-     state readout as well as its one action (§6.1). */
+     state readout as well as its one action. */
   font-size: 0.95rem;
   font-weight: 600;
   gap: var(--space-2);
@@ -550,7 +551,7 @@ body:has(.hud-dock) {
 }
 
 /* The record button keeps full opacity while disabled, unlike everything else.
-   Fading it is what §6.3 would cost here: measured over the surface, 0.75
+   Fading it is what AA contrast would cost here: measured over the surface, 0.75
    opacity takes the recording tone's label from 4.56:1 to 3.79:1, below AA, and
    `Starting…` is a disabled recording-tone state. It does not need the fade to
    read as inert either — every disabled tone spells out why in its own label. */
@@ -635,7 +636,7 @@ body:has(.hud-dock) {
    which the clamp does not apply to; `enforce_dock_size` in `composition.rs`
    does that, and any width holds. Anything in here that would have to be
    retuned at the next width is expressed as a proportion
-   (§ `MAX_BAR_PERCENT`) rather than as a pixel count.
+   (see `MAX_BAR_PERCENT`) rather than as a pixel count.
 
    52px of card is the constraint everything below answers to, and the one
    control it genuinely strains is the Stop button: measured in the running
@@ -745,7 +746,7 @@ body:has(.hud-dock) {
   width: 100%;
 }
 
-/* One row per retained sample, newest in the middle (§ `DockLevelMeter`). The
+/* One row per retained sample, newest in the middle (see `DockLevelMeter`). The
    rows are centred rather than left-aligned, so the silhouette is symmetric
    about the dock's own axis. */
 .hud-dock-level {
@@ -774,7 +775,7 @@ body:has(.hud-dock) {
    is the only thing in it that says where the meter lives. What it does
    instead is make the resting state a different thing rather than a quiet
    version of the same thing — a flat rail of grey dots, never the varying
-   coloured bars, so shape and colour both carry it (§11).
+   coloured bars, so shape and colour both carry it (never colour alone).
 
    `min-width` is the resting dot. It used to be a `MIN_BAR` constant added to
    every computed width in JS, which meant the meter had to know how many
@@ -791,7 +792,7 @@ body:has(.hud-dock) {
 }
 
 /* Loud is purple, middling is blue, quiet is green — the band comes off the
-   sample's own loudness (§ `barTone`), so a bar keeps the colour of the moment
+   sample's own loudness (see `barTone`), so a bar keeps the colour of the moment
    it recorded as it ages outward. Width is what moves first and carries the
    level on its own; the hue is a second reading of it, not the only one. */
 .hud-dock-level[data-active="true"] .hud-dock-level-bar {
@@ -860,7 +861,7 @@ body:has(.hud-dock) {
 
    So the fill below is `.hud-primary[data-tone="recording"]`'s and is meant to
    stay equal to it: `--recording` fill and border, `--hud-text` label at 4.56:1
-   on it, and 3.30:1 for the fill against the surface (§1.4.11).
+   on it, and 3.30:1 for the fill against the surface (WCAG 1.4.11).
 
    The red is on a `[data-session="listening"]` rule rather than on the button,
    which is not decoration. Red carries one operational meaning here — active
@@ -947,7 +948,7 @@ body:has(.hud-dock) {
 
 /* Three static dots, not one. The animation is a phase offset per dot, so
    removing it leaves the mark intact — the shape carries the meaning and the
-   motion only makes it lively (§11, and WCAG 2.3.3). */
+   motion only makes it lively (WCAG 2.3.3). */
 @media (prefers-reduced-motion: reduce) {
   .hud-dock-working-dot {
     animation: none;
@@ -997,7 +998,7 @@ main {
 
 /* Interface type is the sans-serif set on `:root`. Three separate rules used to
    opt eyebrows, term labels and buttons into Trebuchet MS, which was the last of
-   the old identity left in the workspace (§11). */
+   the old identity left in the workspace. */
 .eyebrow {
   color: var(--accent);
   font-weight: 700;
@@ -1113,7 +1114,7 @@ button:focus-visible {
   outline-offset: 3px;
 }
 
-/* ── First-run setup (§10) ─────────────────────────────────────────────────
+/* ── First-run setup ───────────────────────────────────────────────────────
    A compact vertical stepper, shown only while setup is unfinished or the user
    asks to walk it again. It replaces a seven-column progress grid that used to
    sit above every settings page permanently — scaffolding for a one-time task,
@@ -1175,7 +1176,8 @@ button:focus-visible {
 }
 
 /* ── The settings workspace ────────────────────────────────────────────────
-   A nav rail beside one scrolling content column (§9). Never two scroll
+   A nav rail beside one scrolling content column (UI-GUIDE "Information
+   architecture"). Never two scroll
    regions: the rail is fixed and the content moves. */
 .settings-body {
   display: grid;
@@ -1207,7 +1209,7 @@ button:focus-visible {
   font-weight: 700;
 }
 
-/* Content is bounded for readable line length (§9) regardless of window width. */
+/* Content is bounded for readable line length regardless of window width. */
 .settings-content {
   max-width: 720px;
   min-width: 0;
@@ -1258,7 +1260,7 @@ button:focus-visible {
    that on its own. One option here reads "Hands-free (press to start, automatic
    stop is not implemented; use Stop)", which was wide enough to push the content
    column past the window and produce a horizontal scrollbar — banned outright by
-   §13 and UI-GUIDE's responsive rules. Every control is bounded by its container
+   UI-GUIDE's responsive rules. Every control is bounded by its container
    instead, and long option text truncates. */
 .settings select,
 .settings input,
@@ -1318,7 +1320,7 @@ button:focus-visible {
   padding: 0;
 }
 
-/* ── Disclosure panels (§9.3, §9.5) ─────────────────────────────────────── */
+/* ── Disclosure panels ──────────────────────────────────────────────────── */
 .disclosure {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1356,7 +1358,7 @@ button:focus-visible {
   white-space: nowrap;
 }
 
-/* ── The session transcript log (§9.4) ──────────────────────────────────── */
+/* ── The session transcript log ─────────────────────────────────────────── */
 .session-log-entry {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1528,7 +1530,7 @@ button:disabled {
   }
 }
 
-/* Below 760 px the rail stops being a rail (§9, UI-GUIDE "Responsive"). It
+/* Below 760 px the rail stops being a rail (UI-GUIDE "Responsive"). It
    becomes a full-width row of buttons above the content — still one tablist,
    still the same keyboard pattern, no horizontal scroll trap. */
 @media (max-width: 760px) {

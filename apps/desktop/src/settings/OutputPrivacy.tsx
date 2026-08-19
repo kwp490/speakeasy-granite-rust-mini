@@ -7,7 +7,7 @@ import type { RecoverableResult } from "./types";
 import type { ProfileController } from "./useProfile";
 
 /**
- * Output & Privacy (§9.4).
+ * Output & Privacy.
  *
  * Two transcript surfaces sit here and they are deliberately distinct:
  *

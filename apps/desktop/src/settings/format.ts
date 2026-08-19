@@ -6,7 +6,7 @@ import { messages } from "../catalog";
  * Every one of these turns a backend code into catalog prose. None of them ever
  * returns a raw identifier as user-facing text — that is what `displayName`
  * exists for, and what the Advanced page's Show raw values disclosure is for
- * when the identifier itself is the thing worth seeing (§9.5).
+ * when the identifier itself is the thing worth seeing.
  */
 
 export function formatBytes(bytes: number | null): string {
@@ -28,15 +28,16 @@ export function formatEngineReason(reason: string): string {
 }
 
 /**
- * Contract identifier to display name (§9.5).
+ * Contract identifier to display name.
  *
  * Falls back to the state table, and then to **the identifier itself** — never to
  * "Unknown". Falling back to Unknown was a real defect: the runtime version,
- * device policy and delivery reason all have values outside §9.5's six-row table,
+ * device policy and delivery reason all have values outside the table below,
  * and the Advanced page reported every one of them as "Unknown" while the raw
  * panel two lines below showed `sherpa_onnx_c_api_1_13_4`. Telling a user a value is
  * unknown when the app knows it is worse than showing the identifier, and Advanced
- * is precisely where contract vocabulary is allowed to appear (§12).
+ * is precisely where contract vocabulary is allowed to appear (UI-GUIDE
+ * "Two vocabulary registers").
  *
  * Only a genuinely absent value is Unknown.
  */
@@ -47,7 +48,7 @@ export function displayName(value: string): string {
   return messages.states[value as keyof typeof messages.states] ?? value;
 }
 
-/** Plain-language shortcut registration (§9.1) — never "HOTKEY REGISTRATION". */
+/** Plain-language shortcut registration — never "HOTKEY REGISTRATION". */
 export function formatShortcutState(registration: string): string {
   const states = messages.shortcutStates;
   if (registration in states) return states[registration as keyof typeof states];

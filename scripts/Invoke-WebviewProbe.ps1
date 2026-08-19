@@ -3,15 +3,15 @@
 Evaluates JavaScript inside a running SpeakEasy window and returns the result.
 
 .DESCRIPTION
-Layout rules like "no horizontal scrolling anywhere" (docs/archive/UI-REDESIGN.md §13,
-UI-GUIDE.md) are numbers, and a screenshot is a poor instrument for them. The
+Layout rules like "no horizontal scrolling anywhere" (docs/UI-GUIDE.md) are
+numbers, and a screenshot is a poor instrument for them. The
 first attempt at measuring overflow read `WS_HSCROLL` from the window's child
 HWNDs — and reported a horizontal scrollbar on all five settings pages *and* on
 the transcriber, which has `overflow: hidden` and cannot scroll at all.
 `Chrome_RenderWidgetHostHWND` carries both scrollbar styles unconditionally. The
 check measured nothing while looking exactly like a check that had found five
-bugs. That is the vacuous-assertion failure the redesign handoff §5 warns about,
-so this replaces it with a real reading.
+bugs. That is a vacuous assertion rather than a check, so this replaces it with
+a real reading.
 
 WebView2 exposes the Chrome DevTools Protocol when the host process is started
 with a debugging port. Nothing in the app changes to allow it: the port comes from
@@ -75,7 +75,7 @@ function Get-DebugTarget {
             "`$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=$Port'.")
     }
     # Every window loads the same bundle, so they all report the same document
-    # title. They are told apart by the root element each one renders (§20.1).
+    # title. They are told apart by the root element each one renders.
     #
     # `transcriber` was the large 420x280 HUD and left with the fork; `log` --
     # the pinned transcript window -- was never added, so `CLAUDE.md` documented

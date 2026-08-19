@@ -13,7 +13,8 @@ use speakeasy_audio::{
 use speakeasy_domain::{CorrelationId, ProducerId, SessionId, UtteranceAudio};
 
 const TARGET_RATE_HZ: u32 = 16_000;
-/// Product endpoint policy and safety ceiling for one capture (§8.8).
+/// Product endpoint policy and safety ceiling for one capture (UI-GUIDE
+/// "Main window and focus", the dictation lifecycle).
 ///
 /// A user press is the normal endpoint; automatic voice activity detection
 /// (VAD) endpointing is deliberately not used. Hitting this two-minute ceiling
@@ -21,8 +22,8 @@ const TARGET_RATE_HZ: u32 = 16_000;
 /// the utterance is transcribed and delivered. Discarding speech to enforce a
 /// limit would be the worse outcome.
 ///
-/// **Why two minutes and not the thirty §8.8 asks for.** The brief costs
-/// retained audio at ~3.8 MB/min, which counts only the `f32` samples. The
+/// **Why two minutes and not the thirty originally specified.** That figure
+/// costed retained audio at ~3.8 MB/min, which counts only the `f32` samples. The
 /// pipeline also retains a `ProcessedSampleMetadata` *per sample* — three
 /// `u64`s and a flag, 32 bytes — so the real cost is 36 bytes per sample, or
 /// ~34.6 MB per minute. A thirty-minute ceiling is therefore ~1 GB, and

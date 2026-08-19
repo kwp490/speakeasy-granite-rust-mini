@@ -242,7 +242,8 @@ fn record_worker_error(diagnostic_log: Option<&Path>, code: WorkerErrorCode) {
 /// carry. `write_frame`'s two failure sites (`request`, `shutdown`) used to
 /// map any error straight to `AdapterFailed` with nothing recorded at all;
 /// found the hard way, chasing an intermittent installed-build worker
-/// crash that left no other trace (Known risk #12, Phase 9.6).
+/// crash that left no other trace (see the stale-clock deadline bug in
+/// `speakeasy_worker`'s `WorkerFinalAdapter::clock`).
 fn protocol_error_kind(error: &ProtocolError) -> &'static str {
     match error {
         ProtocolError::Io(io_error) => match io_error.kind() {

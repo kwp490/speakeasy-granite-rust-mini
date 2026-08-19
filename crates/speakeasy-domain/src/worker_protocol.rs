@@ -1,16 +1,18 @@
 //! Framed-JSON protocol for a supervised local worker process.
 //!
 //! This lives in the domain crate — otherwise dependency-free — rather than in
-//! `speakeasy-asr`, so a second inference runtime (Granite on llama.cpp, in
-//! `workers/granite-worker`) can speak the identical wire protocol without
-//! linking `speakeasy-asr` and therefore ONNX Runtime into a process that has
-//! no use for it. See `docs/handoff/granite-final-pass.md`, Phase 4.
+//! an engine crate, so a worker (Granite on llama.cpp, in
+//! `workers/granite-worker`) can speak the wire protocol without linking an
+//! engine's native libraries into a process that has no use for them. It was
+//! moved here out of the streaming crate, `speakeasy-asr`, so that Granite's
+//! process would not link ONNX Runtime; that crate is gone now and the reason
+//! survives it — the protocol belongs to neither engine.
 //!
 //! The protocol itself is engine-agnostic on purpose: `LoadModel` names an
 //! artifact and a directory, `StartStream`/`PushAudio`/`FinishStream` frame one
-//! utterance, and every engine reads that the same way regardless of whether it
-//! streams incrementally (sherpa) or buffers and transcribes once at
-//! `FinishStream` (Granite).
+//! utterance, and an engine reads that the same way regardless of whether it
+//! streams incrementally or buffers and transcribes once at `FinishStream`
+//! (Granite).
 
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
@@ -45,7 +47,7 @@ pub struct RequestId(pub u64);
 /// process, distinct from [`crate::SessionId`], which is a 16-byte identifier
 /// scoped to the whole app. Naming it `WorkerSessionId` rather than reusing
 /// `SessionId` is the whole reason the type exists in this module at all —
-/// `speakeasy-asr` used to get away with the bare name because the two only
+/// The streaming crate used to get away with the bare name because the two only
 /// collided across crate boundaries; sharing one crate makes that collision
 /// real.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]

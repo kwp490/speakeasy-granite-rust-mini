@@ -7,11 +7,12 @@ import type { HotkeyStatus } from "./types";
 import type { ProfileController } from "./useProfile";
 
 /**
- * General (§9.1): the shortcut, the transcriber window, Windows startup, and the
+ * General: the shortcut, the transcriber window, Windows startup, and the
  * keyboard paths that compensate for the transcriber never taking focus.
  *
  * Registration state is reported in plain language — "Shortcut active", not
- * "HOTKEY REGISTRATION / Registered" (§12). The contract vocabulary for it lives
+ * "HOTKEY REGISTRATION / Registered" (UI-GUIDE "Two vocabulary registers").
+ * The contract vocabulary for it lives
  * on the Advanced page.
  */
 export function General({
@@ -131,7 +132,8 @@ export function General({
       </section>
 
       {/*
-        §13: the transcriber is not keyboard operable by design, so every action it
+        UI-GUIDE "Accessibility and input": the dock is not keyboard operable by
+        design, so every action it
         offers needs a path that is. The shortcut covers start and stop, the Audio
         page covers the microphone, and these two cover the rest.
       */}

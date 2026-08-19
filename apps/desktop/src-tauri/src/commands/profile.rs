@@ -37,7 +37,7 @@ fn require_main_or_log_window(window: &tauri::WebviewWindow) -> Result<(), &'sta
 
 /// Commands the compact transcriber is allowed to call.
 ///
-/// The allowlist is the session controls in §8.2 plus `hud_transcript_copy`.
+/// The allowlist is the session controls plus `hud_transcript_copy`.
 /// Every other command keeps `require_main_window`, so no OS-input, delivery,
 /// history, model, personalization, diagnostics, reset or credential command is
 /// reachable from the transcriber.

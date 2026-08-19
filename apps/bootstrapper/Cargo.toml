@@ -14,9 +14,9 @@ publish.workspace = true
 [dependencies]
 # `CancelToken`, and nothing else. It is what `download_to_file` and
 # `InstallManager` take to be interruptible, so the alternative to this line is
-# reimplementing durable resume inside setup -- which the handoff records as a
-# regression rather than an option. This crate has no dependencies of its own and
-# is already in the graph beneath `speakeasy-models`.
+# reimplementing durable resume inside setup, which is a regression rather than
+# an option. This crate has no dependencies of its own and is already in the
+# graph beneath `speakeasy-models`.
 speakeasy-domain.workspace = true
 # The hardware and GPU probes, the pinned manifest the weights figures are read
 # from, and the download/install lifecycle setup fetches models with. Reused
@@ -33,12 +33,12 @@ semver.workspace = true
 sysinfo.workspace = true
 winreg.workspace = true
 # `gui` and `shell` on top of the workspace's `advapi, kernel, user`. The wizard
-# is native rather than a Tauri window because the thing that provisions WebView2
-# is the thing this replaces, and repair mode runs on already-broken machines --
-# see docs/handoff/setup-wizard-redesign.md. `gui` brings the wizard chrome and
-# `shell` brings IShellLink, which is what Start Menu shortcuts need once NSIS is
-# gone. Both are reachable without `unsafe`, which is the property that made a
-# native wizard possible at all under this workspace's `unsafe_code = "forbid"`.
+# is native rather than a Tauri window because the thing that provisions
+# WebView2 is the thing this replaces, and repair mode runs on already-broken
+# machines. `gui` brings the wizard chrome and `shell` brings IShellLink, which
+# is what Start Menu shortcuts need once NSIS is gone. Both are reachable
+# without `unsafe`, which is the property that made a native wizard possible at
+# all under this workspace's `unsafe_code = "forbid"`.
 winsafe = { workspace = true, features = ["gui", "shell"] }
 
 [lints]

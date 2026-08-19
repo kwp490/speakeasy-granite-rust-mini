@@ -9,11 +9,11 @@ import type { CaptureDevice, CaptureLevel, CaptureWizardStatus } from "./types";
 const LEVEL_INTERVAL_MS = 100;
 
 /**
- * Audio (§9.2): device selection, input level, microphone status, refresh.
+ * Audio: device selection, input level, microphone status, refresh.
  *
  * There are **no capture controls** here (decision 6). Settings never starts,
  * stops or cancels a dictation — that is the transcriber's job and the shortcut's,
- * and a second start path is what §8.1 exists to prevent.
+ * and a second start path is what the single-controller rule exists to prevent.
  *
  * The level meter is honest about its own limits: `level` is written by the
  * capture loop, so it moves only while a dictation is running. Opening a

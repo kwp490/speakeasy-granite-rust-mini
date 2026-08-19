@@ -40,9 +40,9 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.150" }
 sha2 = { version = "=0.10.9" }
 # Granite Speech 4.1 runs on llama.cpp, a second inference runtime beside
-# sherpa-onnx/ORT — see `docs/handoff/migrate-to-nvidia-gpu.md` item 10. Unlike
-# `sherpa-onnx`, whose `-sys` crate downloads prebuilt libraries, this one
-# *compiles* llama.cpp with CMake, so a C++ toolchain is a build prerequisite.
+# sherpa-onnx/ORT. Unlike `sherpa-onnx`, whose `-sys` crate downloads prebuilt
+# libraries, this one *compiles* llama.cpp with CMake, so a C++ toolchain is a
+# build prerequisite.
 #
 # `default-features = false` drops `openmp`, whose benefit over llama.cpp's own
 # thread pool is unmeasured here and which adds a runtime dependency, and the

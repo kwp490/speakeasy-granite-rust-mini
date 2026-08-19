@@ -28,7 +28,7 @@ pub const FINISH: &str = "Finish";
 
 /// The steps, in order.
 ///
-/// One entry per page the brief specifies, so navigation is real before any page
+/// One entry per page the wizard specifies, so navigation is real before any page
 /// has content. Each carries the heading and the body the page shows; the pages
 /// that need controls grow them in their own stage, and a page whose work is not
 /// built yet says so rather than showing a plausible-looking blank.

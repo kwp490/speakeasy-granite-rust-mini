@@ -290,6 +290,37 @@ Every one of these produced a plausible, wrong result rather than an error.
   read `$LASTEXITCODE`. The receiving side is the other half: a program taking a
   path should refuse an argument list it cannot consume whole rather than use
   the first fragment — see `Mode::classify` in `apps/bootstrapper/src/main.rs`.
+- **`cargo doc` does not check the doc links on private items, so a broken one
+  passes.** Almost every doc comment in `apps/desktop/src-tauri` is on a private
+  item, so `RUSTDOCFLAGS='-D rustdoc::broken_intra_doc_links' cargo doc` exits
+  **0** over all of them — it never parses them at all. Add
+  `--document-private-items` and the same command exits 101. Verified both ways
+  on 2026-08-19 by restoring a known-broken link as a control: without the flag
+  the check passed with the broken link in place, which is the shape of a
+  verification that cannot fail. `HEAD` at `cf9c434` had three real ones
+  (`StreamingPackAdapter`, `speakeasy_asr::FinalSourceReason`,
+  `resident_retained_pass`), all pointing at things deleted by the fork, and the
+  gate does not run this:
+
+  ```powershell
+  $env:RUSTDOCFLAGS = '-D rustdoc::broken_intra_doc_links'
+  cargo doc --no-deps --document-private-items --workspace
+  ```
+
+  Two warnings are expected and pre-existing (`Self::INSPECT_DEADLINE`, and a
+  `///`-indented CLI example in `apps/bootstrapper/src/main.rs` that rustdoc
+  reads as Rust). A dead doc link is worth more than it looks: it is the only one
+  of these citation classes a tool can find for you.
+- **Invisible C1 control characters survive review and every test.** Eight
+  U+009D bytes sat in comments across five files from the first commit, each one
+  immediately after an em-dash from some encoding round-trip. They render as
+  nothing, `git diff` shows nothing, and no check in the gate looks. They were
+  found only because a scripted replacement refused to match a line that was
+  identical on screen. `python -c "..."` scanning for `0x80 <= ord(c) <= 0x9f`
+  is the whole detector; the repo is at zero as of 2026-08-19. Related: the
+  console here renders U+2014 as `?`, so **check codepoints numerically** rather
+  than believing terminal output — a real em-dash and a corrupted one look the
+  same in this shell.
 - **`Start-Process notepad` does not open an empty document.** Windows 11
   Notepad restores its previous tabs, so it surfaces whatever was last open, and
   a proof that pastes into "a Notepad window" can write into someone's real
@@ -405,6 +436,28 @@ Every one of these produced a plausible, wrong result rather than an error.
 - **Assert invariants against source.** The scaffold suite reads config and
   source files to pin things review would otherwise have to catch — the window
   allowlist, the IPC schema, and the non-focusable rule among them.
+- **Every citation in a comment must resolve, and must not be a number.** Cite a
+  doc by heading — `UI-GUIDE "Information architecture"` — never by section
+  number. The fork inherited ~96 `§N` references pointing at a deleted doc's
+  numbering plus 35 naming deleted files, and all of them read as authoritative
+  while pointing at nothing; they were cleared on 2026-08-19. A heading survives
+  a renumber, and it can be checked. Three citation classes exist and a sweep
+  that misses one looks complete: the **filename** (`granite-final-pass.md`),
+  the **bare number** (`§9.4`, `Phase 6`), and the **prose** ("the handoff",
+  "the brief", "the GPU migration handoff, item 14") — that last one matches no
+  grep for a path or a `§`.
+- **Prefer naming the fact over citing where it was recorded.** Most of those
+  citations were carrying a fact perfectly well stated inline: `Phase 9` meant
+  `2026-08-04`, `Known risk #12` meant "the stale-clock deadline bug". Absorb it
+  and the comment stops depending on a document surviving.
+- **A comment about something deleted is only allowed to be history**, and has
+  to read as history. `speakeasy-asr`, `streaming_engine.rs` and
+  `inference-worker.exe` are still named in 12 places on purpose — "It was
+  `speakeasy-asr`, and it did link one", "were listed here until the fork
+  removed the engine". Those are load-bearing and rewriting them would make them
+  false. A *present-tense* claim about the same thing is a bug: that is the other
+  ~39, and one of them had the crate doc of `speakeasy-granite` asserting that
+  the delivered transcript came from the streaming model.
 
 ## Layout
 

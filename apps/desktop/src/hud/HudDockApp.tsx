@@ -32,7 +32,7 @@ import { useDragToMove } from "./useDragToMove";
  *
  * Stop is here despite dictation being hotkey-driven. The dock's whole promise
  * is staying reachable while the user works in another window, and the hotkey
- * has three activation modes (§ General settings) — in hands-free mode there is
+ * has three activation modes (Settings › General) — in hands-free mode there is
  * no key that ends a recording at all, so a dock with no Stop button leaves the
  * user's only way out on a window they moved away from on purpose.
  *
@@ -134,7 +134,7 @@ export function HudDockApp() {
  * - **refused** — delivered, but the target app would not take the text, so it
  *   is on the clipboard. A clipboard mark rather than a warning colour, because
  *   *what to do next* is the message and it is a different action from a
- *   failure (§11: never colour alone).
+ *   failure (UI-GUIDE "Contrast, themes, and motion": never colour alone).
  * - **failed** — a warning triangle, and the specific error on hover.
  *
  * A successful insertion shows nothing. The text arriving in the app the user

@@ -42,8 +42,8 @@ const GRANITE_PROJECTOR_FILENAME: &str = "mmproj-model-f16.gguf";
 const SAMPLE_RATE_HZ: u32 = 16_000;
 
 /// Same push-frame size the retained-audio final adapter uses
-/// (`speakeasy-asr`'s `RETAINED_PUSH_FRAME_SAMPLES`) — not load-bearing here,
-/// just a realistic chunking rather than one giant `PushAudio` frame.
+/// (`speakeasy-worker`'s `RETAINED_PUSH_FRAME_SAMPLES`) — not load-bearing
+/// here, just a realistic chunking rather than one giant `PushAudio` frame.
 const PUSH_FRAME_SAMPLES: usize = 1_600;
 
 const GROUND_TRUTH: &str =
@@ -278,17 +278,6 @@ fn granite_worker_process_transcribes_the_fixture_on_cpu() {
     assert!(status.success(), "worker exited with {status:?}");
 }
 
-/// The direct proof for residency, shaped exactly like the real desktop path:
-/// `WorkerFinalAdapter::run_locked` sends a fresh `LoadModel` before *every*
-/// dictation, unconditionally -- it has no way to know the process already has
-/// one loaded -- so it is not enough for the worker *process* to stay alive;
-/// `load_model` itself has to recognise a repeat request for the same
-/// artifact and skip reloading. This test sends `LoadModel` twice, once per
-/// dictation, and asserts the second one is dramatically faster than the
-/// first (it does not reload) while both dictations still transcribe
-/// correctly. It also re-proves per-stream cleanup: a second
-/// `StartStream`/`FinishStream` cycle reusing stream state the first cycle
-/// failed to clear (`self.active`) would fail regardless of the model.
 /// Pushes `samples` then drives `FinishStream`, returning the transcript text
 /// and how long `FinishStream` itself took. Assumes `StartStream` for
 /// `session_id` already happened.
@@ -318,6 +307,20 @@ fn run_dictation(
     (text.clone(), elapsed)
 }
 
+/// The direct proof for residency, shaped exactly like the real desktop path:
+/// `WorkerFinalAdapter::run_locked` sends a fresh `LoadModel` before *every*
+/// dictation, unconditionally -- it has no way to know the process already has
+/// one loaded -- so it is not enough for the worker *process* to stay alive;
+/// `load_model` itself has to recognise a repeat request for the same artifact
+/// and skip reloading. This test sends `LoadModel` twice, once per dictation,
+/// and asserts the second one is dramatically faster than the first (it does not
+/// reload) while both dictations still transcribe correctly. It also re-proves
+/// per-stream cleanup: a second `StartStream`/`FinishStream` cycle reusing
+/// stream state the first cycle failed to clear (`self.active`) would fail
+/// regardless of the model.
+///
+/// This doc comment sat on `run_dictation` below until 2026-08-19, describing a
+/// test from the helper it happened to precede.
 #[test]
 #[ignore = "hardware: needs the Granite GGUF files under .tools/granite-speech-4.1-2b/"]
 fn granite_worker_process_transcribes_two_dictations_each_preceded_by_load_model() {

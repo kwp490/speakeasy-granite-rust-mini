@@ -17,7 +17,7 @@
 //! why. It sat a fifth higher (440/659) and reached full amplitude in 15ms,
 //! which is a *struck* tone — and the ear hears a struck tone as an alert
 //! however consonant it is. Same notes, same 245ms: lower register, a ~48ms
-//! swell instead of a strike, a gentler decay and less level (§ `ATTACK`).
+//! swell instead of a strike, a gentler decay and less level (see `ATTACK`).
 //!
 //! Synthesised rather than shipped as `.wav` assets: pure sine tones with a
 //! soft envelope are a few lines of arithmetic, the response is unit-testable
@@ -172,7 +172,7 @@ fn voice(index: usize, start: usize, length: usize, hz: f32, rate: f64) -> f32 {
 /// A raised cosine at both ends rather than a linear ramp: linear ramps leave a
 /// discontinuity in the *slope*, which is audible as a faint tick at the volume
 /// a cue is played at. Between them the note decays exponentially, gently
-/// enough (§ `DECAY`) that it settles rather than snaps, which is what keeps it
+/// enough (see `DECAY`) that it settles rather than snaps, which is what keeps it
 /// from sounding either like a pluck or like a test tone.
 fn envelope(progress: f32) -> f32 {
     let attack = if progress < ATTACK {

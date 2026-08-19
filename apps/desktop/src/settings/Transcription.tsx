@@ -22,7 +22,7 @@ import type {
 } from "./types";
 
 /**
- * Transcription (§9.3): language, the local model, and personalization.
+ * Transcription: language, the local model, and personalization.
  *
  * Package internals — sizes, source repository, revision, license, provider,
  * capabilities, hardware evidence — sit behind a collapsed **Technical details**

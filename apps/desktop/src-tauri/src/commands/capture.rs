@@ -108,10 +108,10 @@ fn capture_hud_status(app: tauri::AppHandle) -> Result<CaptureHudView, &'static 
 /// flag: a profile can have skipped the seven steps and still have a verified
 /// model and a working microphone, and telling that user "Setup needed" while
 /// their shortcut dictates perfectly well would be false. The unfinished wizard
-/// is surfaced in settings (§10), which is where it can actually be finished.
+/// is surfaced in settings, which is where it can actually be finished.
 ///
 /// On a genuine first run the model is absent, so first launch still lands on
-/// Setup needed with a concrete requirement, which is what §10 asks for.
+/// Setup needed with a concrete requirement.
 ///
 /// # Errors
 ///
@@ -141,18 +141,19 @@ fn capture_devices(window: tauri::WebviewWindow) -> Result<Vec<CaptureDeviceView
 }
 
 // `capture_start` and `capture_stop` are deliberately absent. They were the
-// guided-test path in settings, and settings no longer starts, stops or cancels a
-// dictation (decision 6): there is one controller, and it is the transcriber plus
-// the global shortcut. Keeping a second start path is exactly the
-// two-inconsistent-controllers failure §8.1 exists to prevent — `capture_stop`
-// stopped without delivering, so a dictation begun in settings silently skipped
-// the paste that the identical action from the shortcut performed.
+// guided-test path in settings, and settings no longer starts, stops or cancels
+// a dictation (decision 6): there is one controller, and it is the transcriber
+// plus the global shortcut. Keeping a second start path is exactly the
+// two-inconsistent-controllers failure the single-controller rule exists to
+// prevent — `capture_stop` stopped without delivering, so a dictation begun in
+// settings silently skipped the paste that the identical action from the
+// shortcut performed.
 //
 // What did *not* go with them is retrying a transcription that failed while the
 // audio is still retained. That is recovery, not a guided test, and it lives on
 // as `dictation_retry` below.
 
-/// Input level for the Audio page's meter (§9.2).
+/// Input level for the Audio page's meter.
 ///
 /// Non-mutating, and deliberately not a second way to open a microphone: `level`
 /// is written by the capture loop, so it moves only while a dictation is actually
@@ -179,9 +180,9 @@ fn capture_level(
 /// Quits the app from settings, through the same graceful path the transcriber's
 /// close and the tray's Quit take — including the mid-dictation confirmation.
 ///
-/// The other compensating keyboard path (§13). Without it the only ways out are a
-/// mouse click on the transcriber's close button or the tray menu, neither of
-/// which a keyboard user can reach.
+/// The other compensating keyboard path (UI-GUIDE "Accessibility and input").
+/// Without it the only ways out are a mouse click on the transcriber's close
+/// button or the tray menu, neither of which a keyboard user can reach.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn app_quit(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), &'static str> {
@@ -205,10 +206,10 @@ fn capture_wizard_status(
 }
 
 /// Persists the microphone the user picked, so the shortcut path — which has no
-/// UI to ask — records from the same device (§6.4).
+/// UI to ask — records from the same device.
 ///
-/// Not in the §8.2 table, but §6.4 requires the behavior and names
-/// `capture_start` as the persistence path, which is main-only and is removed
+/// Not in the session-controls allowlist, but the behavior is required and
+/// `capture_start` is named as the persistence path, which is main-only and is removed
 /// once capture leaves settings. This writes exactly one preference field and
 /// grants no authority the transcriber does not already have: it opens no
 /// device, reads no audio, and starts nothing.
@@ -246,7 +247,7 @@ fn capture_device_configure(
 }
 
 /// Starts a dictation from a button. Identical in every respect to starting it
-/// from the global shortcut — same session, same debounce, same capture tap.
+/// from the global shortcut — same session, same debounce, same capture tap.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn dictation_start(
@@ -271,7 +272,7 @@ fn dictation_start(
 }
 
 /// Stops a dictation from a button, transcribes it and delivers the
-/// authoritative final — the same path the shortcut takes (§8.1).
+/// authoritative final — the same path the shortcut takes.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn dictation_stop(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), &'static str> {
@@ -298,7 +299,7 @@ fn open_settings_window(
     Ok(())
 }
 
-/// Routes window close requests (§8.7).
+/// Routes window close requests.
 ///
 /// There was no window-event handler at all before this; the only exit path was
 /// the tray's Quit item. Both windows now have a close button, and they mean
@@ -461,7 +462,7 @@ fn hud_dock_placement_configure(
         return Err("hud_dock_window_unavailable");
     };
     // The usable rectangle, not the whole display: a dock dragged low must land
-    // above the taskbar rather than behind it (§ `work_bounds_of`).
+    // above the taskbar rather than behind it (see `work_bounds_of`).
     let work = work_bounds_of(&monitor);
 
     // Nearest edge, not "which half of the monitor": compares how far the
@@ -748,7 +749,7 @@ async fn run_retained_transcription(
             let final_text = transcript.text.clone();
             // The session log records the authoritative final *before* delivery
             // is attempted, deliberately: a refused paste must still leave the
-            // text somewhere the user can reach it (§16).
+            // text somewhere the user can reach it.
             app.state::<SessionTranscriptCoordinator>().record(
                 transcript.session_id,
                 &final_text,
@@ -789,13 +790,12 @@ async fn run_retained_transcription(
 /// `immediate_repetitions` and `self_corrections` were always disabled for a
 /// Granite transcript: `resolve_self_correction` discards everything before
 /// `" I mean "`, which is live data loss on any transcript, and it fires more
-/// often on Granite's fluent output specifically than on a transducer's (see
-/// `docs/handoff/granite-final-pass.md`, Phase 6). That used to be a
-/// per-engine decision carried in an `is_granite` flag, because a streaming
-/// transcript could still be delivered and did want them. Every delivered
-/// transcript is Granite's now, so the flag was always true, the two rules are
-/// unreachable, and their settings toggles were removed rather than left on
-/// screen doing nothing.
+/// often on Granite's fluent output specifically than on a transducer's. That
+/// used to be a per-engine decision carried in an `is_granite` flag, because a
+/// streaming transcript could still be delivered and did want them. Every
+/// delivered transcript is Granite's now, so the flag was always true, the two
+/// rules are unreachable, and their settings toggles were removed rather than
+/// left on screen doing nothing.
 fn apply_final_personalization(
     transcript: &mut FinalTranscript,
     state: PersonalizationBundle,

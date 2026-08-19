@@ -32,10 +32,9 @@ publish.workspace = true
 #    a local, manual hardware configuration rather than something a user can
 #    reach." **Deleted: that is now exactly backwards.** The installer still does
 #    not bundle a CUDA worker, but for a different reason -- the installer is
-#    kept minimal on purpose and anything fetchable is fetched (see
-#    `docs/handoff/setup-wizard-redesign.md`). The CUDA worker is intended to be
-#    a published, digest-pinned artifact that setup downloads when the machine
-#    admits it, the same way the float ASR export already is.
+#    kept minimal on purpose and anything fetchable is fetched. The CUDA worker
+#    is intended to be a published, digest-pinned artifact that setup downloads
+#    when the machine admits it, the same way the float ASR export already is.
 # 3. Size. That one survives, and is about the *redistributables*, not this: the
 #    CUDA execution provider's ~2.3 GB overflows `makensis` on its own. The CUDA
 #    worker itself measured 54.4 MB for a single architecture.

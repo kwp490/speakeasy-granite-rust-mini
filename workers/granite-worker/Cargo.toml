@@ -12,9 +12,9 @@ publish.workspace = true
 cuda = ["speakeasy-granite/cuda"]
 
 [dependencies]
-# Deliberately not `speakeasy-asr`: the whole point of this crate living apart
-# from `workers/inference-worker` is that Granite's process never links ONNX
-# Runtime. The wire protocol both workers speak is unchanged and lives in
+# Deliberately depends on no engine crate but `speakeasy-granite`: the whole
+# point of this worker living apart from the streaming one it was written beside
+# is that Granite's process never links ONNX Runtime. The wire protocol lives in
 # `speakeasy-domain` for exactly this reason — see that crate's
 # `worker_protocol` module.
 speakeasy-domain.workspace = true

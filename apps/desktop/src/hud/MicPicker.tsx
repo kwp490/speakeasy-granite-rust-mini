@@ -29,7 +29,7 @@ function resolveDevice(devices: ReadonlyArray<CaptureDevice>, preferredId: strin
 }
 
 /**
- * Microphone selection (§6.4).
+ * Microphone selection (UI-GUIDE "Information architecture", the Audio group).
  *
  * Selecting writes `preferred_capture_device_id`, which is the same setting the
  * shortcut path reads — so choosing here changes what a shortcut-driven

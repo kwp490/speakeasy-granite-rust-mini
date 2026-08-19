@@ -42,9 +42,6 @@ try {
     # The CPU worker IS bundled, because it is the one thing that must exist
     # before any download succeeds -- a machine with no network, or a user who
     # declines the GPU, still has to be able to transcribe.
-    #
-    # See docs/handoff/setup-wizard-redesign.md for the fetch-first policy and
-    # for where a published CUDA worker is expected to live.
     & cargo build -p speakeasy-bootstrapper -p speakeasy-granite-worker --release --locked
     if ($LASTEXITCODE -ne 0) { throw 'Release worker/bootstrapper/granite-worker build failed.' }
 

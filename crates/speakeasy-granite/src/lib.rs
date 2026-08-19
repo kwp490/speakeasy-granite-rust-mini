@@ -3,19 +3,23 @@
 //!
 //! # Why this is a crate of its own
 //!
-//! `speakeasy-asr` owns the streaming engine, which is sherpa-onnx over ONNX
-//! Runtime. This is a second inference runtime entirely: llama.cpp, compiled
-//! from source by `llama-cpp-sys-2` through `CMake`. Keeping it here rather than
-//! in `speakeasy-asr` means a C++ toolchain is a build prerequisite only for
-//! the crates that actually want Granite, instead of for everything that
-//! touches ASR.
+//! llama.cpp is compiled from source by `llama-cpp-sys-2` through `CMake`, so
+//! anything that links this crate needs a C++ toolchain to build. Keeping it in
+//! a crate of its own confines that prerequisite to the crates that actually
+//! want Granite: `speakeasy-worker`, the boundary the desktop app drives, links
+//! no native libraries at all and checks in seconds.
+//!
+//! The split was originally against `speakeasy-asr`, which owned a streaming
+//! sherpa-onnx recognizer beside this one. That crate and its engine are gone;
+//! the split still earns its keep for the toolchain reason above.
 //!
 //! # What it is for
 //!
-//! Today the transcript a user receives comes from the *streaming* model, run a
-//! second time over the retained audio, because no `final-asr` pack existed to
-//! run instead. Granite is the authoritative final pass that role was always
-//! meant to hold. See `docs/handoff/migrate-to-nvidia-gpu.md`, item 10.
+//! **The delivered transcript, with nothing behind it.** Granite runs once over
+//! the retained recording after the user stops, and that single pass produces
+//! the transcript, its punctuation and its casing together. There is no
+//! streaming pass to fall back to and no second engine: a pass that fails, or
+//! returns nothing, ends the dictation with a named reason.
 //!
 //! # Residency
 //!
@@ -26,8 +30,7 @@
 //! utterance's generation state is shared with the next one). This is the
 //! shape `workers/granite-worker` runs in production: load once at
 //! `LoadModel`, transcribe many times at `FinishStream`, never reloading
-//! between dictations. See `docs/handoff/granite-final-pass.md`'s residency
-//! decision.
+//! between dictations.
 //!
 //! The free functions [`transcribe_wav_file`] and [`transcribe_samples`] are
 //! the one-shot equivalent — load, transcribe once, tear down — kept for
@@ -201,10 +204,10 @@ pub struct GraniteOptions {
 /// # Why this is not simply "all of them"
 ///
 /// Measured on this project's development machine (i9-14900KF, 8 P-cores +
-/// 16 E-cores = 24 cores / 32 logical) against a 120 s utterance, Phase 10
-/// item 14 — `granite_thread_count_sweep_on_a_two_minute_utterance` in this
-/// crate's `granite_smoke` module is the rig, and re-running it is how these
-/// numbers get revised rather than argued about:
+/// 16 E-cores = 24 cores / 32 logical) against a 120 s utterance.
+/// `granite_thread_count_sweep_on_a_two_minute_utterance` in this crate's
+/// `granite_smoke` module is the rig, and re-running it is how these numbers
+/// get revised rather than argued about:
 ///
 /// | threads | transcribe | versus 4 |
 /// | --- | --- | --- |
@@ -255,7 +258,7 @@ impl Default for GraniteOptions {
             // while overrunning this budget just stops generating and
             // returns the truncated text as though the model had finished.
             //
-            // Phase 10 item 14 found the old 512 close enough to matter: a
+            // Measurement found the old 512 close enough to matter: a
             // 120 s utterance needs ~400 tokens for its 312 words, ~25%
             // short of the ceiling, and a 4-minute one would have been cut
             // by roughly a third with no error and no disclosure. The

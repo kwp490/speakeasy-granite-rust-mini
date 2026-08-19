@@ -320,7 +320,7 @@ pub enum HudDockEdge {
     Right,
 }
 
-/// Persisted placement for the side dock (§ side-dock mode).
+/// Persisted placement for the side dock.
 ///
 /// Position-only: the dock's width is fixed, so only the
 /// edge it is flush against and its vertical position are worth remembering.

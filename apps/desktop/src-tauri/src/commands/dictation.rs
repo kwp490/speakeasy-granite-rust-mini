@@ -34,11 +34,11 @@ fn capture_transcribe_cancel(
     // The activation session and the exclusive-operation slot are held until a
     // stop releases them, and no stop is coming. Without this the next press is
     // read as a Stop that finds nothing to stop, which is the same stuck state
-    // the ceiling watcher exists to prevent (§8.8).
+    // the ceiling watcher exists to prevent.
     app.state::<HotkeyCoordinator>().abandon_active_session();
     app.state::<OperationCoordinator>().finish_dictation();
     // In-progress hypotheses must not outlive the dictation as if they were a
-    // result the user could act on (§6.2).
+    // result the user could act on.
     app.state::<CaptureHudCoordinator>().abandon();
     log_event(
         &app,
@@ -114,7 +114,7 @@ fn result_copy(
         .ok_or("clipboard_sequence_unavailable")
 }
 
-/// This session's finals, newest first (§9.4).
+/// This session's finals, newest first.
 ///
 /// Main-only, like every other command that can see transcript text. Nothing
 /// here is on disk, so there is no disclosure to make and nothing to delete —
@@ -132,9 +132,9 @@ fn session_transcript_log(
 /// Copies one session-log entry to the clipboard.
 ///
 /// Main-only and deliberately so: clipboard authority stays out of the
-/// transcriber (decision 3, §8.4). The text is fetched in Rust from the id, so
-/// the window never hands text back to be written — it can only name an entry
-/// that the backend already holds.
+/// transcriber. The text is fetched in Rust from the id, so the window never
+/// hands text back to be written — it can only name an entry that the backend
+/// already holds.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn session_transcript_copy(

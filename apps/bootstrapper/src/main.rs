@@ -3,9 +3,9 @@
 //! Setup places the app on a machine that has nothing. Repair operates on one
 //! where something is already wrong. They are a single binary because the owner
 //! ruled out a third executable (2026-08-14), and the two modes are separated
-//! here, at the entry point, rather than grown apart later — the brief this work
-//! came from is explicit that retrofitting the second mode is much harder than
-//! designing for it, and repair is the harder environment of the two.
+//! here, at the entry point, rather than grown apart later: retrofitting the
+//! second mode is much harder than designing for it, and repair is the harder
+//! environment of the two.
 
 // Console subsystem, for now, and the reason is measured rather than assumed.
 //

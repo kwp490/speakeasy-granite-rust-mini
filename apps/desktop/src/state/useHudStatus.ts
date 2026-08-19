@@ -9,12 +9,12 @@ import {
 } from "./transcriberState";
 
 /**
- * The compact transcriber's single poll (§8.3).
+ * The compact transcriber's single poll.
  *
  * Exactly one command at exactly 10 Hz. The device name, shortcut binding and
  * gating flags ride along in the same response, so adding them to the UI cost
  * no extra IPC. Do not raise this frequency without measuring: the level meter
- * redraws from it, and 10 Hz is already inside the 20-30 Hz budget §11 sets.
+ * redraws from it, and 10 Hz is already inside a 20-30 Hz redraw budget.
  */
 const POLL_INTERVAL_MS = 100;
 

@@ -151,7 +151,7 @@ mod tests {
     /// Probe: reports what UI Automation actually offers in whatever window is
     /// focused when it runs. Live external typing needs to track the exact range
     /// `SpeakEasy` inserted, and that is only possible if the target exposes
-    /// readable document offsets — which Electron apps frequently do not.
+    /// readable document offsets — which Electron apps frequently do not.
     ///
     /// Answering this empirically decides the adapter design, so run it against
     /// each target you care about before any of it is written (`--nocapture` is
@@ -315,7 +315,8 @@ mod tests {
             ceiling_ms: 30_000,
             preferred_device_id: String::new(),
             // Warmed, so these tests stay about composition rather than about
-            // the load. The warm states are covered in `streaming_engine`.
+            // the load. The warm states themselves are covered by
+            // `granite_engine`'s own tests, not here.
             engine: "ready",
             queue_depth: 0,
             error_code: None,
@@ -558,9 +559,8 @@ mod tests {
     /// Granite transcript, on for a streaming one, because
     /// `resolve_self_correction` discards everything before `" I mean "` --
     /// live data loss on any transcript, and it fires more often on Granite's
-    /// fluent output specifically (`docs/handoff/granite-final-pass.md`, Phase
-    /// 6). Every delivered transcript is Granite's now, so the condition is
-    /// gone and the bypass is absolute.
+    /// fluent output specifically. Every delivered transcript is Granite's now,
+    /// so the condition is gone and the bypass is absolute.
     ///
     /// The test is kept, and pinned harder, precisely because the rules are
     /// unreachable: the two settings toggles that used to reach them were
@@ -810,7 +810,7 @@ mod tests {
         expected.sort_unstable();
         assert_eq!(
             hud_reachable, expected,
-            "the transcriber's allowlist changed; §8.2 and the IPC schema must change with it"
+            "the transcriber's allowlist changed; the IPC schema must change with it"
         );
 
         // The specific authorities that must never be reachable from a

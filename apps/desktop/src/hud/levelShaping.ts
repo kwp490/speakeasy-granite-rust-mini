@@ -22,7 +22,8 @@ export const HISTORY = (ROWS + 1) / 2;
  * The loudest a row gets, as a percentage of the meter's width.
  *
  * A percentage rather than the pixel count this was, because the dock's width
- * is a measured Windows floor rather than a design choice (§ the side dock) and
+ * is a measured Windows floor rather than a design choice (UI-GUIDE
+ * "Responsive, high-DPI, and multi-monitor behavior") and
  * has now moved once. A `px` maximum tuned against one width silently stops
  * filling the card at the next one; a percentage cannot.
  *

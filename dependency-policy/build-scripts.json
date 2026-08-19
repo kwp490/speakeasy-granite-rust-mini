@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "purpose": "Inventory of every crate in this workspace's locked dependency graph that has a build script (cargo metadata target kind custom-build), per docs/handoff/granite-final-pass.md known-risk item 6. This proves an inventory exists; it does not prove the absence of network calls in any build.rs -- see caveat.",
+  "purpose": "Inventory of every crate in this workspace's locked dependency graph that has a build script (cargo metadata target kind custom-build). This proves an inventory exists; it does not prove the absence of network calls in any build.rs -- see caveat.",
   "caveat": "network_indicator is a textual grep over each build.rs for a fixed set of strings (reqwest, ureq, hyper::, curl::, TcpStream, http_req, isahc, attohttpc, literal http(s):// URLs). A false negative is possible (e.g. shelling out to curl by a name this scan does not match, or a network call several functions deep in an included module) and one false positive is already known (web_atoms, see its note). Treat a `false` here as \"no obvious network client in this build.rs today\", not as a guarantee.",
   "regenerate": "cargo metadata --format-version 1 --locked, filter packages whose targets include kind \"custom-build\", read each target's src_path, grep for the indicator list above. Re-run whenever Cargo.lock changes and diff the entries list; a name/version pair with no matching entry here is a new build-script dependency that has not been reviewed.",
   "matching": "Test-DependencyPolicy.ps1 matches crates.io and git entries by name@version, but source=\"workspace\" entries by name alone, so their version field here is informational. A workspace crate's build.rs is in-tree and reviewed as code in the diff, so pinning its version bought no review and only broke the gate on every [workspace.package] version bump.",
@@ -262,7 +262,7 @@
       "version": "0.1.153",
       "source": "git (patched fork)",
       "network_indicator": false,
-      "note": "The patched fork (see [patch.crates-io] in Cargo.toml). Already reviewed under known-risk item 6 in docs/handoff/granite-final-pass.md: no HTTP client in this build.rs."
+      "note": "The patched fork (see [patch.crates-io] in Cargo.toml). Reviewed: no HTTP client in this build.rs."
     },
     {
       "name": "memoffset",

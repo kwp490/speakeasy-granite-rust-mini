@@ -6,12 +6,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
  * settled position to `persist` once the drag ends.
  *
  * Shared by the default HUD and the side dock, which are the same
- * no-activate window family (§ side-dock mode) and move the same way — only
+ * no-activate window family (UI-GUIDE "Main window and focus") and move the
+ * same way — only
  * where each persists its landing position differs, which is why this takes
  * `persist` as a parameter rather than a hard-coded command name.
  *
  * Verified against a running no-activate, undecorated window before any of
- * this was built (§17 step 3): the cursor delta and the window delta match
+ * this was built: the cursor delta and the window delta match
  * exactly, and the foreground window does not change. `startDragging` needs
  * `core:window:allow-start-dragging`, which `core:default` does *not*
  * include — without it the call is refused silently and the window simply
@@ -31,7 +32,7 @@ export function useDragToMove(persist: (x: number, y: number) => void) {
       if (event.button !== 0) return;
       const target = event.target as HTMLElement | null;
       // The controls sit inside the drag region; without this their clicks get
-      // swallowed by the OS move loop (§6.1).
+      // swallowed by the OS move loop.
       if (target?.closest("button, select, input, a") !== null) return;
       if (target?.closest("[data-tauri-drag-region]") === null) return;
       dragging.current = true;

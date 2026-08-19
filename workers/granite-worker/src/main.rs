@@ -1,21 +1,22 @@
 //! Granite Speech in its own supervised worker process.
 //!
-//! Speaks the same framed-JSON protocol as `speakeasy-inference-worker`
-//! (`speakeasy_domain::worker_protocol`) unchanged, so the desktop app's
-//! existing `ProcessWorkerClient` and `WorkerClient` boundary work for this
-//! engine without modification — only the process on the other end of the pipe
-//! differs. See `docs/handoff/granite-final-pass.md`, Phase 4.
+//! Speaks `speakeasy_domain::worker_protocol`'s framed-JSON protocol, which the
+//! streaming worker spoke before it too, so the desktop app's
+//! `ProcessWorkerClient` and `WorkerClient` boundary work for this engine
+//! without modification — only the process on the other end of the pipe
+//! differs.
 //!
-//! # Why this process links neither `speakeasy-asr` nor ONNX Runtime
+//! # Why this process links no ASR crate and no ONNX Runtime
 //!
 //! `unsafe_code = "forbid"` cannot protect against a C++ segfault inside
 //! llama.cpp, so process isolation is the mitigation: a crash here kills this
 //! process, not the app the user is mid-dictation in, and it keeps llama.cpp's
-//! CUDA context away from ONNX Runtime's. Depending on `speakeasy-domain`
-//! alone rather than `speakeasy-asr` is what actually delivers that — the
-//! protocol types are identical either way, but `speakeasy-asr` pulls in
-//! `sherpa-onnx`, and linking that into this binary would re-introduce exactly
-//! the coupling process isolation exists to avoid.
+//! CUDA context away from ONNX Runtime's. Depending on `speakeasy-domain` alone
+//! is what actually delivers that — the protocol types would be identical
+//! either way, but the streaming crate pulled in `sherpa-onnx`, and linking that
+//! into this binary would have re-introduced exactly the coupling process
+//! isolation exists to avoid. That crate is gone; the rule it motivated stands,
+//! because it is what keeps this binary's dependency surface llama.cpp alone.
 //!
 //! # Why the model loads at `LoadModel` and stays loaded
 //!
@@ -26,15 +27,14 @@
 //! model and projector for every utterance rather than reloading. The
 //! earlier shape (load-transcribe-destroy per dictation, mirroring
 //! `speakeasy-granite`'s "deliberately wasteful" free functions) is still
-//! available in that crate for one-shot callers, but this worker is not one
-//! — see `docs/handoff/granite-final-pass.md`'s residency decision.
+//! available in that crate for one-shot callers, but this worker is not one.
 //!
 //! # Why there is no hash check here, on purpose
 //!
-//! `LoadModel` verifies file *presence*, not a SHA-256 against a trusted pin,
-//! unlike `speakeasy-inference-worker`'s `verify_model_files`. That is not the
-//! manifest hole it was when this worker was written: `models/trusted-manifest.json`
-//! has carried Granite packs since Phase 5, and Phase 6 closed the gap
+//! `LoadModel` verifies file *presence*, not a SHA-256 against a trusted pin —
+//! unlike the streaming worker's `verify_model_files`, which this was written
+//! beside. That is not the manifest hole it was then:
+//! `models/trusted-manifest.json` carries Granite packs, and the gap is closed
 //! **caller-side** — `apps/desktop` hashes the pack's files with
 //! `speakeasy_models::verify_pack_files` before ever spawning this process.
 //! Widening the wire protocol to carry digests was considered and rejected
@@ -51,15 +51,14 @@ use speakeasy_domain::{
 };
 use speakeasy_granite::{GraniteError, GraniteModel, GraniteOptions, GraniteStage};
 
-/// The only artifact this worker will load: the shipped quantization,
-/// `Q4_K_M` since 2026-08-04 (Phase 9; it replaced `Q8_0` on Phase 8's
-/// measurement). A literal rather than something read out of the manifest
-/// because this crate deliberately does not link a manifest reader — the
-/// caller resolves the pack and hands the resolved `model_root` over, as this
-/// module's doc comment explains. Changing the shipped quantization therefore
-/// means changing this pair *and* the manifest's `install_eligible` flags
-/// together; they are checked against each other by
-/// `the_worker_artifact_id_matches_the_install_eligible_pack` in
+/// The only artifact this worker will load: the shipped quantization, `Q4_K_M`
+/// since 2026-08-04, when it replaced `Q8_0` on measurement. A literal rather
+/// than something read out of the manifest because this crate deliberately does
+/// not link a manifest reader — the caller resolves the pack and hands the
+/// resolved `model_root` over, as this module's doc comment explains. Changing
+/// the shipped quantization therefore means changing this pair *and* the
+/// manifest's `install_eligible` flags together; they are checked against each
+/// other by `the_worker_artifact_id_matches_the_install_eligible_pack` in
 /// `apps/desktop`'s `granite_engine` tests.
 const GRANITE_ARTIFACT_ID: &str = "granite-speech-4.1-2b-q4_k_m";
 /// Filenames as IBM's own published GGUF conversion names them, matching
@@ -68,9 +67,9 @@ const GRANITE_ARTIFACT_ID: &str = "granite-speech-4.1-2b-q4_k_m";
 const GRANITE_MODEL_FILENAME: &str = "granite-speech-4.1-2b-Q4_K_M.gguf";
 const GRANITE_PROJECTOR_FILENAME: &str = "mmproj-model-f16.gguf";
 
-/// Mirrors `speakeasy_asr::SAMPLE_RATE_HZ`. Duplicated rather than shared,
-/// because sharing it would mean depending on `speakeasy-asr` — the one thing
-/// this crate exists to avoid. See this module's doc comment.
+/// Mirrors `speakeasy_worker::SAMPLE_RATE_HZ`. Duplicated rather than shared,
+/// because sharing it would mean this worker depending on the crate that drives
+/// it. See this module's doc comment.
 const SAMPLE_RATE_HZ: u32 = 16_000;
 /// Must stay aligned with the desktop capture safety ceiling: two minutes at
 /// the worker's fixed sample rate. The worker enforces this independently so a
@@ -173,13 +172,12 @@ impl Worker {
                 "cannot replace a model while a stream is active",
             ));
         }
-        // `WorkerFinalAdapter::run_locked` sends `LoadModel` before every single
-        // dictation, unconditionally -- it has no way to know whether this
-        // process already has a model loaded. Mirrors
-        // `speakeasy-inference-worker`'s own `load_model`: when the same
-        // artifact is already resident, this is a fast no-op rather than a
-        // second ~2 GB load, which is the entire point of keeping the model
-        // loaded across dictations at all.
+        // `WorkerFinalAdapter::run_locked` sends `LoadModel` before every
+        // single dictation, unconditionally -- it has no way to know whether
+        // this process already has a model loaded. As in the streaming worker's
+        // own `load_model`: when the same artifact is already resident, this is
+        // a fast no-op rather than a second ~2 GB load, which is the entire
+        // point of keeping the model loaded across dictations at all.
         if self.artifact_id.as_deref() == Some(artifact_id) && self.model.is_some() {
             return Ok(vec![WorkerEvent::ModelLoaded {
                 artifact_id: artifact_id.to_owned(),

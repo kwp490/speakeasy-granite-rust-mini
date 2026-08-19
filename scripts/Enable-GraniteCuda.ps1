@@ -5,11 +5,10 @@ CUDA-built worker over the CPU one the installer ships.
 
 .DESCRIPTION
 **Interim.** This script is the stopgap until setup fetches a published CUDA
-worker itself; see `docs/handoff/setup-wizard-redesign.md`. Owner decision
-2026-08-14: both engines run on the GPU when the hardware supports it, so
-"Granite is CPU-only in shipped builds" is no longer the policy -- it is
-just the current state of the packaging, and this script is how you get past it
-today.
+worker itself. Owner decision 2026-08-14: both engines run on the GPU when the
+hardware supports it, so "Granite is CPU-only in shipped builds" is no longer
+the policy -- it is just the current state of the packaging, and this script is
+how you get past it today.
 
 The installer ships the CPU worker. `Invoke-ProofPackage.ps1` builds
 `speakeasy-granite-worker` with default features, because the `cuda` feature
@@ -30,11 +29,9 @@ provider's redistributables at ~2.3 GB already overflow `makensis` (see
 `Invoke-ProofPackage.ps1`). Note that this is an argument about the DLLs, not
 about the worker -- the CUDA worker measured 54.4 MB for a single architecture.
 
-Measured on this project's own fixture (docs/handoff/transcribe-cpp-benchmark.md,
-RTX 5090): Granite Q4 resident run 1,571.9 ms on CPU versus 156.4 ms on CUDA,
-RTF 0.158 versus 0.0157. Cold load is slower (5,218 ms versus 2,104 ms) and it
-holds ~3.27 GiB of VRAM.
-
+Measured on this project's own fixture (RTX 5090): Granite Q4 resident run
+1,571.9 ms on CPU versus 156.4 ms on CUDA, RTF 0.158 versus 0.0157. Cold load
+is slower (5,218 ms versus 2,104 ms) and it holds ~3.27 GiB of VRAM.
 # It also changes what a dev run stages, which is worth knowing
 
 Building with `--features cuda` writes a CUDA worker to

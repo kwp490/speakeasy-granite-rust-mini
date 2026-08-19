@@ -10,7 +10,8 @@ export const messages = {
   settings: "Settings",
 
   // ── The compact transcriber ──────────────────────────────────────────────
-  // Everyday register (§12): plain language, no contract vocabulary. The three
+  // Everyday register (UI-GUIDE "Two vocabulary registers"): plain language, no
+  // contract vocabulary. The three
   // streaming tiers and the qualification wording are the exceptions — they
   // stay precise everywhere, because truthful disclosure depends on them.
   transcriber: "SpeakEasy transcriber",
@@ -29,16 +30,17 @@ export const messages = {
     deliveredRefused: "Not inserted",
     failed: "Stopped safely",
   },
-  // The one control (§6.1). Its label and colour are the transcriber's primary
-  // state readout, which is why every entry here names a state rather than an
-  // action: "Recording" is what is happening, and pressing it is what stops it.
-  // Sentence case throughout, matching the rest of this catalog.
+  // The one control (UI-GUIDE "Main window and focus"). Its label and colour
+  // are the transcriber's primary state readout, which is why every entry here
+  // names a state rather than an action: "Recording" is what is happening, and
+  // pressing it is what stops it. Sentence case throughout, matching the rest
+  // of this catalog.
   recordButton: {
     loadingModel: "Loading model",
     runSetup: "Set up SpeakEasy",
     ready: "Start recording",
     // Not "Recording": capture has not begun yet, and claiming it had would be
-    // the same lie §6.3 forbids about delivery.
+    // the same lie UI-GUIDE's truthful-disclosure rule forbids about delivery.
     starting: "Starting…",
     recording: "Recording",
     processing: "Processing…",
@@ -49,7 +51,7 @@ export const messages = {
   // lived here until the one control absorbed all five. Keeping them would leave
   // five plausible names for a button that no longer answers to any of them.
   cancelDictation: "Cancel",
-  // Clears a finished outcome. §8.4's state table always specified this for
+  // Clears a finished outcome. The state table always specified this for
   // `complete`; the reducer and its tests were written and then never wired to
   // anything, so a finished transcript sat on screen until the next dictation.
   dismissResult: "Done",
@@ -86,13 +88,13 @@ export const messages = {
   elapsedAndDevice: (elapsed: string, device: string) =>
     device === "" ? elapsed : `${elapsed} · ${device}`,
   capturedSeconds: (seconds: string) => `${seconds} seconds captured`,
-  // Truthful about what happened, per §6.3: a refusal is never dressed up as an
-  // insertion. `deliveredInsertedDetail`, `deliveredHeldDetail` and
-  // `deliveredRefusedDetail` used to sit here as a second, longer telling of
-  // whatever the state line already said — three prose restatements stacked
-  // above the transcript they described. The state line and the Copy button
-  // carry it now, so only the refusal keeps a longer form: it is the one outcome
-  // where *why* changes what the user does next.
+  // Truthful about what happened, per UI-GUIDE's truthful-disclosure rule: a
+  // refusal is never dressed up as an insertion. `deliveredInsertedDetail`,
+  // `deliveredHeldDetail` and `deliveredRefusedDetail` used to sit here as a
+  // second, longer telling of whatever the state line already said — three
+  // prose restatements stacked above the transcript they described. The state
+  // line and the Copy button carry it now, so only the refusal keeps a longer
+  // form: it is the one outcome where *why* changes what the user does next.
   deliveredRefusedStatus: "Not inserted — that app refused it",
   // Why a dictation produced no text. Keyed by
   // `speakeasy_worker::FinalSourceReason::code()`.
@@ -153,8 +155,9 @@ export const messages = {
   transcriberNotKeyboardOperable:
     "The transcriber never takes keyboard focus, so it cannot be operated by keyboard. Use the shortcut to start and stop, and settings for everything else.",
   // ── The settings workspace ───────────────────────────────────────────────
-  // Five pages behind a nav rail (§9). Everyday register throughout except
-  // Advanced, which is where contract vocabulary belongs (§12).
+  // Six pages behind a nav rail (UI-GUIDE "Information architecture").
+  // Everyday register throughout except Advanced, which is where contract
+  // vocabulary belongs (UI-GUIDE "Two vocabulary registers").
   settingsGroups: {
     general: "General",
     audio: "Audio",
@@ -263,12 +266,12 @@ export const messages = {
   aboutDetail:
     "SpeakEasy transcribes on this device with a local model. There is no analytics, no crash upload and no cloud sync.",
   /**
-   * Contract identifier to display name (§9.5). Everyday surfaces read these;
+   * Contract identifier to display name (UI-GUIDE "Information architecture",
+   * the Advanced group). Everyday surfaces read these;
    * Advanced shows the raw identifier alongside, behind Show raw values, because
    * that is the vocabulary logs and diagnostics use.
    */
   displayNames: {
-    nemotron_3_5_streaming: "Nemotron 3.5 Streaming",
     supervised_process: "Supervised process",
     sherpa_onnx: "sherpa-onnx",
     manual_stop_only: "Manual stop",
@@ -534,7 +537,7 @@ export const messages = {
     // safely", which is indistinguishable from a transcription regression and
     // cost a debugging round to tell apart. It is also what every dictation
     // under `npm run tauri -- dev` returns, because nothing stages `proof/`
-    // for a dev run; see docs/handoff/hud-side-dock.md.
+    // for a dev run.
     runtime_resources_unavailable:
       "This installation is missing its transcription components. Reinstall the app.",
     runtime_adapter_failed: "Local transcription did not complete. The captured audio remains available for Retry.",

@@ -1,4 +1,4 @@
-/// This session's finals, for recall and copying (§9.4, decision 5).
+/// This session's finals, for recall and copying.
 ///
 /// Memory only. Nothing here is written to disk and the whole log dies with the
 /// process — that is the entire privacy claim, so there is deliberately no
@@ -96,7 +96,7 @@ impl SessionTranscriptCoordinator {
         }
     }
 
-    /// This session's finals, newest first (§9.4).
+    /// This session's finals, newest first.
     fn log(&self) -> Result<Vec<SessionTranscriptEntryView>, &'static str> {
         let entries = self
             .entries
@@ -301,15 +301,16 @@ pub async fn admit_streaming_runtime(
     Ok((ready, transcript))
 }
 
-/// The two checks a delivered transcript has to clear, whichever path produced
-/// it — the spawn-per-dictation one through [`admit_streaming_runtime`] above,
-/// or the resident one through [`resident_retained_pass`].
+/// The two checks a delivered transcript has to clear, on its way through
+/// [`admit_streaming_runtime`] above.
 ///
-/// Extracted rather than duplicated because the split between them is Phase 2's
-/// and is easy to collapse by accident (`docs/handoff/granite-final-pass.md`).
-/// `input_samples == 0` is a real plumbing bug — the pass was handed no audio at
-/// all — and stays [`ErrorCode::AdapterFailed`], which does count toward worker
-/// quarantine. Empty *text* is a silent utterance and must be
+/// It had a second caller, `resident_retained_pass`, until the streaming engine
+/// left and the two paths became one. Kept as its own function because the
+/// split the two checks draw — a plumbing bug versus a silent utterance — is
+/// deliberate and easy to collapse by accident. `input_samples == 0` is a real
+/// plumbing bug — the pass was handed no audio at all — and stays
+/// [`ErrorCode::AdapterFailed`], which does count toward worker quarantine.
+/// Empty *text* is a silent utterance and must be
 /// [`ErrorCode::NoSpeechDetected`], which does not: three short silences inside
 /// one minute used to quarantine all delivery.
 fn admissible_delivered_transcript(transcript: &FinalTranscript) -> Result<(), DomainError> {
@@ -355,7 +356,7 @@ impl Default for CaptureHudCoordinator {
                 ceiling_ms: 0,
                 preferred_device_id: String::new(),
                 delivery_outcome: "held".to_owned(),
-                // Matches `StreamingEngineCoordinator`'s own default. This
+                // The streaming coordinator's own default before it, kept. This
                 // baseline exists only to be compared against the first real
                 // composition, so claiming `ready` here would publish a warm
                 // that has not happened.
@@ -395,14 +396,14 @@ impl CaptureHudCoordinator {
     /// Distinct from `end_live`, which keeps the session and waits for an
     /// authoritative final to replace the hypotheses. A cancelled dictation has
     /// no final coming, so leaving the last hypothesis on screen would leave
-    /// display-only live text standing as the result (§6.2).
+    /// display-only live text standing as the result.
     fn abandon(&self) {
         if let Ok(mut live) = self.live.lock() {
             *live = HudLiveState::default();
         }
     }
 
-    /// Shows the authoritative final — the same text delivery uses — together
+    /// Shows the authoritative final — the same text delivery uses — together
     /// with what actually happened to it.
     fn finish(&self, text: &str, outcome: &'static str, source_reason: Option<&'static str>) {
         if let Ok(mut live) = self.live.lock() {
@@ -419,7 +420,7 @@ impl CaptureHudCoordinator {
     /// Deriving the composed half here rather than pushing it keeps the HUD to
     /// one poll while still honouring the stale-response guard: `sequence`
     /// moves whenever anything the frontend can see moves, including when only
-    /// the §8.3 fields changed.
+    /// the composed fields changed.
     fn view(&self, composed: HudComposition) -> Result<CaptureHudView, &'static str> {
         let live = self
             .live
@@ -489,8 +490,8 @@ struct HudComposition {
     error_code: Option<String>,
 }
 
-/// Translates the capture wizard's vocabulary into the session states §6.3
-/// distinguishes for the user.
+/// Translates the capture wizard's vocabulary into the session states
+/// UI-GUIDE's truthful-disclosure rule distinguishes for the user.
 ///
 /// Doing this here rather than in the tap is what makes `Listening` and
 /// `Transcribing…` correct when streaming is unavailable: the capture pipeline
@@ -825,7 +826,7 @@ fn bounded_diagnostic_text(text: &str) -> String {
 /// Appends a sanitized diagnostic line describing an internal decision or
 /// refusal, gated behind the user's disk-logging opt-in. Callers must only
 /// pass structured field values (error codes, booleans, counts, session
-/// ids) here, never raw transcript text or other captured content — this
+/// ids) here, never raw transcript text or other captured content — this
 /// respects the same "logs are sanitized" promise shown in diagnostics.
 fn log_event(app: &tauri::AppHandle, event: &str, fields: &[(&str, &str)]) {
     let session_id = app

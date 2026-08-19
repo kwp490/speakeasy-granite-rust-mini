@@ -1,8 +1,8 @@
 ﻿<#
 .SYNOPSIS
 Walks every page of the running settings workspace and reports the layout facts
-docs/archive/UI-REDESIGN.md §13 states as rules: no horizontal scrolling, one scroll region,
-and no element wider than the window.
+docs/UI-GUIDE.md's responsive rules state: no horizontal scrolling, one scroll
+region, and no element wider than the window.
 
 .DESCRIPTION
 This measures rather than eyeballs. The first version read `WS_HSCROLL` from the
@@ -115,7 +115,7 @@ try {
                 foreach ($culprit in $facts.culprits) { Write-Host "      wider than the viewport: $culprit" }
             }
             if ($facts.nestedScrollers -gt 1) {
-                $failures += "${width}px/${page}: $($facts.nestedScrollers) scroll regions; §9 allows one"
+                $failures += "${width}px/${page}: $($facts.nestedScrollers) scroll regions; only one is allowed"
             }
             # Below 760 px the rail must become a row rather than a scroll trap.
             $expectRow = $width -lt 760
