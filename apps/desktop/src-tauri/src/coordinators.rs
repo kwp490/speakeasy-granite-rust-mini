@@ -523,6 +523,10 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         let coordinator = app.state::<GraniteEngineCoordinator>();
+        // The profile directory, which is also where setup left its record of
+        // which configuration it installed. Cloned rather than held, so the
+        // state borrow ends before the warm does.
+        let profile_root = app.state::<ProfileCoordinator>().root.clone();
         let granite_worker_exe = app
             .state::<RuntimeWizardCoordinator>()
             .paths()
@@ -574,6 +578,13 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
                 ("result", result),
                 ("engine", coordinator.engine_reason()),
                 ("device", coordinator.device()),
+                // What setup installed, which is the only thing here that is
+                // not a fact about this run. Without it `device=cpu` is
+                // ambiguous in the one way that matters: on a processor install
+                // it is the expected outcome, and on a graphics-card install it
+                // is a fault. The app cannot re-derive which was chosen, so
+                // setup writes it down and this reads it back.
+                ("installed", installed_configuration(&profile_root)),
             ],
         );
     });
@@ -728,6 +739,43 @@ impl PersonalizationCoordinator {
             repository: Mutex::new(repository),
             export_root: root.join("exports"),
         })
+    }
+
+    /// Adds words the user asked to have protected, as dictionary entries.
+    ///
+    /// The entry shape is `extract_v1_protected_terms`': source and replacement
+    /// are the same word, matched case-insensitively on word boundaries, with
+    /// `protected` set. That is what "protect this word" means here — it does
+    /// not teach the recogniser anything, it stops the finishing pass from
+    /// rewriting a word it got right.
+    ///
+    /// `DictionaryOrigin::UserEntry` rather than `ImportedProfile`, which is
+    /// the origin the v1 import path uses: nobody imported these, someone typed
+    /// them into setup. The distinction is visible in the settings list and in
+    /// the precedence order, so getting it wrong would be a small lie in two
+    /// places.
+    fn add_protected_terms(&self, terms: &[String]) -> Result<(), &'static str> {
+        let entries = terms
+            .iter()
+            .enumerate()
+            .map(|(index, term)| DictionaryEntry {
+                id: format!("installer-{index}"),
+                locale: "en-US".to_owned(),
+                source: term.clone(),
+                replacement: term.clone(),
+                case_policy: CasePolicy::InsensitiveCanonical,
+                boundary_policy: BoundaryPolicy::UnicodeWord,
+                origin: DictionaryOrigin::UserEntry,
+                precedence: 0,
+                protected: true,
+                enabled: true,
+            })
+            .collect();
+        self.repository
+            .lock()
+            .map_err(|_| "personalization_state_unavailable")?
+            .add_imported_terms(entries)
+            .map_err(|_| "personalization_terms_rejected")
     }
 
     fn view(&self) -> Result<PersonalizationView, &'static str> {

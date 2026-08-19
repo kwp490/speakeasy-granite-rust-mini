@@ -4154,6 +4154,7 @@ name = "speakeasy-bootstrapper"
 version = "1.4.2"
 dependencies = [
  "semver",
+ "sha2",
  "speakeasy-domain",
  "speakeasy-models",
  "speakeasy-storage",

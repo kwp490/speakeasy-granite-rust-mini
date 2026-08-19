@@ -99,8 +99,13 @@ impl PersonalizationRepository {
         self.replace_state(proposed)
     }
 
-    /// Merges terms from a user-selected imported v1 profile. Only the explicit
-    /// profile vocabulary field may call this path.
+    /// Merges terms the user supplied as a list rather than as a correction.
+    ///
+    /// Two callers, and both are the user naming words directly: the explicit
+    /// vocabulary field of an imported v1 profile, and the words typed into
+    /// setup's vocabulary page. Nothing derived from a transcript may come
+    /// through here — that is `record_explicit_correction`, which keeps its own
+    /// origin so the two stay distinguishable in the list and in precedence.
     ///
     /// # Errors
     ///

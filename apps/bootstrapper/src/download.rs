@@ -166,6 +166,29 @@ pub fn plan(provider: ExecutionProvider) -> Result<Plan, Failure> {
     })
 }
 
+/// Whether a graphics-card configuration is a thing setup could install.
+///
+/// Asked before the choice is offered, not after it is made. Granite's GPU
+/// support is compiled into the worker rather than loaded beside it, so a
+/// machine with a perfectly good card still cannot run on it unless a
+/// CUDA-built worker has been published and pinned by digest — and none has.
+/// The user-visible consequence of getting this wrong is the worst kind: a
+/// selectable option that installs the CPU configuration anyway and says
+/// nothing.
+///
+/// Derived from the manifest rather than a constant, so it answers `true` on
+/// the day the worker is published and the manifest gains its entry, with no
+/// second place to remember to change. That entry is also what gives
+/// [`plan`] its second item.
+#[must_use]
+pub fn graphics_card_configuration_published() -> bool {
+    bundled_manifest().is_ok_and(|manifest| {
+        manifest
+            .select_sole_install_eligible(PackRole::FinalAsr, ExecutionProvider::Cuda)
+            .is_ok()
+    })
+}
+
 /// Turn one pack into a fetchable item.
 ///
 /// The destination paths deliberately match what `apps/desktop`'s

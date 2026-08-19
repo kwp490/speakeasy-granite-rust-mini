@@ -129,7 +129,7 @@ $allowedDependencies = @{
     # the reused download and install lifecycle interruptible, and setup's whole
     # resume story rests on being able to stop a transfer without discarding it.
     'speakeasy-bootstrapper' = @(
-        'semver', 'speakeasy-domain', 'speakeasy-models', 'speakeasy-storage',
+        'semver', 'sha2', 'speakeasy-domain', 'speakeasy-models', 'speakeasy-storage',
         'speakeasy-windows', 'sysinfo', 'winreg', 'winsafe'
     )
     # No `speakeasy-models`: the trusted manifest does carry Granite packs, but

@@ -81,7 +81,17 @@ touch:
 ```powershell
 .\scripts\Build-LocalInstaller.ps1
 .\scripts\Test-InstallerLifecycle.ps1 -ArtifactRoot 'target\local-development\<version>'
+.\scripts\Test-SetupWizard.ps1 -ArtifactRoot 'target\local-development\<version>' -Uninstall
 ```
+
+The build produces `SpeakEasyMiniSetup.exe` — one file, the payload appended to
+the bootstrapper past the end of its PE image — plus the bare bootstrapper and
+the `payload\` directory beside it, which is what the lifecycle test drives.
+`Test-SetupWizard.ps1` drives the file a user actually downloads, through all
+eight wizard pages to a launched app, and **asserts the page it is on before
+every click**: a driver that presses Next eight times passes on a wizard stuck
+on page one. It installs for real and leaves the app running unless you pass
+`-Uninstall`.
 
 Kill any `ai-speakeasy-mini` first. An aborted lifecycle run leaves the app it
 launched for the running-app check alive, and the pre-flight guard then refuses
@@ -321,6 +331,28 @@ Every one of these produced a plausible, wrong result rather than an error.
   console here renders U+2014 as `?`, so **check codepoints numerically** rather
   than believing terminal output — a real em-dash and a corrupted one look the
   same in this shell.
+- **A truncated download of the installer still runs.** The payload is appended
+  past the end of `SpeakEasyMiniSetup.exe`'s PE image, and Windows' loader does
+  not read that far — so a file that arrived 90% complete launches, draws the
+  wizard, and would install whatever fragment of the archive parsed. Every entry
+  carries a SHA-256 for exactly this, not for tampering: the whole executable is
+  untrusted until someone runs it. `payload.rs`'s truncation test cuts from the
+  *middle* and keeps the trailer, because a clean cut takes the magic with it and
+  is the easy case.
+- **`FindWindow($null, $title)` from PowerShell finds nothing, ever.** `$null`
+  for a `string` parameter marshals as an empty string, so it searches for a
+  window whose class name is `""`. It reported the setup wizard missing with the
+  wizard on screen — a broken instrument reading exactly like the failure it was
+  written to detect. Go through `Get-Process`'s `MainWindowTitle` instead.
+- **`, @(...)` around a returned list defeats the next `Where-Object`.** The
+  usual PowerShell guard against a one-element array unrolling hands the *whole*
+  list downstream as a single object, and `$_.Property -eq 'x'` against an array
+  filters rather than compares — so it comes back non-empty and truthy. A page
+  heading came back as the entire window's text.
+- **`Set-Location` does not move the process working directory.**
+  `[IO.Path]::GetFullPath('target\...')` resolves against wherever PowerShell was
+  started, not against the current location, so a relative path threw naming a
+  directory nobody had typed. Resolve against `$repositoryRoot`.
 - **`Start-Process notepad` does not open an empty document.** Windows 11
   Notepad restores its previous tabs, so it surfaces whatever was last open, and
   a proof that pastes into "a Notepad window" can write into someone's real
@@ -401,7 +433,18 @@ Every one of these produced a plausible, wrong result rather than an error.
   fluent output than on a transducer's. A test pins this precisely because the
   rules are now unreachable from the UI.
 - **Local-only.** No GitHub Actions, no Dependabot, no hosted runners.
-  `scripts/Test-LocalOnlyPolicy.ps1` fails if `.github` config reappears.
+  `scripts/Test-LocalOnlyPolicy.ps1` fails if `.github` config reappears. A
+  GitHub *Release* is not automation and is how the installer is published; the
+  build, the proofs and the upload are all run by hand from this machine.
+- **Setup asks eight questions and every answer reaches the app**, through
+  one-shot seed files under `%APPDATA%\ai.speakeasy.mini\config\` that the app
+  reads and deletes on first launch. The deletion is the contract: a seed is a
+  starting value, never a policy, so a setting the user changes afterwards must
+  never revert. `install-provider.txt` is the one exception and persists,
+  because it records what was *installed* rather than what to start with.
+- **Setup launches the app, and says so if it could not.** Ending by closing its
+  own window leaves someone who watched every step succeed looking at an empty
+  desktop.
 - **The dictation floor is Granite's floor** (8 GiB), raised from 4 GiB on
   2026-08-18. The two were split so a machine that could not host Granite still
   dictated through the streaming path; with one engine that only let someone

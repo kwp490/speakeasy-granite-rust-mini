@@ -177,6 +177,23 @@ pub fn installed_location() -> Option<PathBuf> {
     Some(PathBuf::from(location))
 }
 
+/// The installed app, if there is one on disk to start.
+///
+/// Resolved from the recorded `InstallLocation` first, exactly as
+/// [`installed_location`] describes, so setup started with `--install-root`
+/// launches the app it just placed rather than one in the default directory.
+///
+/// The `is_file` check is the difference between setup saying it started the
+/// app and setup having started it: `Command::spawn` on a missing path fails,
+/// but so does a great deal else, and this is the one cause worth telling
+/// apart — it means the install did not put the executable where it recorded.
+#[must_use]
+pub fn installed_app_executable() -> Option<PathBuf> {
+    let root = installed_location().or_else(crate::probe::install_root)?;
+    let executable = root.join(APP_EXE);
+    executable.is_file().then_some(executable)
+}
+
 /// Whether `SpeakEasy Mini` is running.
 ///
 /// One executable name. This carried a second, `speakeasy-v2-preview.exe`,
@@ -196,16 +213,6 @@ pub fn app_is_running() -> bool {
                 .any(|candidate| name.eq_ignore_ascii_case(candidate))
         })
     })
-}
-
-/// Where the payload to install is found.
-///
-/// Beside the bootstrapper, because that is the only location it can know
-/// without being told. Stage 6 replaces this with a verified download; until
-/// then a locally built payload can be dropped here, which is also how the
-/// placement is tested without publishing anything.
-pub fn payload_directory() -> Option<PathBuf> {
-    Some(std::env::current_exe().ok()?.parent()?.join("payload"))
 }
 
 /// Place the payload and register the installation.

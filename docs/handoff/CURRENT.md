@@ -1,4 +1,4 @@
-# Handoff — SpeakEasy Mini, as of 2026-08-19
+# Handoff — SpeakEasy Mini, as of 2026-08-19 (second session)
 
 The state of the fork, what is finished, what is not, and the things that will
 cost you an afternoon if you rediscover them yourself.
@@ -29,50 +29,24 @@ predicted:
 | --- | --- |
 | Full gate | passes end to end |
 | A real dictation | delivered, `hotkey_delivery result=committed` (2026-08-18) |
-| Installer lifecycle | `Test-InstallerLifecycle.ps1` passes, against a built installer |
+| Installer lifecycle | `Test-InstallerLifecycle.ps1` passes, including the single-file path |
+| **The wizard, end to end** | `Test-SetupWizard.ps1` passes: eight pages, real install, engine check, launched app |
 | Setup's engine check | transcribes the bundled clip through the real worker in ~5 s |
 | `speakeasy-granite` | compiles, ~2 min cold |
 | Broken doc links | none, `--document-private-items` and denied, workspace-wide |
 | Branch | `main`, pushed to `kwp490/speakeasy-granite-rust-mini` |
 
-**One thing is left of the four this file used to list.** The other three landed
-on 2026-08-19; see "What happened on 2026-08-19" below for what each turned out
-to involve, which was in every case more than the entry described.
+**Nothing is left of the four this file used to list.** The last of them — the
+seed channel — landed on 2026-08-19 along with the distribution work around it;
+see "What happened on 2026-08-19 (second session)" below for what each turned
+out to involve, which was in every case more than the entry described.
 
-1. **Finish setup's seed channel** — the whole of it, decided 2026-08-19, not
-   just the retention question the old entry named. `apps/bootstrapper` writes
-   **no** config seed at all today, while `apps/desktop` already reads two:
-   `consume_installer_logging_seed` and its hotkey sibling in
-   `commands/dictation.rs` look for `config/install-logging.txt` and
-   `config/install-hotkey.txt`. Nothing writes either, so the shortcut a user
-   picks in setup and the logging choice they make are **collected and silently
-   discarded**. That is the same read-side-complete, no-writer shape that left
-   `smoke.rs` unbuilt behind a comment promising it existed.
-
-   So the work is one writer in the bootstrapper, used three times:
-
-   - **the shortcut**, which setup already collects and throws away;
-   - **the logging choice**, likewise;
-   - **the retention question**, which is new. Setup asks whether to keep
-     transcripts between sessions. **Default off, framed as privacy** (owner
-     decision, 2026-08-19): "Transcripts are kept only while the app is open",
-     preselected. That matches what the app already does — retention clears on
-     close by never writing rather than deleting on exit, so a crash cannot leak
-     them — and a privacy-preserving default needs no justification to the user.
-     It needs a `consume_installer_retention_seed` on the desktop side; follow
-     `consume_installer_logging_seed` exactly rather than inventing a channel.
-
-   Seeds are one-shot: the file carries `0` or `1` and is deleted after reading,
-   so a later change by the user always wins. A new wizard control is needed for
-   the retention question — the wizard has `gui::Label`, `gui::Button` and
-   `gui::ProgressBar` today and no checkbox, and **every control must be created
-   in `Wizard::new`**, because `winsafe` panics if one is created after its
-   parent window.
-
-   **Recording which configuration was installed** belongs in the same pass and
-   is the smaller half: setup does not record CPU-versus-GPU anywhere, and the
-   app needs it to tell "a CPU install running on CPU", which is normal, from "a
-   GPU install that cannot load CUDA", which is an error.
+**A user can now go from a bare Windows 11 machine to a working dictation
+without this repository.** Download `SpeakEasyMiniSetup.exe` from Releases, run
+it, answer eight pages, and the app is installed, configured and running. That
+sentence was false in three separate places before this session: there was no
+single file to download, setup discarded every answer it collected, and Finish
+closed the window rather than starting anything.
 
 **Two things need you rather than an agent**: publishing the CUDA worker
 (item 3, needs the CUDA Toolkit and Hugging Face credentials), and any decision
@@ -82,7 +56,160 @@ about what setup *says*, since its copy is reviewable by rule.
 An aborted run leaves the app it launched for the running-app check alive, and
 the pre-flight guard then refuses every retry.
 
-## What happened on 2026-08-19
+## What happened on 2026-08-19 (second session)
+
+The brief was "finish this project": a user should be able to go to a new
+computer, download the installer, and end up with a running app. The seed
+channel was the one entry this file listed. It was not the reason that sentence
+was false — there were three others, and none of them was written down anywhere,
+because each is a gap *between* components that every component's own tests
+pass over.
+
+### There was no installer to download
+
+`Build-LocalInstaller.ps1` produced `speakeasy-bootstrapper.exe` **and a
+`payload\` directory beside it**, because `install::payload_directory` looked
+for the payload as a sibling. `README.md` had told people since the fork to
+download `SpeakEasyMiniSetup.exe` from Releases — a file that no script
+produced, of a shape the installer could not have used.
+
+Nothing was wrong with any of it in isolation. The lifecycle proof passed
+because it drives the developer's layout, which is the layout that exists on the
+machine the proof runs on.
+
+The fix is `apps/bootstrapper/src/payload.rs`: the payload is appended to the
+finished executable past the end of the PE image, which Windows' loader ignores,
+and `stage()` extracts it to a temporary directory — falling back to the sibling
+directory when there is no archive, which is what keeps the developer's layout
+and the lifecycle proof working unchanged.
+
+Three things about it are worth knowing before touching it:
+
+- **Every entry carries a SHA-256, and it is not about tampering.** The whole
+  executable is untrusted until someone runs it. It is about a **truncated
+  download**, which is the failure this shape invites: the missing bytes are not
+  part of the program, so a half-downloaded installer *still launches*, still
+  draws the wizard, and would install whatever fragment parsed. That is the only
+  new silent-failure mode the design introduces, and it is closed by the digest.
+- **`include_bytes!` was rejected**, and the reason generalises: it inverts the
+  build order, so `cargo build -p speakeasy-bootstrapper` on a fresh tree would
+  either fail on a missing file or — if that were papered over — produce an
+  installer carrying an empty payload that still ran.
+- **The format has exactly one implementation.** The packer is
+  `apps/bootstrapper/src/bin/pack-payload.rs`, which `#[path]`-includes
+  `payload.rs` rather than reimplementing the layout in PowerShell. A writer in
+  the build script and a reader in the installer agree until somebody edits one
+  of them, and the disagreement does not land on the build machine — it lands on
+  a user, as "this download is damaged" for a file that downloaded perfectly.
+  The cost is an `#[allow(dead_code)]` on the module in both binaries, since
+  each uses the half the other does not.
+
+### Setup collected five answers and discarded five answers
+
+The recorded entry said two — the shortcut and the logging choice — and said
+setup "already collects" them. It did not collect them. **Three of the eight
+pages were placeholders rendering `STEP_NOT_BUILT`**: choose how it runs, choose
+your shortcut, add your words. There was nothing to discard because there was
+nothing to answer with, and the retention page did not exist at all.
+
+So the work was the wizard's controls as well as the writer. `winsafe` panics if
+a control is created after its parent window, so all of them are built in
+`Wizard::new` and `show_questions` decides which are visible; the notice label
+and the question controls deliberately share one band, because a step either
+reports or asks and no step does both.
+
+Each page carries a rule that the placeholder could not have:
+
+- **The graphics-card option is shown, disabled, with the reason.** Granite's
+  GPU support is compiled into the worker rather than loaded beside it, so no
+  published CUDA worker means no graphics-card install however good the card is.
+  Hiding the option reads as setup not having looked; enabling it is a control
+  that silently installs something else. The predicate is
+  `download::graphics_card_configuration_published`, read from the manifest, so
+  it becomes true the day the worker is pinned there — one edit, not two.
+  It uses `preferred_provider`, **not** `is_qualified`: qualification means an
+  execution test has passed, setup has not run one at that point, and reading it
+  would leave the option disabled forever even after a worker exists.
+- **The shortcut is verified by taking it.** Windows will not say who owns a
+  global hotkey, so setup registers the chosen combination and immediately
+  releases it. Releasing is not tidiness: holding it would make setup the owner,
+  and the app's own registration would then fail against a conflict setup
+  created.
+- **Retention defaults off**, stated as a promise rather than a checkbox —
+  unticked means never written to disk, which is a stronger claim than deleting
+  on exit.
+
+`seed.rs` writes all five answers, and `every_seed_written_here_is_read_by_the_app`
+reads the desktop crate's own source to assert each one has a consumer. That
+test failed on its first run, which is the point of it: three of the five had no
+reader yet.
+
+**The installed configuration is a record, not a seed.** The other four are
+one-shot and deleted on first launch, because a seed is a starting value and a
+user's later change must win. `install-provider.txt` persists, because it
+answers a question the app cannot re-derive — whether running on the processor
+is what was installed or a failure to load what was installed. It shows up as
+`installed=` in `granite_warm`.
+
+### Finish closed the window
+
+Setup ended by destroying its own window. `README.md` had described a step that
+launched the app since before the fork. `launch_installed_app` now starts it and
+**returns whether it started**: the wizard stays open with the reason on screen
+if it did not, because closing regardless leaves someone who watched every step
+succeed looking at an empty desktop.
+
+### The wizard is now actually driven, and it found two of its own bugs
+
+`scripts/Test-SetupWizard.ps1` runs the real `SpeakEasyMiniSetup.exe` through
+all eight pages by posting `BM_CLICK` to the buttons, and asserts the heading
+and the "Step N of 8" line before every click. That last part is the whole
+difference between a proof and a script that presses Next eight times: the
+second one passes on a wizard stuck on page one.
+
+It also asserts against the disk rather than the window — the installed files,
+the five seed files and their contents, the app process, and then the app's own
+`settings.json` and `personalization.json` after it has consumed them. A wizard
+that painted eight correct pages and installed nothing would have satisfied
+every assertion made about the window.
+
+Two failures in the driver itself, both worth recording because both are the
+"instrument that cannot fail" shape:
+
+- **`FindWindow($null, $title)` finds nothing, ever, from PowerShell.** `$null`
+  for a `string` parameter marshals as an empty string, so it searches for a
+  window whose class name is `""`. It reported "the wizard never appeared" with
+  the wizard on screen. It goes through the process list now.
+- **`, @(...)` handed the whole control list to `Where-Object` as one object**,
+  and `$_.Class -eq 'Static'` against an array *filters* rather than compares,
+  so it came back non-empty and truthy. The caller then read the entire window's
+  text as the page heading. The usual guard against a one-element array
+  unrolling was the bug.
+
+And one product-adjacent finding: the vocabulary lands in `personalization.json`
+a moment *after* the seeds are consumed, because the coordinator that owns it is
+built later in `setup`. Reading the file the instant the last seed disappeared
+found nothing and reported the words lost. The proof waits.
+
+### Measured, on this machine
+
+- The wizard at 250% on a 3840x2400 display: client rect **1550x1250 physical =
+  620x500 logical**, exactly as declared, and **every label and control fits its
+  box** by `Measure-NativeWindow.ps1 -Fit`. The longest new string — the
+  diagnostic-log checkbox, 70 characters — wraps to one line in a 1470 px box.
+- `SpeakEasyMiniSetup.exe` is **37.5 MB**: a 7.6 MB bootstrapper plus a 29.9 MB
+  payload of three executables. The payload deliberately includes a second copy
+  of the bootstrapper rather than self-copying, so the installed uninstaller is
+  byte-identical to the one the install manifest describes.
+- Setup's engine check passed against the real worker and the real weights on an
+  installed release build, which is the first time anything in this project has
+  been exercised on one.
+- `granite_warm result=ok engine=cpu_gpu_runtime_missing device=cpu
+  installed=cpu` — the correct four facts for this machine: an NVIDIA card, no
+  published CUDA worker, running on the processor, and that being what was
+  installed rather than a failure.
+
+## What happened on 2026-08-19 (first session)
 
 Six commits, `e03eb78`..`da612fa`. Three of the four "most worth doing next"
 entries above are gone; each was larger than its entry said, and the overrun was
@@ -353,7 +480,14 @@ whether the process owns a visible top-level window.
 - Long dictations. The one recorded above was 9.6 s, so the ~30 s post-recording
   wait a two-minute dictation implies has not been felt by anyone yet, and the
   question of whether the dock's working indicator is enough is still open.
-- Anything at all on an installed release build.
+- ~~Anything at all on an installed release build.~~ Setup's engine check and the
+  app's launch both ran on one on 2026-08-19. A **dictation** on one still has
+  not, so every latency figure here remains a dev-build figure.
+- **A download that actually transfers.** Every install proof so far has run on
+  a machine that already had the weights, so the download step has only ever
+  taken its already-satisfied branch. The resume logic is covered by
+  `speakeasy-models`' own tests; the wizard's progress copy, its three phases and
+  its bar are not covered by anything that has moved.
 
 ## The gate had not been runnable either
 
@@ -485,35 +619,32 @@ Ordered by what unblocks the most.
 
 ### 1. Run the app end to end — done 2026-08-18
 See above. It found two blocking defects; both are fixed and the first real
-dictation delivered. What remains from this item is the pinned log window, a
-long dictation, and an installed release build.
+dictation delivered.
 
-### 2. Finish the installer (`apps/bootstrapper`)
-The bootstrapper is further along than it looks: the hardware probe, the
-resumable digest-verified download, the native wizard, Start Menu shortcuts,
-WebView2 provisioning and the uninstaller all exist and work. The engine smoke
-test joined them on 2026-08-19; the seed channel is what is left.
+**An installed release build has now been exercised** (2026-08-19): setup's
+engine check loaded the real weights and transcribed the bundled clip through
+the installed `proof\granite-worker.exe`, and the app started from Finish and
+logged `granite_warm result=ok`. What still has not happened on one is a
+**dictation** — that needs a person and a microphone, and every timing figure in
+this file is therefore still from a dev build. The pinned log window and a long
+dictation remain from this item too.
 
-**The engine smoke test — done 2026-08-19.** Built, wired into the last step,
-and proven against the real worker and model. See "What happened on 2026-08-19"
-above for how it is re-run and why it compares words rather than the transcript
-verbatim. The original entry follows, kept because its reasoning is why the
-step exists at all: a speech model whose audio projector failed to attach does
-not error, it writes fluent text from the instruction alone, so "it returned a
-transcript" proves nothing and only content does.
+### 2. Finish the installer (`apps/bootstrapper`) — done 2026-08-19
+Everything this entry listed exists and is proven: the hardware probe, the
+resumable digest-verified download, the native wizard with all eight of its
+pages built, Start Menu shortcuts, WebView2 detection, the uninstaller, the
+engine smoke test, the seed channel, the installed-configuration record, and
+the launch. `Test-SetupWizard.ps1` drives the whole of it against a real
+install.
 
-> **The clip exists now; the step that runs it does not.** `beckett.wav` was
-> gone — not in this repository, not in the parent, not in either git history
-> (it was gitignored, so it never entered one), and nowhere else on this
-> machine. So was `Obama.wav`. The synthetic clips in `speakeasy-ai-granite`
-> are not a substitute: their own generator says they are frequency sweeps
-> plus noise, deliberately not speech, carrying no reference transcript.
->
-> `scripts/New-SmokeFixture.ps1` generates the replacement with Windows' own
-> synthesiser at 16 kHz mono PCM16, and `apps/bootstrapper/fixtures/smoke.wav`
-> is committed behind a `.gitignore` exception — 200 KB, so that the clip
-> travels with the code that asserts on it rather than being fetched by the
-> one step whose whole job is to be trustworthy.
+The engine smoke test's original entry is worth keeping, because its reasoning
+is why the step exists rather than what was left to do:
+
+> A speech model whose audio projector failed to attach does not error. It
+> answers the prompt from the instruction alone and writes fluent, confident,
+> entirely invented text. "It returned a transcript" is therefore evidence of
+> nothing, and only matching *content* separates a run that read the waveform
+> from one that did not.
 >
 > Its ground truth is **verified, not typed**:
 >
@@ -530,28 +661,38 @@ transcript" proves nothing and only content does.
 > `recommended_thread_count` can return (1 through 8) and byte-identical at all
 > of them, which is what makes a whole-transcript comparison safe on a machine
 > whose core count nobody chose.
->
-> **What remains is the runner.** Setup still has to load the model, transcribe
-> those bytes and compare. The bootstrapper has no worker-protocol client —
-> `speakeasy-worker` exposes the adapter but not the process spawning, which
-> lives in the desktop crate's `process_worker.rs` — so this needs either a
-> small framed-JSON client in `apps/bootstrapper` (and a dependency-policy
-> entry for it) or that spawning lifted somewhere both can reach.
-> `crates/speakeasy-granite/src/granite_smoke.rs` remains the model for the
-> assertion itself: whole transcripts, never a prefix.
 
-**The retention question.** Setup asks whether to keep transcripts between
-sessions, default no, and seeds the answer into the profile. The read side is
-already built (`SessionTranscriptCoordinator::seed_from_history`), and
-`consume_installer_logging_seed` in `composition.rs` is the existing pattern for
-handing a setup answer to the app — follow it rather than inventing a channel.
+**Two smaller things this entry does not cover, and nothing else does either.**
+Neither blocks a user. An interrupted download is resumable and proven by
+`speakeasy-models`' own tests, but no proof here has ever *interrupted* one —
+`Test-SetupWizard.ps1` runs on a machine whose weights are already present, so
+it exercises the already-satisfied branch rather than the transfer. And the
+`SMOKE_MISMATCH` and `SMOKE_UNAVAILABLE` pages have never been seen by anyone;
+they are reachable by pointing `SPEAKEASY_GRANITE_MODEL_ROOT` at an empty
+directory, which is how the unit-test controls were run.
 
-**Recording the installed configuration.** Setup writes down whether it
-installed the CPU or the GPU configuration, so the app can tell "running on CPU
-because you chose CPU" from "running on CPU because the GPU worker will not
-load". Today those are the same silent outcome. This is `docs/ARCHITECTURE.md`'s
-"Which provider runs, and how you find out", and it is the reason
-`granite_selection` takes `cuda_worker_available` rather than probing for it.
+### 2b. Distribution — the release, and what it costs to cut another
+`SpeakEasyMiniSetup.exe` is published on GitHub Releases and the repository is
+public, which is what makes the README's first install path real. Cutting the
+next one is four commands and no automation, per the local-only rule:
+
+```powershell
+.\scripts\Invoke-ScaffoldChecks.ps1 -SkipNpmInstall
+.\scripts\Build-LocalInstaller.ps1
+.\scripts\Test-InstallerLifecycle.ps1 -ArtifactRoot 'target\local-development\<version>'
+.\scripts\Test-SetupWizard.ps1 -ArtifactRoot 'target\local-development\<version>' -Uninstall
+```
+
+then `gh release create v<version> …` with `SpeakEasyMiniSetup.exe` and
+`SHA256SUMS`. **Publish the checksums file with it**: the build is unsigned by
+owner decision, so a digest a user can compare is the only thing standing
+between them and SmartScreen's warning being the whole story.
+
+The **version is inherited from the parent product** (1.4.2) rather than
+restarted at 0.1.0, because it is what the binary reports, what the HKCU stamp
+records and what the install manifest carries; a tag disagreeing with three
+recorded facts is worse than an odd first number. `Increment-ProductVersion.ps1`
+moves all of them together.
 
 ### 3. Publish the CUDA Granite worker — needs the owner
 Blocked on two things nobody else can supply: the CUDA Toolkit to build it
@@ -817,6 +958,32 @@ Every one of these was an explicit owner decision this session.
   as the first call. The first call had succeeded; the failure was two calls
   later, under different conditions. A line number inside a shared helper does
   not say which invocation.
+
+### 2026-08-19, second session
+
+- **The outstanding entry described one third of the work, again.** "Finish the
+  seed channel" named a missing writer. The writer was the small half: three of
+  the wizard's eight pages were placeholders, so there were no answers to write,
+  and the two failures that actually stopped a user — no single file to download,
+  and a Finish button that started nothing — were not in this file at all.
+  **Both are gaps *between* components, which is why nothing recorded them:**
+  every component's own tests pass over a gap. Before believing an outstanding
+  entry, walk the user's path once and see where it stops.
+- **A proof that drives the developer's layout proves the developer's layout.**
+  `Test-InstallerLifecycle.ps1` was green for weeks against `bootstrapper.exe`
+  plus a sibling `payload\`, a shape no user has ever had. It now drives the
+  single file as well, and compares every placed byte against the packaged one.
+- **Two instruments failed silently inside one afternoon, both in the new
+  proof.** `FindWindow($null, …)` searched for class `""` because PowerShell
+  marshals `$null` as an empty string, and reported the wizard missing with the
+  wizard on screen. `, @(...)` handed a whole control list to `Where-Object` as
+  one object, where `-eq` filters instead of comparing, so the page heading came
+  back as the entire window's text. Neither errored. Both were caught only
+  because the assertion downstream of them was specific enough to notice.
+- **A race read as data loss.** The vocabulary lands in `personalization.json`
+  slightly after the seeds are consumed, so checking for it the instant the last
+  seed disappeared found no file and reported the words lost. They were there a
+  moment later. When asserting on a side effect of startup, wait for it.
 
 ### 2026-08-19
 

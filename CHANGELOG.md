@@ -1,9 +1,51 @@
 # Changelog
 
-## Unreleased
+## 1.4.2 — 2026-08-19
 
-The first version of SpeakEasy Mini, forked from SpeakEasy and reduced to one
+The first release of SpeakEasy Mini, forked from SpeakEasy and reduced to one
 transcription engine and one HUD.
+
+The version number is inherited from the parent product rather than restarted,
+because it is what the binary reports, what the registry stamp records and what
+the install manifest carries. A release tag that disagreed with all three would
+be the more confusing of the two options.
+
+### Setup, completed
+
+Everything below landed on 2026-08-19 and is what makes a fresh machine a
+working one.
+
+- **Setup is one downloadable file.** `SpeakEasyMiniSetup.exe` carries the app
+  and the engine appended to its own image, past the end of the PE data Windows'
+  loader reads. It used to need a `payload\` directory beside it, which is fine
+  for a developer and installs nothing for anybody else. Every appended file is
+  checked against a SHA-256 before it is written — not against tampering, but
+  because a truncated download still *runs*, since the missing part is not part
+  of the program.
+- **Setup finishes by starting the app.** It previously closed its own window,
+  while the README described a step that launched it.
+- **Three placeholder steps are built.** Choosing the configuration, choosing
+  the shortcut, and adding protected words all rendered "this step is not built
+  yet". A fourth step, the retention question, is new.
+- **The answers now reach the app.** The desktop side had read
+  `install-hotkey.txt` and `install-logging.txt` since before the fork and
+  nothing had ever written them, so the shortcut and the logging choice were
+  collected and discarded. One writer now records the shortcut, the logging
+  choice, the retention answer, the protected words and the installed
+  configuration, and the app consumes all five.
+- **The shortcut is verified by taking it.** Setup registers the chosen
+  combination and releases it, because Windows will not say who owns a global
+  hotkey and the alternative is the user discovering the conflict by pressing
+  the key and watching nothing happen.
+- **The installed configuration is recorded**, so the app can tell "running on
+  the processor because that is what was installed" from "running on the
+  processor because the graphics-card engine will not load". Those were the same
+  silent state; the distinction now appears as `installed=` in the
+  `granite_warm` log line.
+- **The single-file installer is proven, not assumed.**
+  `Test-InstallerLifecycle.ps1` installs from the embedded payload into its own
+  ephemeral root and compares every placed file against the packaged one by
+  hash. The path that ships was the only one in the chain nothing exercised.
 
 - **IBM Granite Speech is the only engine.** It runs once, after the recording
   stops, and the same pass produces the punctuation and casing. The streaming
@@ -23,9 +65,11 @@ transcription engine and one HUD.
   them to disk behind the existing plaintext disclosure.
 - **The installer is the only setup path.** The in-app seven-step wizard is
   removed; setup probes the hardware, downloads and verifies every file against
-  a pinned SHA-256, and installs. The engine smoke test that would prove the
-  model actually transcribes before launch is specified but **not yet built** —
-  its clip and verified ground truth are committed, the runner is not.
+  a pinned SHA-256, installs, and then transcribes a bundled clip through the
+  real engine and compares the result word for word before it launches the app.
+  That last step is the one that matters: a speech model whose audio projector
+  failed to attach does not error, it writes fluent text without listening to
+  anything, so only matching content is evidence.
 
 - **Its own identity** — `SpeakEasy Mini` / `ai.speakeasy.mini`, `Ctrl+Alt+P` —
   so it installs and runs alongside SpeakEasy without sharing settings, logs, a

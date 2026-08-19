@@ -49,12 +49,18 @@ pub const STEPS: &[Step] = &[
     },
     Step {
         heading: "Choose how it runs",
-        body: "SpeakEasy Mini preselects the fastest option each engine can actually \
-               use on this computer, and shows what it costs to download and \
-               install. You can override either one to run on the processor.\n\n\
-               A graphics card that clears the requirements has not yet been \
-               tested — setup runs a real execution check later, and reports \
-               what that check found rather than what was expected.",
+        // Was "SpeakEasy Mini preselects the fastest option each engine can
+        // actually use ... You can override either one to run on the
+        // processor." Two engines, and an override of each; neither is true.
+        // One engine now, and the honest override is one way — a graphics-card
+        // install can only be offered where the part that runs on the card
+        // exists to install.
+        body: "SpeakEasy Mini preselects the fastest configuration this computer can \
+               actually run. The speech model itself is the same file either way; what \
+               changes is which version of the engine loads it.\n\n\
+               Choosing the processor is always allowed. Choosing the graphics card is \
+               offered only when there is a graphics-card engine to install, because a \
+               setting cannot make one exist.",
     },
     Step {
         heading: "Download what is needed",
@@ -93,7 +99,22 @@ pub const STEPS: &[Step] = &[
                These are applied when the transcript is finished, correcting the \
                spelling of words that were recognised. They do not change how \
                speech is recognised, so a word that is misheard will still be \
-               misheard.",
+               misheard.\n\n\
+               Leave this empty if you would rather add them later; Settings has \
+               the same list.",
+    },
+    Step {
+        heading: "Choose what is kept",
+        // The retention default is a privacy promise, and it is stated as one
+        // rather than as a checkbox nobody reads: unticked means the
+        // transcripts are never written to disk at all, which is a stronger
+        // claim than deleting them on exit and is worth making explicitly.
+        body: "Neither of these leaves the computer. The question is only what \
+               SpeakEasy Mini writes down locally.\n\n\
+               Left unticked, transcripts are held in memory and are gone when you \
+               close the app — they are never written to disk, rather than deleted \
+               afterwards, so a crash cannot leave them behind.\n\n\
+               Both can be changed in Settings at any time.",
     },
     Step {
         heading: "Check that dictation works",
@@ -161,6 +182,104 @@ pub const SMOKE_UNAVAILABLE: &str = "The speech model did not run, so there is n
 
 /// Label for the control that runs the check again.
 pub const RETRY: &str = "Retry";
+
+/// The two configurations setup can install.
+///
+/// "Graphics card" and "processor", not "CUDA" and "CPU": the everyday register
+/// the UI guide asks for on a surface a user reads. The stable codes go in the
+/// seed file and the app's log.
+pub const PROVIDER_GRAPHICS_CARD: &str = "Use the graphics card";
+pub const PROVIDER_PROCESSOR: &str = "Use the processor";
+
+/// Why the provider step offers what it offers.
+///
+/// Four states, and the one that matters is the last: a machine with a capable
+/// card, where the graphics-card option is still unavailable. Saying nothing
+/// there would read as setup not having looked, and saying "your card is not
+/// supported" would be false. The honest answer is that the part that runs on
+/// the card is not published yet, which is a fact about this release.
+pub fn describe_provider_options(card_is_capable: bool, configuration_published: bool) -> String {
+    match (card_is_capable, configuration_published) {
+        (true, true) => "This computer's graphics card can run SpeakEasy Mini, and the \
+             graphics-card configuration is available. It is faster; the processor \
+             configuration works everywhere and uses no graphics memory."
+            .to_owned(),
+        (true, false) => "This computer's graphics card meets the requirements, but the \
+             graphics-card version of the speech engine has not been published yet, so there \
+             is nothing to install for it. SpeakEasy Mini will run on the processor and will \
+             say so rather than appearing to use the card.\n\n\
+             Nothing about this install prevents switching later."
+            .to_owned(),
+        (false, _) => "SpeakEasy Mini will run on the processor. This computer has no graphics \
+             card that clears the requirements — the first step says which requirement — and \
+             the processor configuration is a complete install rather than a reduced one."
+            .to_owned(),
+    }
+}
+
+/// The shortcuts setup offers.
+///
+/// Spelled the way Windows writes them, because that is how the user will read
+/// them back in Settings and on a keyboard.
+pub const SHORTCUT_CTRL_ALT_P: &str = "Ctrl + Alt + P   (recommended)";
+pub const SHORTCUT_CTRL_ALT_D: &str = "Ctrl + Alt + D";
+pub const SHORTCUT_CTRL_SHIFT_SPACE: &str = "Ctrl + Shift + Space";
+
+/// The chosen shortcut is free, proved by taking it and letting it go.
+pub fn shortcut_available(binding: &str) -> String {
+    format!(
+        "{binding} is free on this computer. Setup registered it to check, and released it \
+         again — SpeakEasy Mini takes it when it starts."
+    )
+}
+
+/// Another program owns it.
+///
+/// Names the fact and the way out, and does not guess at which program: Windows
+/// does not say who holds a shortcut, and inventing a likely culprit would send
+/// the reader looking in the wrong place.
+pub fn shortcut_taken(binding: &str) -> String {
+    format!(
+        "{binding} is already in use by another program, so SpeakEasy Mini cannot have it. \
+         Windows does not say which program.\n\n\
+         Choose one of the others above, or close the program you think is holding it and \
+         choose this one again."
+    )
+}
+
+/// No shortcut is selected, which the control should make impossible.
+pub const SHORTCUT_UNKNOWN: &str =
+    "No shortcut is selected, so setup cannot check whether it is free. Choose one above.";
+
+/// The two questions about what `SpeakEasy Mini` keeps.
+pub const KEEP_TRANSCRIPTS: &str = "Keep my transcripts after I close SpeakEasy Mini";
+pub const DISK_LOGGING: &str =
+    "Write a diagnostic log (error codes and counters, never what you said)";
+
+/// Some answers could not be written down.
+///
+/// Names the count rather than the file names: the names mean nothing to a
+/// reader, and what they need to know is that the install is fine and these
+/// particular choices did not stick.
+pub fn seeds_not_recorded(failed: &[&str]) -> String {
+    format!(
+        "SpeakEasy Mini is installed, but {} of your answers could not be saved for its first \
+         start, so it will begin with its defaults. Every one of them is in Settings.",
+        failed.len()
+    )
+}
+
+/// Setup finished and there is no app where it recorded one.
+pub const APP_NOT_FOUND: &str = "SpeakEasy Mini was not started, because its program file is not where setup recorded it. \
+     Nothing else is wrong with this computer. Run setup again.";
+
+/// Setup finished and Windows refused to start the app.
+pub fn app_did_not_start(detail: &str) -> String {
+    format!(
+        "SpeakEasy Mini is installed, but Windows would not start it just now. Start it from \
+         the Start menu.\n\n{detail}"
+    )
+}
 
 /// Shown under the heading as "Step N of M".
 pub fn step_position(index: usize) -> String {
@@ -368,9 +487,40 @@ fn prerequisites() -> String {
     }
 }
 
-/// Shown when the bootstrapper cannot find its own directory.
-pub const PAYLOAD_UNLOCATABLE: &str = "Setup could not locate its own directory, so it cannot find the files to \
-     install. Nothing was changed.";
+/// Shown when the files setup should install cannot be read out of setup.
+///
+/// Three sentences for four causes, because only one of them is something the
+/// reader can do anything about — and it is by far the most likely. A setup
+/// file downloaded over a dropped connection is still a runnable program, since
+/// the payload lives past the end of the image where Windows' loader never
+/// looks; see `payload.rs`. So the instruction leads with downloading it again
+/// and the rest is there to stop that advice reading as a guess.
+pub fn describe_payload_failure(failure: &crate::payload::ArchiveError) -> String {
+    use crate::payload::ArchiveError;
+
+    match failure {
+        ArchiveError::Damaged => {
+            "This setup file is incomplete or damaged, so the files it should \
+             install cannot be read. Nothing was changed.\n\n\
+             Download it again. An interrupted download produces exactly this: the file still \
+             runs, because the part that is missing sits past the end of the program."
+                .to_owned()
+        }
+        ArchiveError::UnknownFormat { found } => format!(
+            "This setup file was packed by a newer version of SpeakEasy Mini than it carries \
+             (format {found}). Nothing was changed.\n\n\
+             Download the setup file again from the release you meant to install."
+        ),
+        ArchiveError::UnsafePath { path } => format!(
+            "This setup file asks to write a file outside the folder it installs into, so setup \
+             stopped. Nothing was changed.\n\n\
+             The file is: {path}"
+        ),
+        ArchiveError::Io { detail } => {
+            format!("Setup could not read the files it installs. Nothing was changed.\n\n{detail}")
+        }
+    }
+}
 
 /// Shown when a recognised verb carried arguments setup could not understand.
 ///

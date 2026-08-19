@@ -32,22 +32,49 @@ There are two ways in, and they exist for different kinds of trust.
 
 ### 1. The installer
 
-Download `SpeakEasyMiniSetup.exe` from this repository's Releases and run it —
-not as Administrator. It is small, because it carries no models. On launch it:
+Download `SpeakEasyMiniSetup.exe` from
+[Releases](https://github.com/kwp490/speakeasy-granite-rust-mini/releases) and
+run it — not as Administrator. One file, about 37 MB: it carries the app and the
+engine, but no models. It walks eight steps:
 
-1. Looks at your hardware and picks the CPU or GPU configuration.
-2. Downloads what that configuration needs and verifies every file against a
-   SHA-256 digest pinned in [`models/trusted-manifest.json`](models/trusted-manifest.json).
-3. **Transcribes a short bundled audio clip and checks the result word for
+1. **Checks this computer** — processor, memory, disk, graphics card — and
+   reports what it found. Nothing is installed or downloaded yet.
+2. **Asks how it should run.** Today that is the processor on every machine: the
+   graphics-card engine is compiled rather than downloaded and has not been
+   published, so the option is shown and disabled with that reason rather than
+   hidden. See [the CUDA note](#a-note-on-graphics-cards).
+3. **Downloads the model** — about 2.2 GB — and verifies every file against a
+   SHA-256 digest pinned in
+   [`models/trusted-manifest.json`](models/trusted-manifest.json). Interrupted
+   downloads resume where they stopped.
+4. **Installs**, into `%LOCALAPPDATA%\SpeakEasy Mini`, for your user account
+   only. No administrator prompt.
+5. **Asks for your shortcut**, and *registers it* to check it is free rather
+   than assuming — Windows will not tell you who owns a hotkey, so the only way
+   to know is to take it. `Ctrl+Alt+P` by default.
+6. **Asks for words to protect** — names and jargon you do not want respelled.
+   Optional; Settings has the same list.
+7. **Asks what is kept.** Transcripts are discarded when you close the app
+   unless you say otherwise, and the diagnostic log is on.
+8. **Transcribes a short bundled audio clip and checks the result word for
    word.** This is the step that matters: a speech model with a broken audio
    projector does not fail, it writes fluent text without listening to
    anything. Comparing against known ground truth is the only check that
    catches it.
-4. Asks whether to keep your transcripts between sessions (the default is no).
-5. Launches the app.
 
-Interrupted downloads resume. If any step fails, it says which one and stops
-rather than installing something that will not work.
+Then it launches the app, and tells you if it could not.
+
+If any step fails, it says which one and stops rather than installing something
+that will not work — with one deliberate exception: a failed engine check offers
+Retry and lets you continue anyway, saying what continuing costs.
+
+Windows SmartScreen will warn about the download. The build is not code-signed
+and will not be; the release page carries a SHA-256 for the file so you can
+check you have the bytes that were published:
+
+```powershell
+Get-FileHash .\SpeakEasyMiniSetup.exe -Algorithm SHA256
+```
 
 ### 2. Have an agent do it, so you can watch
 
@@ -73,13 +100,28 @@ step.
 To **run**:
 
 - Windows 11 x64
-- The WebView2 runtime — already present on an up-to-date Windows 11; the
-  installer fetches it if missing
+- The WebView2 runtime — already present on an up-to-date Windows 11. Setup
+  **checks for it and does not download it**: Microsoft serves its installer
+  from a redirect whose bytes change by design, so it cannot be pinned by
+  checksum the way everything else here is. If it is missing, setup says so and
+  names it rather than installing something it cannot verify
 - About 4 GB free disk space for the Granite weights, downloaded at setup
   rather than bundled
 - A microphone
 - An NVIDIA card is **optional**. Granite runs on the CPU perfectly well —
   roughly 1.6 s for a short utterance against 0.16 s on an RTX 5090.
+
+### A note on graphics cards
+
+Granite's GPU support is a **build feature**, not a download: llama.cpp's CUDA
+backend is compiled into the worker executable rather than loaded beside it. No
+CUDA-built worker has been published, so every install today runs on the
+processor — including on machines with a card that clears every requirement.
+
+Setup says so rather than hiding it, and the app records which configuration was
+installed so that "running on the processor" can be told from "the graphics-card
+engine failed to load". If you want the GPU build now,
+`scripts\Enable-GraniteCuda.ps1` builds one locally and needs the CUDA Toolkit.
 
 To **build**, additionally:
 
@@ -115,9 +157,11 @@ An installer:
 .\scripts\Build-LocalInstaller.ps1
 ```
 
-Produces an unsigned, current-user NSIS installer under
-`target\local-development\<version>\`, with a manifest and SHA-256 checksums of
-everything it packages.
+Produces `SpeakEasyMiniSetup.exe` under `target\local-development\<version>\`,
+unsigned and current-user, with a manifest and SHA-256 checksums of everything
+it packages. Beside it are the same installer without its payload
+(`speakeasy-bootstrapper.exe`) and the `payload\` directory it would otherwise
+carry, which is what `scripts\Test-InstallerLifecycle.ps1` drives.
 
 ## Privacy
 

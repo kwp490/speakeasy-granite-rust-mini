@@ -118,8 +118,8 @@ implementation — and no second path that could deliver differently.
 
 There isn't one. A profile arrives already set up, because the installer is the
 only way in and it does the work: hardware check, download, verification, engine
-smoke test, and the retention question, all before the app launches for the
-first time.
+smoke test, the shortcut, the vocabulary and the retention question, all before
+the app launches for the first time — and it is the installer that launches it.
 
 This replaced a seven-step in-app stepper that ran on first launch and knew
 nothing about what the installer had done. Two surfaces that both claimed to own
@@ -148,11 +148,38 @@ The principles above still bind it; only the toolkit differs.
 of the "all visible text comes from the catalog" rule. Logic must not build
 user-facing prose inline.
 
-Seven steps, in order: check this computer; choose how it runs; download what is
-needed; install; choose your shortcut; add your words; check it works. Back and
-Next; the last step's Next reads **Finish**. Back is disabled on the first step
-rather than hidden, because a button that disappears moves the ones beside it
-and the target under the cursor changes.
+**One file.** Setup is a single executable with the files it installs appended
+to it past the end of the PE image, which Windows' loader ignores. There is no
+directory to keep beside it and nothing to unzip — a user downloads
+`SpeakEasyMiniSetup.exe` and runs it. Every appended file carries a SHA-256 that
+is checked before it is written, and that is not about tampering: an installer
+truncated by a dropped download **still runs**, because the missing part is not
+part of the program, and would otherwise install whatever fragment parsed.
+
+Eight steps, in order: check this computer; choose how it runs; download what is
+needed; install; choose your shortcut; add your words; choose what is kept;
+check it works. Back and Next; the last step's Next reads **Finish**. Back is
+disabled on the first step rather than hidden, because a button that disappears
+moves the ones beside it and the target under the cursor changes.
+
+**Finish starts the app**, and says so if it could not. Setup that ends by
+closing its own window leaves a user who watched every step succeed looking at
+an empty desktop.
+
+**The answers reach the app through one-shot seed files** under
+`%APPDATA%\ai.speakeasy.mini\config\`, which the app reads and deletes on first
+launch. Deleting them is the contract: a seed is a starting value, never a
+policy, so a setting the user changes afterwards must never revert. They are
+written when the user leaves the last question rather than at Finish, because
+the engine check runs after that and takes seconds — someone who closes the
+window while it works has still answered every question.
+
+The single exception is the **installed configuration**, which is a record
+rather than a seed and is not deleted. It is what lets the app tell "running on
+the processor because that is what was installed", which is normal, from
+"running on the processor because the graphics-card engine will not load", which
+is a fault. Without it those are the same silent state; it appears in the
+`granite_warm` log line as `installed=`.
 
 Six obligations this surface carries more sharply than the app does, because it
 is where the claims are easiest to overstate:
@@ -197,7 +224,32 @@ indicator retargeted, because one bar cannot honestly mean "step 3 of 7" and
 apply, since `winsafe` panics if a control is created after its parent window.
 
 A step whose controls are not yet built says exactly that. An empty step is
-indistinguishable from a step whose controls failed to appear.
+indistinguishable from a step whose controls failed to appear. **Every step is
+built as of 2026-08-19**, so nothing reaches that message today; the rule stays
+because the next step added will pass through the same state.
+
+Three of the eight ask something, and each one carries a rule the placeholder
+version could not:
+
+- **An option that cannot be installed is shown and disabled, with the reason.**
+  A machine whose graphics card clears the requirements is still offered only
+  the processor, because Granite's GPU support is compiled into the worker
+  rather than loaded beside it and no such worker has been published. Hiding the
+  option would read as setup not having looked at the card; enabling it would be
+  a control that silently installs something else. The step says which half is
+  missing, and the answer is derived from the manifest, so it becomes `true` on
+  the day the worker is pinned there rather than needing a second edit.
+- **A shortcut is verified by taking it, not by looking at it.** Windows will
+  not say who owns a global hotkey, so setup registers the chosen combination
+  and releases it again; if the registration fails, Next is disabled and the
+  copy says another program holds it and does not guess which. Three named
+  alternatives are on screen, so this gate can never trap anyone. Setup must
+  release the shortcut immediately — holding it would make setup the owner, and
+  the app's own registration would then fail against a conflict setup created.
+- **The retention default is off, and stated as a promise rather than a
+  checkbox.** Unticked means transcripts are never written to disk at all, which
+  is a stronger claim than deleting them on exit and is worth making in words: a
+  delete-on-exit is a promise a crash breaks.
 
 **The last step runs the engine and checks what it heard.** Setup transcribes a
 recording compiled into the installer and compares the result against the words

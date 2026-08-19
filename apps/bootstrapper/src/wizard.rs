@@ -4,11 +4,19 @@
 //! `WebView2` is the thing this replaces, and repair mode has to draw on a
 //! machine where something is already broken.
 //!
-//! This is the chrome — the window, the step sequence, and the navigation
-//! between them. Each step's own controls arrive with the stage that implements
-//! it, and until then the step says so. Building the frame first is deliberate:
-//! the order and the wording are the part worth reviewing before any of it can
-//! download three gigabytes.
+//! The window, the eight steps, the navigation between them, and every control
+//! any of them needs. **All of it is created in [`Wizard::new`]** — `winsafe`
+//! panics if a control is built after its parent window, so there is no such
+//! thing as building a page's controls when the user reaches it, and
+//! [`Wizard::show_questions`] decides visibility instead.
+//!
+//! Half the steps report and half ask. The two kinds share one band of the
+//! window on purpose: no step does both, the compatibility report is the tallest
+//! thing here, and giving the questions their own space below it would add 170
+//! logical pixels of emptiness to every other page.
+//!
+//! Three steps were placeholders until 2026-08-19, saying so rather than showing
+//! a plausible blank. That message survives for whatever step is added next.
 //!
 //! Runs in a process with no console, launched by `relaunch_detached`. That
 //! matters more than it looks: a console window belonging to `SpeakEasy` becomes
@@ -21,7 +29,7 @@ use std::rc::Rc;
 use winsafe::prelude::*;
 use winsafe::{self as w, co, gui};
 
-use crate::{catalog, download, install, probe, smoke};
+use crate::{catalog, download, install, payload, probe, seed, smoke};
 
 /// Layout, in DPI-independent units.
 ///
@@ -53,6 +61,28 @@ mod layout {
     /// currently has to hold: the compatibility report, which runs to about
     /// eleven lines on a machine with a graphics card whose engines disagree.
     pub const NOTICE_HEIGHT: i32 = 170;
+    /// Where a step that asks a question puts its controls.
+    ///
+    /// The same band as [`NOTICE_TOP`], because a step either reports something
+    /// or asks something and no step does both — the notice label is hidden
+    /// while controls are showing. Overlapping them deliberately rather than
+    /// finding fresh space is what keeps the window one size: the compatibility
+    /// report is the tallest thing the wizard shows, and giving the questions
+    /// their own band below it would add 170 px of emptiness to every other
+    /// step.
+    pub const CONTROL_TOP: i32 = NOTICE_TOP;
+    /// One radio button or check box. Sized for the text, not the glyph: at
+    /// 250% a 20 px row clips the descenders on this font.
+    pub const CONTROL_ROW: i32 = 24;
+    /// The vocabulary box. Four or five lines at the wizard's text size, which
+    /// is enough to see that a list is being built without pretending this is
+    /// the place to type fifty words.
+    pub const EDIT_HEIGHT: i32 = 100;
+    /// What a question step says back — a shortcut already in use, or why an
+    /// option cannot be chosen. Below the controls rather than above them, so
+    /// the answer appears where the eye already is after choosing.
+    pub const STATUS_TOP: i32 = 300;
+    pub const STATUS_HEIGHT: i32 = 64;
     /// The download step's own bar.
     ///
     /// A second bar rather than reusing the step indicator below, which counts
@@ -77,6 +107,23 @@ pub struct Wizard {
     position: gui::Label,
     body: gui::Label,
     notice: gui::Label,
+    /// What a question step says back. Shares the notice's band; see
+    /// [`layout::STATUS_TOP`].
+    status: gui::Label,
+    /// Which configuration to install. Two buttons even though only one of them
+    /// can be chosen today, because the choice is real and the reason the other
+    /// is unavailable is worth showing — a machine with a graphics card and no
+    /// mention of it reads as a machine setup did not look at.
+    provider: gui::RadioGroup,
+    /// The activation shortcut, from [`shortcut_choices`].
+    shortcut: gui::RadioGroup,
+    /// Words to protect, one per line.
+    words: gui::Edit,
+    /// Whether transcripts survive closing the app. Unchecked by default.
+    keep_transcripts: gui::CheckBox,
+    /// Whether the diagnostic log is written to disk. Checked by default,
+    /// matching the app's own setting.
+    disk_logging: gui::CheckBox,
     transfer: gui::ProgressBar,
     progress: gui::ProgressBar,
     back: gui::Button,
@@ -125,6 +172,14 @@ pub struct Wizard {
     /// what gates Next, and `show_step` re-applies that gate on every visit,
     /// including visits from Back after the transfer already succeeded.
     ready: Rc<Cell<bool>>,
+    /// Whether the shortcut showing on the shortcut step is one Windows will
+    /// actually give the app.
+    ///
+    /// Checked by registering it, which is the only answer that is not a guess:
+    /// a combination another program already owns cannot be told from a free
+    /// one by looking at it. Gates Next, because a shortcut that does not work
+    /// is discovered by the user pressing it and nothing happening.
+    shortcut_free: Rc<Cell<bool>>,
 }
 
 /// Indices into [`catalog::STEPS`] for the steps that have content.
@@ -133,12 +188,106 @@ pub struct Wizard {
 /// still settling, and a bare `3` in `show_step` would silently start describing
 /// the wrong step the first time one is inserted above it.
 const STEP_COMPATIBILITY: usize = 0;
+const STEP_PROVIDER: usize = 1;
 const STEP_DOWNLOAD: usize = 2;
 const STEP_INSTALL: usize = 3;
+const STEP_SHORTCUT: usize = 4;
+const STEP_WORDS: usize = 5;
+/// Retention and diagnostic logging. Its own step rather than a corner of
+/// another one: both answers are about what `SpeakEasy Mini` keeps, and the
+/// retention default is a privacy promise the user should meet on its own page
+/// rather than beneath a list of words.
+const STEP_PRIVACY: usize = 6;
 /// The engine check, and the last step. `STEPS.len() - 1` rather than a
 /// literal so adding a step ahead of it does not silently point this at copy
 /// about something else.
 const STEP_VERIFY: usize = catalog::STEPS.len() - 1;
+
+/// The controls belonging to the steps that ask something.
+///
+/// A struct rather than a tuple returned from [`Wizard::question_controls`]:
+/// six same-shaped handles in a row is exactly the kind of list two of which
+/// get swapped without the compiler minding.
+struct Questions {
+    provider: gui::RadioGroup,
+    shortcut: gui::RadioGroup,
+    words: gui::Edit,
+    keep_transcripts: gui::CheckBox,
+    disk_logging: gui::CheckBox,
+    status: gui::Label,
+}
+
+/// One offered activation shortcut.
+///
+/// The binding string and the key it decomposes into are held together because
+/// they are two spellings of one fact, and the one thing that must never happen
+/// is setup verifying one combination and recording another — the user would
+/// then be told their shortcut is free and find that a different one was
+/// installed.
+struct ShortcutChoice {
+    /// As `speakeasy_storage::Settings` spells it, which is what the seed file
+    /// carries and what `tauri_plugin_global_shortcut` parses.
+    binding: &'static str,
+    label: &'static str,
+    modifiers: co::MOD,
+    key: co::VK,
+}
+
+/// The shortcuts setup offers, best first.
+///
+/// A short list rather than a key-capture control. Capturing an arbitrary
+/// combination means reproducing the app's own parser, its reserved-key rules
+/// and its conflict reporting inside an installer that runs once — and the
+/// app's Settings page already does all of that, for a user who has by then
+/// seen the app work. What setup owes is a working default and a way out of a
+/// collision, which is three named alternatives.
+///
+/// `Ctrl+Alt+P` leads because it is the product's own default, and it is
+/// deliberately not `SpeakEasy`'s `Ctrl+Alt+L`: the two install side by side
+/// and must never fight over a shortcut.
+///
+/// A function rather than a `const`: `co::MOD`'s `BitOr` is an ordinary trait
+/// implementation, so the combinations below cannot be built in a constant.
+fn shortcut_choices() -> [ShortcutChoice; 3] {
+    [
+        ShortcutChoice {
+            binding: "Ctrl+Alt+P",
+            label: catalog::SHORTCUT_CTRL_ALT_P,
+            modifiers: co::MOD::CONTROL | co::MOD::ALT,
+            key: co::VK::CHAR_P,
+        },
+        ShortcutChoice {
+            binding: "Ctrl+Alt+D",
+            label: catalog::SHORTCUT_CTRL_ALT_D,
+            modifiers: co::MOD::CONTROL | co::MOD::ALT,
+            key: co::VK::CHAR_D,
+        },
+        ShortcutChoice {
+            binding: "Ctrl+Shift+Space",
+            label: catalog::SHORTCUT_CTRL_SHIFT_SPACE,
+            modifiers: co::MOD::CONTROL | co::MOD::SHIFT,
+            key: co::VK::SPACE,
+        },
+    ]
+}
+
+/// A hotkey id nothing else in this process uses.
+///
+/// Registered and immediately released, only to find out whether Windows will
+/// hand it over at all.
+const PROBE_HOTKEY_ID: i32 = 0x5350;
+
+/// Whether a step asks the user something rather than reporting.
+///
+/// One predicate, because three places need the answer — what to show, what to
+/// write into, and whether the notice label is in the way — and three copies of
+/// the same list is how a step gets added to two of them.
+const fn asks_a_question(index: usize) -> bool {
+    matches!(
+        index,
+        STEP_PROVIDER | STEP_SHORTCUT | STEP_WORDS | STEP_PRIVACY
+    )
+}
 
 /// How often the window reads the transfer's progress.
 ///
@@ -157,6 +306,12 @@ const TRANSFER_STEPS: u32 = 1000;
 
 impl Wizard {
     pub fn new() -> Self {
+        // Probed before any control exists, because the provider step's buttons
+        // depend on the answer and `winsafe` panics if a control is created
+        // after its parent window. The probe used to run further down, with the
+        // rest of the state; moving it changes nothing about when the machine is
+        // read, only about what can read it.
+        let machine = probe::run();
         let window = gui::WindowMain::new(gui::WindowMainOpts {
             title: catalog::WINDOW_TITLE,
             size: gui::dpi(layout::WINDOW.0, layout::WINDOW.1),
@@ -226,6 +381,7 @@ impl Wizard {
         );
 
         let [cancel, next, back, retry] = Self::button_row(&window);
+        let questions = Self::question_controls(&window, content_width, &machine);
 
         let wizard = Self {
             window,
@@ -233,6 +389,12 @@ impl Wizard {
             position,
             body,
             notice,
+            status: questions.status,
+            provider: questions.provider,
+            shortcut: questions.shortcut,
+            words: questions.words,
+            keep_transcripts: questions.keep_transcripts,
+            disk_logging: questions.disk_logging,
             transfer,
             progress,
             back,
@@ -242,14 +404,140 @@ impl Wizard {
             step: Rc::new(Cell::new(0)),
             verify: Rc::new(RefCell::new(None)),
             verify_settled: Rc::new(Cell::new(false)),
-            machine: Rc::new(probe::run()),
+            machine: Rc::new(machine),
             install: Rc::new(install::decide_now()),
             run: Rc::new(RefCell::new(None)),
             settled: Rc::new(Cell::new(false)),
             ready: Rc::new(Cell::new(false)),
+            // Nothing is known until the shortcut step registers one. Starting
+            // at `false` rather than `true` means a step that somehow never runs
+            // its check blocks rather than waves the user through.
+            shortcut_free: Rc::new(Cell::new(false)),
         };
         wizard.wire_events();
         wizard
+    }
+
+    /// Every control that belongs to a step which asks something.
+    ///
+    /// Built here, with everything else, because `winsafe` panics if a control
+    /// is created after its parent window — so there is no such thing as
+    /// building a page's controls when the user reaches it. They exist from the
+    /// first paint and [`Self::show_questions`] decides which are visible.
+    fn question_controls(
+        window: &gui::WindowMain,
+        content_width: i32,
+        machine: &probe::MachineReport,
+    ) -> Questions {
+        let row = |index: i32| {
+            gui::dpi(
+                layout::MARGIN,
+                layout::CONTROL_TOP + layout::CONTROL_ROW * index,
+            )
+        };
+        let wide = gui::dpi(content_width, layout::CONTROL_ROW);
+        // A graphics-card install needs a CUDA-built worker to exist, and
+        // Granite's GPU support is compiled into the worker rather than loaded
+        // beside it — so no manifest entry means no such install, whatever the
+        // card can do. Offered only when both are true; the step says which half
+        // is missing.
+        //
+        // `preferred_provider`, not `is_qualified`: qualification means an
+        // execution test has passed on this card, and setup has not run one at
+        // this point — `is_qualified` is false on every machine here, so
+        // reading it would disable the option even once a worker exists.
+        // `GpuQualification::preferred_provider`'s own doc names this as where
+        // a GPU override belongs.
+        let graphics_card = machine.admissibility.preferred_provider()
+            == speakeasy_models::ExecutionProvider::Cuda
+            && download::graphics_card_configuration_published();
+        Questions {
+            provider: gui::RadioGroup::new(
+                window,
+                &[
+                    gui::RadioButtonOpts {
+                        text: catalog::PROVIDER_GRAPHICS_CARD,
+                        position: row(0),
+                        size: wide,
+                        selected: graphics_card,
+                        ..Default::default()
+                    },
+                    gui::RadioButtonOpts {
+                        text: catalog::PROVIDER_PROCESSOR,
+                        position: row(1),
+                        size: wide,
+                        selected: !graphics_card,
+                        ..Default::default()
+                    },
+                ],
+            ),
+            shortcut: gui::RadioGroup::new(
+                window,
+                &shortcut_choices()
+                    .iter()
+                    .enumerate()
+                    .map(|(index, choice)| gui::RadioButtonOpts {
+                        text: choice.label,
+                        position: row(i32::try_from(index).unwrap_or(0)),
+                        size: wide,
+                        selected: index == 0,
+                        ..Default::default()
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+            words: gui::Edit::new(
+                window,
+                gui::EditOpts {
+                    text: "",
+                    position: gui::dpi(layout::MARGIN, layout::CONTROL_TOP),
+                    width: gui::dpi_x(content_width),
+                    height: gui::dpi_y(layout::EDIT_HEIGHT),
+                    // `WANTRETURN` is what makes Enter add a line rather than
+                    // press the default button, which on this window is Next —
+                    // a user typing a second word would otherwise leave the step.
+                    control_style: co::ES::MULTILINE
+                        | co::ES::WANTRETURN
+                        | co::ES::AUTOVSCROLL
+                        | co::ES::NOHIDESEL,
+                    ..Default::default()
+                },
+            ),
+            keep_transcripts: gui::CheckBox::new(
+                window,
+                gui::CheckBoxOpts {
+                    text: catalog::KEEP_TRANSCRIPTS,
+                    position: row(0),
+                    size: wide,
+                    // Unchecked, and this is the owner's decision of 2026-08-19
+                    // rather than a convenience: it matches what the app already
+                    // does, and a privacy-preserving default needs no
+                    // justification to the user.
+                    check_state: co::BST::UNCHECKED,
+                    ..Default::default()
+                },
+            ),
+            disk_logging: gui::CheckBox::new(
+                window,
+                gui::CheckBoxOpts {
+                    text: catalog::DISK_LOGGING,
+                    position: row(2),
+                    size: wide,
+                    // Checked, matching `Settings`' own default. The log records
+                    // error codes and counters, never transcript text.
+                    check_state: co::BST::CHECKED,
+                    ..Default::default()
+                },
+            ),
+            status: gui::Label::new(
+                window,
+                gui::LabelOpts {
+                    text: "",
+                    position: gui::dpi(layout::MARGIN, layout::STATUS_TOP),
+                    size: gui::dpi(content_width, layout::STATUS_HEIGHT),
+                    ..Default::default()
+                },
+            ),
+        }
     }
 
     fn button(parent: &gui::WindowMain, text: &str, left: i32) -> gui::Button {
@@ -313,6 +601,26 @@ impl Wizard {
             Ok(())
         });
 
+        // Choosing a different shortcut re-asks Windows about it. Without this
+        // the step would report on whatever was selected when the user arrived,
+        // which is the answer for a combination they have since changed their
+        // mind about — and it would be shown right next to the one they picked.
+        let on_shortcut = self.clone();
+        self.shortcut.on().bn_clicked(move || {
+            let message = on_shortcut.verify_selected_shortcut();
+            on_shortcut.status.hwnd().SetWindowText(&message)?;
+            Ok(())
+        });
+
+        // The provider step's own explanation depends on which button is
+        // selected, so it is rewritten the same way.
+        let on_provider = self.clone();
+        self.provider.on().bn_clicked(move || {
+            let message = on_provider.describe_provider_choice();
+            on_provider.status.hwnd().SetWindowText(&message)?;
+            Ok(())
+        });
+
         let on_back = self.clone();
         self.back.on().bn_clicked(move || {
             let current = on_back.step.get();
@@ -340,13 +648,43 @@ impl Wizard {
                     .SetWindowText(&catalog::install_failed(&reason))?;
                 return Ok(());
             }
+            // Leaving the last question is what records the answers. Here
+            // rather than at Finish because the engine check comes after it and
+            // runs for seconds: a user who closes the window while it is
+            // working has still answered every question, and their shortcut
+            // should be waiting for them.
+            //
+            // Rewritten on every pass rather than once, which matters because
+            // Back works: a user who goes back from the engine check, unticks
+            // a box and presses Next again has changed their answer, and a
+            // write-once guard would keep the old one while showing the new.
+            // The files are five short lines; there is nothing to save by
+            // skipping them.
+            if current == STEP_PRIVACY {
+                let written = seed::write(&on_next.answers());
+                if !written.all_recorded() {
+                    // Not fatal, and not silent either. The install is complete
+                    // and every one of these has a control in Settings, so the
+                    // honest thing is to name what did not stick and carry on.
+                    on_next
+                        .status
+                        .hwnd()
+                        .SetWindowText(&catalog::seeds_not_recorded(&written.failed))?;
+                }
+            }
             if current + 1 < catalog::STEPS.len() {
                 on_next.step.set(current + 1);
                 on_next.show_step()?;
             } else {
-                // Finish. Closing is all there is to do until the steps
-                // themselves land; it must not claim setup succeeded.
-                on_next.close()?;
+                // Finish. Start the app, then close — README's own description
+                // of setup ends "Launches the app", and until now it did not.
+                //
+                // Before closing rather than after: `close` destroys the window
+                // and ends the message loop, so anything after it is running in
+                // a process on its way out.
+                if on_next.launch_installed_app()? {
+                    on_next.close()?;
+                }
             }
             Ok(())
         });
@@ -440,6 +778,10 @@ impl Wizard {
             // transcribe, and the last step would then have to report a failure
             // that this step already knew about.
             STEP_DOWNLOAD => self.ready.get(),
+            // A shortcut another program owns is not a shortcut. Unlike the
+            // download there is always a way forward here — two other
+            // combinations are on screen — so this gate can never trap someone.
+            STEP_SHORTCUT => self.shortcut_free.get(),
             _ => true,
         });
     }
@@ -583,11 +925,13 @@ impl Wizard {
 
     /// Place the payload and register the installation.
     fn place() -> Result<(), String> {
+        // Held until `perform` returns: when setup carries its payload inside
+        // its own executable, dropping this deletes the directory it reads from.
         let payload =
-            install::payload_directory().ok_or_else(|| catalog::PAYLOAD_UNLOCATABLE.to_owned())?;
+            payload::stage().map_err(|failure| catalog::describe_payload_failure(&failure))?;
         let root =
             probe::install_root().ok_or_else(|| catalog::INSTALL_ROOT_UNLOCATABLE.to_owned())?;
-        install::perform(&payload, &root)
+        install::perform(payload.directory(), &root)
     }
 
     /// Close the wizard.
@@ -620,14 +964,17 @@ impl Wizard {
             .hwnd()
             .SetWindowText(&catalog::step_position(index))?;
         self.body.hwnd().SetWindowText(step.body)?;
-        // Built steps report; the rest say they are unbuilt. As each stage lands
-        // its own arm appears here and the fallback shrinks.
-        // Built steps report; the rest say they are unbuilt. As each stage lands
-        // its own arm appears here and the fallback shrinks. The download step
-        // is absent on purpose: `begin_transfer` below owns its text, because
-        // what to say depends on whether there is anything to fetch, and
-        // deciding that twice would be two answers that can disagree.
-        if index != STEP_DOWNLOAD && index != STEP_VERIFY {
+        // Which controls this step owns, before anything writes text: the
+        // notice and the question controls share one band, so showing the wrong
+        // set draws a report over a set of radio buttons.
+        self.show_questions(index);
+        // The steps that report, reporting. The download and engine-check steps
+        // are absent on purpose: `begin_transfer` and `poll_verify` own their
+        // text, because what to say depends on what they found, and deciding
+        // that in two places would be two answers that can disagree. The
+        // question steps are absent for the same reason one level along —
+        // `show_questions` writes their status line.
+        if !matches!(index, STEP_DOWNLOAD | STEP_VERIFY) && !asks_a_question(index) {
             self.notice.hwnd().SetWindowText(&match index {
                 STEP_COMPATIBILITY => catalog::describe_machine(&self.machine),
                 STEP_INSTALL => catalog::describe_install_decision(&self.install),
@@ -676,6 +1023,152 @@ impl Wizard {
             self.begin_transfer();
         }
         Ok(())
+    }
+
+    /// Show the controls this step owns and hide the rest.
+    ///
+    /// Every control exists from the first paint — `winsafe` gives no choice —
+    /// so "which page am I on" is entirely a question of visibility, and it has
+    /// to be answered for *all* of them on every navigation. Answering it in
+    /// one place is what stops a control from a step the user left behind
+    /// showing through the next one; the version of this that only showed the
+    /// arriving step's controls left the previous step's radio buttons on top
+    /// of the compatibility report.
+    fn show_questions(&self, index: usize) {
+        let visible = |shown: bool| if shown { co::SW::SHOW } else { co::SW::HIDE };
+        let provider = index == STEP_PROVIDER;
+        let shortcut = index == STEP_SHORTCUT;
+        let privacy = index == STEP_PRIVACY;
+
+        for button in self.provider.iter() {
+            button.hwnd().ShowWindow(visible(provider));
+        }
+        for button in self.shortcut.iter() {
+            button.hwnd().ShowWindow(visible(shortcut));
+        }
+        self.words.hwnd().ShowWindow(visible(index == STEP_WORDS));
+        self.keep_transcripts.hwnd().ShowWindow(visible(privacy));
+        self.disk_logging.hwnd().ShowWindow(visible(privacy));
+
+        let asks = asks_a_question(index);
+        self.notice.hwnd().ShowWindow(visible(!asks));
+        self.status.hwnd().ShowWindow(visible(asks));
+        if !asks {
+            return;
+        }
+        // The status line, which is the only thing a question step reports.
+        // Recomputed on arrival rather than remembered, because the shortcut's
+        // answer can change while setup is open: another program can take the
+        // combination between one visit to this step and the next.
+        let message = match index {
+            STEP_PROVIDER => self.describe_provider_choice(),
+            STEP_SHORTCUT => self.verify_selected_shortcut(),
+            _ => String::new(),
+        };
+        let _ = self.status.hwnd().SetWindowText(&message);
+    }
+
+    /// Why the provider step offers what it offers.
+    fn describe_provider_choice(&self) -> String {
+        catalog::describe_provider_options(
+            self.machine.admissibility.preferred_provider()
+                == speakeasy_models::ExecutionProvider::Cuda,
+            download::graphics_card_configuration_published(),
+        )
+    }
+
+    /// Ask Windows whether the selected shortcut is actually free.
+    ///
+    /// By registering it, then letting it go. There is no way to look at a key
+    /// combination and tell — the owner of a global shortcut is not discoverable
+    /// — so the alternative to this is telling the user their choice is fine and
+    /// letting them find out by pressing it and having nothing happen, which is
+    /// the failure the step's own copy promises not to make.
+    ///
+    /// Registered against the wizard's window, which receives the resulting
+    /// `WM_HOTKEY` and ignores it; the registration lives for microseconds.
+    fn verify_selected_shortcut(&self) -> String {
+        let choices = shortcut_choices();
+        let Some(choice) = self
+            .shortcut
+            .selected_index()
+            .and_then(|index| choices.get(index))
+        else {
+            // No selection is not a state this group can be in — one button is
+            // selected at construction — but reporting free would be a claim
+            // about a combination nobody named.
+            self.shortcut_free.set(false);
+            return catalog::SHORTCUT_UNKNOWN.to_owned();
+        };
+        let window = self.window.hwnd();
+        let free = window
+            .RegisterHotKey(PROBE_HOTKEY_ID, choice.modifiers, choice.key)
+            .is_ok();
+        if free {
+            // Immediately. Holding it would make setup the owner of the
+            // shortcut the app is about to ask for, so the app's own
+            // registration would then fail — setup would have caused the
+            // conflict it exists to detect.
+            let _ = window.UnregisterHotKey(PROBE_HOTKEY_ID);
+        }
+        self.shortcut_free.set(free);
+        self.apply_next_availability(STEP_SHORTCUT);
+        if free {
+            catalog::shortcut_available(choice.binding)
+        } else {
+            catalog::shortcut_taken(choice.binding)
+        }
+    }
+
+    /// Start the app setup just installed, and say whether it started.
+    ///
+    /// `Ok(false)` keeps the wizard open with the reason on screen, which is
+    /// the whole point of returning anything: closing regardless would leave a
+    /// user who watched setup complete looking at an empty desktop, with the
+    /// last thing they saw being a window that said dictation works.
+    ///
+    /// No `CREATE_NO_WINDOW` and no detaching. The app is a
+    /// `windows_subsystem = "windows"` binary, so it allocates no console to
+    /// hide, and this process has none to pass on — `relaunch_detached` gave
+    /// the wizard null standard handles precisely so that anything it starts
+    /// inherits nothing.
+    fn launch_installed_app(&self) -> w::AnyResult<bool> {
+        let Some(executable) = install::installed_app_executable() else {
+            self.notice.hwnd().SetWindowText(catalog::APP_NOT_FOUND)?;
+            self.notice.hwnd().ShowWindow(co::SW::SHOW);
+            return Ok(false);
+        };
+        match std::process::Command::new(&executable).spawn() {
+            Ok(_) => Ok(true),
+            Err(error) => {
+                self.notice
+                    .hwnd()
+                    .SetWindowText(&catalog::app_did_not_start(&error.to_string()))?;
+                self.notice.hwnd().ShowWindow(co::SW::SHOW);
+                Ok(false)
+            }
+        }
+    }
+
+    /// Everything the wizard collected, as the seed writer wants it.
+    fn answers(&self) -> seed::Answers {
+        let choices = shortcut_choices();
+        let shortcut = self
+            .shortcut
+            .selected_index()
+            .and_then(|index| choices.get(index))
+            .map_or(choices[0].binding, |choice| choice.binding);
+        seed::Answers {
+            shortcut: shortcut.to_owned(),
+            vocabulary: self.words.text().unwrap_or_default(),
+            keep_transcripts: self.keep_transcripts.is_checked(),
+            disk_logging: self.disk_logging.is_checked(),
+            provider: if self.provider.selected_index() == Some(0) {
+                seed::Provider::GraphicsCard
+            } else {
+                seed::Provider::Processor
+            },
+        }
     }
 
     pub fn run(&self) -> w::AnyResult<i32> {

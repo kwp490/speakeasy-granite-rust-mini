@@ -55,7 +55,8 @@ use speakeasy_storage::{
     clear_pending_update_after_health_checks, extract_v1_protected_terms,
 };
 use speakeasy_transforms::{
-    DictionaryEntry, DictionarySet, ImportPolicy as PersonalizationImportPolicy,
+    BoundaryPolicy, CasePolicy, DictionaryEntry, DictionaryOrigin, DictionarySet,
+    ImportPolicy as PersonalizationImportPolicy,
     PersonalizationBundle, PipelineMode, PipelineRequest, RuleCleanupConfig, RuleCleanupMode,
     Snippet, SnippetSet, TransformPipeline,
 };

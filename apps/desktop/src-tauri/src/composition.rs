@@ -49,7 +49,12 @@ pub fn run() {
             .clone();
         let hotkey_seeded = consume_installer_hotkey_seed(&app_root, &mut profile_settings);
         let logging_seeded = consume_installer_logging_seed(&app_root, &mut profile_settings);
-        if hotkey_seeded || logging_seeded {
+        let retention_seeded = consume_installer_retention_seed(&app_root, &mut profile_settings);
+        // Read here with the other seeds so every one of them is consumed in
+        // one pass, but applied further down: dictionary entries are not
+        // `Settings`, and the coordinator that owns them does not exist yet.
+        let installer_vocabulary = consume_installer_vocabulary_seed(&app_root);
+        if hotkey_seeded || logging_seeded || retention_seeded {
             let _ = profile.save(&profile_settings);
             *profile
                 .settings
@@ -97,7 +102,15 @@ pub fn run() {
         }
         app.manage(session_transcripts);
         app.manage(history);
-        app.manage(PersonalizationCoordinator::new(&app_root)?);
+        let personalization = PersonalizationCoordinator::new(&app_root)?;
+        // Applied before the coordinator is managed, so the settings page's
+        // first read already sees them. Failure is deliberately not fatal: the
+        // words are a convenience the user can retype, and refusing to start
+        // the app over a rejected term would be the wrong trade by a distance.
+        if !installer_vocabulary.is_empty() {
+            let _ = personalization.add_protected_terms(&installer_vocabulary);
+        }
+        app.manage(personalization);
         app.manage(profile);
         app.manage(ImportCoordinator::new(&app_root));
         app.manage(WindowsCredentialManager::default());

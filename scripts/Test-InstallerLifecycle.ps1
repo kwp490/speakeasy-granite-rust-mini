@@ -221,10 +221,71 @@ try {
         throw 'Silent uninstall left the Add/Remove Programs entry behind.'
     }
 
+    # Everything above drove `speakeasy-bootstrapper.exe` with a `payload\`
+    # directory beside it, which is the developer's layout. Nobody downloads
+    # that. What a user runs is `SpeakEasyMiniSetup.exe`, the same program with
+    # the payload appended to its own image -- a different code path to reach
+    # the same files, and until this ran, the only untested one in the chain
+    # that actually ships.
+    #
+    # Last rather than first, because it writes the same single HKCU version
+    # stamp: run before the sequence above and every install in it refuses as a
+    # same-version reinstall. By here the machine is clean again.
+    $setupExecutable = Join-Path $artifactRoot 'SpeakEasyMiniSetup.exe'
+    if (-not (Test-Path -LiteralPath $setupExecutable -PathType Leaf)) {
+        throw "The single-file installer was not found in $artifactRoot."
+    }
+    $embeddedRoot = Join-Path $lifecycleRoot "$PID-embedded"
+    if (Test-Path -LiteralPath $embeddedRoot) {
+        Remove-Item -LiteralPath $embeddedRoot -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $embeddedRoot -Force | Out-Null
+    try {
+        # `--install-root` with the call operator, never `Start-Process
+        # -ArgumentList`: this repository's own path has a space in it, and that
+        # joins its array with spaces and quotes nothing.
+        $previousPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $embeddedOutput = & $setupExecutable --install --install-root $embeddedRoot 2>&1
+        } finally {
+            $ErrorActionPreference = $previousPreference
+        }
+        if ($LASTEXITCODE -ne 0) {
+            throw "Single-file install failed with exit code ${LASTEXITCODE}: $($embeddedOutput -join ' ')"
+        }
+        # Byte-identical to what the sibling-directory install placed, which is
+        # the actual claim: the embedded archive is not a second copy of the
+        # payload that could differ from the packaged one, it IS the packaged
+        # one. A hash comparison says that; "the file exists" does not.
+        foreach ($relative in @('ai-speakeasy-mini.exe', 'speakeasy-bootstrapper.exe', 'proof\granite-worker.exe')) {
+            $embedded = Join-Path $embeddedRoot $relative
+            $packaged = Join-Path $artifactRoot "payload\$relative"
+            if (-not (Test-Path -LiteralPath $embedded -PathType Leaf)) {
+                throw "Single-file install did not place $relative."
+            }
+            $embeddedHash = (Get-FileHash -LiteralPath $embedded -Algorithm SHA256).Hash
+            $packagedHash = (Get-FileHash -LiteralPath $packaged -Algorithm SHA256).Hash
+            if ($embeddedHash -ne $packagedHash) {
+                throw "Single-file install placed a different $relative than the packaged payload."
+            }
+        }
+        $embeddedUninstall = & (Join-Path $embeddedRoot 'speakeasy-bootstrapper.exe') --uninstall /S 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Single-file uninstall failed with exit code ${LASTEXITCODE}: $($embeddedUninstall -join ' ')"
+        }
+        Write-Host 'single-file install: placed and removed the embedded payload'
+    } finally {
+        if (-not $KeepInstall -and (Test-Path -LiteralPath $embeddedRoot)) {
+            Remove-Item -LiteralPath $embeddedRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     [pscustomobject]@{
         schema_version = 1
         tested_utc = [DateTime]::UtcNow.ToString('o')
         fresh_install = 'passed'
+        single_file_install = 'passed'
         launch = 'passed'
         running_app_install_refusal = 'passed'
         same_version_refusal = 'passed'

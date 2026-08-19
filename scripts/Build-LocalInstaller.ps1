@@ -96,15 +96,6 @@ $defender = try {
 } catch {
     [ordered]@{ available = $false }
 }
-$components = Get-ChildItem -LiteralPath $artifactFull -File |
-    Sort-Object Name |
-    ForEach-Object {
-        [ordered]@{
-            name = $_.Name
-            bytes = $_.Length
-            sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-        }
-    }
 # No native DLLs are staged beside the workers. This carried a
 # `Resolve-RuntimeDll` helper and the same five sherpa/ONNX names
 # `Invoke-ProofPackage.ps1` did, both fetched from `Get-GpuRuntime.ps1` -- a
@@ -145,6 +136,38 @@ $installedPayload = foreach ($spec in $payloadSpecs) {
         sha256 = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
     }
 }
+# The one file a user downloads.
+#
+# `speakeasy-bootstrapper.exe` and `payload\` both stay beside it: the
+# bootstrapper reads an embedded payload in preference to a sibling directory,
+# so the pair is still exactly what `Test-InstallerLifecycle.ps1` drives, and
+# keeping it means the lifecycle proof exercises the same install code the setup
+# file does rather than a second path.
+#
+# Packed by a Rust binary from `apps/bootstrapper`, not here. The format has to
+# have one implementation: a writer in PowerShell and a reader in the installer
+# agree until somebody edits one of them, and the disagreement lands on a user
+# as "this download is damaged" for a file that downloaded perfectly.
+$packer = Join-Path $installerBuild 'release\pack-payload.exe'
+if (-not (Test-Path -LiteralPath $packer -PathType Leaf)) {
+    throw "The payload packer was not produced: $packer"
+}
+$setupExecutable = Join-Path $artifactFull 'SpeakEasyMiniSetup.exe'
+& $packer $payloadRoot $bootstrapperSource $setupExecutable
+if ($LASTEXITCODE -ne 0) { throw 'Packing SpeakEasyMiniSetup.exe failed.' }
+
+# Computed after the packing, so the manifest describes the file a user actually
+# downloads. It used to run before the payload was even assembled, which was
+# harmless while the artifact root held only documents and is not now.
+$components = Get-ChildItem -LiteralPath $artifactFull -File |
+    Sort-Object Name |
+    ForEach-Object {
+        [ordered]@{
+            name = $_.Name
+            bytes = $_.Length
+            sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+    }
 $manifest = [ordered]@{
     schema_version = 1
     product = 'SpeakEasy'
@@ -204,6 +227,12 @@ $bootstrapperCopy = Join-Path $artifactFull 'speakeasy-bootstrapper.exe'
 $payloadFiles = @(Get-ChildItem -LiteralPath $payloadRoot -Recurse -File)
 [pscustomobject]@{
     artifact_root = $artifactFull
+    # First, because it is the thing that gets published and the thing a user
+    # downloads. The bootstrapper below it is the same program without its
+    # payload, kept for the lifecycle proof.
+    setup = $setupExecutable
+    setup_bytes = (Get-Item -LiteralPath $setupExecutable).Length
+    setup_sha256 = (Get-FileHash -LiteralPath $setupExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
     bootstrapper = $bootstrapperCopy
     bootstrapper_bytes = (Get-Item -LiteralPath $bootstrapperCopy).Length
     bootstrapper_sha256 = (Get-FileHash -LiteralPath $bootstrapperCopy -Algorithm SHA256).Hash.ToLowerInvariant()

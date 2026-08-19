@@ -43,8 +43,15 @@ mod catalog;
 mod console;
 mod download;
 mod install;
+// Shared verbatim with `bin/pack-payload.rs`, which compiles the same file to
+// *write* the archive setup *reads*. Each binary therefore sees the other's
+// half as unused, and neither is: single-sourcing the format is the whole
+// reason the packer is a Rust binary rather than four lines of PowerShell.
+#[allow(dead_code)]
+mod payload;
 mod probe;
 mod repair;
+mod seed;
 mod shortcut;
 mod smoke;
 mod uninstall;
@@ -273,15 +280,20 @@ fn place(install_root: Option<&std::ffi::OsStr>, destination: console::Destinati
         );
         return ExitCode::FAILURE;
     };
-    let Some(payload) = install::payload_directory() else {
-        repair::report(
-            catalog::PAYLOAD_UNLOCATABLE,
-            destination,
-            repair::Severity::Failure,
-        );
-        return ExitCode::FAILURE;
+    // Held for the whole install: when setup carries its payload inside itself,
+    // dropping this deletes the directory the next line reads from.
+    let payload = match payload::stage() {
+        Ok(payload) => payload,
+        Err(failure) => {
+            repair::report(
+                &catalog::describe_payload_failure(&failure),
+                destination,
+                repair::Severity::Failure,
+            );
+            return ExitCode::FAILURE;
+        }
     };
-    match install::perform(&payload, &root) {
+    match install::perform(payload.directory(), &root) {
         Ok(()) => {
             repair::report(
                 &format!(

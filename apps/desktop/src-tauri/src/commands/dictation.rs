@@ -303,6 +303,88 @@ fn consume_installer_hotkey_seed(app_root: &Path, settings: &mut Settings) -> bo
     true
 }
 
+/// Consumes the one-shot transcript-retention choice the installer recorded.
+///
+/// Follows [`consume_installer_logging_seed`] exactly, including the deletion:
+/// a seed is a starting value and never a policy, so a user who turns retention
+/// on afterwards must not find it off again on the next launch.
+///
+/// Settings already default this off, so strictly only `"1"` needs to act. Both
+/// are handled anyway — an explicit `"0"` from setup and an absent seed are
+/// different facts, and treating the first as the second is how a channel
+/// starts drifting from what it says it carries.
+fn consume_installer_retention_seed(app_root: &Path, settings: &mut Settings) -> bool {
+    let seed = app_root.join("config/install-retention.txt");
+    let Ok(contents) = std::fs::read_to_string(&seed) else {
+        return false;
+    };
+    let _ = std::fs::remove_file(&seed);
+    match contents.trim() {
+        "0" => {
+            settings.privacy.persisted_history_enabled = false;
+            true
+        }
+        "1" => {
+            settings.privacy.persisted_history_enabled = true;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Consumes the words the installer's vocabulary page collected.
+///
+/// Returns them rather than applying them, because they do not live in
+/// `Settings` — they are dictionary entries, and the coordinator that owns
+/// those is built later in `composition.rs`. The seed is still deleted here, so
+/// the read and the delete stay in one place with the others.
+///
+/// Bounded at 128 terms and 64 characters each, matching what
+/// `extract_v1_protected_terms` accepts from an imported profile. The bound is
+/// not about this text box: it is about the file, which anything with write
+/// access to the profile directory could replace before first launch.
+fn consume_installer_vocabulary_seed(app_root: &Path) -> Vec<String> {
+    let seed = app_root.join("config/install-vocabulary.txt");
+    let Ok(contents) = std::fs::read_to_string(&seed) else {
+        return Vec::new();
+    };
+    let _ = std::fs::remove_file(&seed);
+    contents
+        .lines()
+        .map(str::trim)
+        .filter(|term| !term.is_empty() && term.chars().count() <= 64)
+        .map(str::to_owned)
+        .take(128)
+        .collect()
+}
+
+/// Which configuration setup installed, as a stable code for the log.
+///
+/// **Read, never consumed.** The other seeds are one-shot starting values a
+/// user can then change; this one is a record of what is on disk, and it stays
+/// true for the life of the installation. Deleting it would make the second
+/// launch unable to answer the question the first one could.
+///
+/// The question it answers is the one `docs/ARCHITECTURE.md` calls "which
+/// provider runs, and how you find out": running on the processor is the
+/// expected outcome of a processor install and a *fault* in a graphics-card
+/// install, and those two owe the user opposite messages. Without this they are
+/// the same silent state.
+///
+/// `"unrecorded"` for an installation that predates the seed or was placed by
+/// hand — deliberately its own answer rather than being folded into `"cpu"`,
+/// which would be a claim about a choice nobody made.
+fn installed_configuration(app_root: &Path) -> &'static str {
+    match std::fs::read_to_string(app_root.join("config/install-provider.txt"))
+        .as_deref()
+        .map(str::trim)
+    {
+        Ok("cpu") => "cpu",
+        Ok("cuda") => "cuda",
+        _ => "unrecorded",
+    }
+}
+
 /// Consumes the one-shot diagnostic-logging choice the installer recorded.
 ///
 /// The seed file carries only "0" or "1" and is removed after it is read so

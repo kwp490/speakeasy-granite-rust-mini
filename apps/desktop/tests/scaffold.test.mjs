@@ -1564,7 +1564,19 @@ test("setup's user-facing strings live in its catalog", async () => {
   // one, and reported sentences that were not there — twice, on this test,
   // before it was written this way.
   const sentence = /"[^"\\]{60,}"/;
-  for (const file of ["wizard.rs", "install.rs", "uninstall.rs", "probe.rs"]) {
+  for (const file of [
+    "wizard.rs",
+    "install.rs",
+    "uninstall.rs",
+    "probe.rs",
+    // Added 2026-08-19 with the modules themselves. `payload.rs` is the one
+    // most likely to grow a sentence by accident: every way it fails is a
+    // sentence somebody wants to show a user, and it cannot reach the catalog
+    // because `bin/pack-payload.rs` compiles it too. It returns a typed error
+    // and `catalog::describe_payload_failure` does the talking.
+    "payload.rs",
+    "seed.rs",
+  ]) {
     const source = await readFile(new URL(file, bootstrapper), "utf8");
     for (const [index, line] of source.split(/\r?\n/).entries()) {
       if (line.trim().startsWith("//")) continue;

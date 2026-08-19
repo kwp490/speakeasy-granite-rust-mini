@@ -32,6 +32,12 @@ speakeasy-windows.workspace = true
 semver.workspace = true
 sysinfo.workspace = true
 winreg.workspace = true
+# The payload appended to setup's own executable is verified entry by entry
+# before a byte of it is written. Not against tampering — the whole file is
+# untrusted until the user runs it — but against a truncated download, which
+# leaves a setup file that still launches because the missing part lies past the
+# end of the PE image. `payload.rs` carries the argument in full.
+sha2.workspace = true
 # `gui` and `shell` on top of the workspace's `advapi, kernel, user`. The wizard
 # is native rather than a Tauri window because the thing that provisions
 # WebView2 is the thing this replaces, and repair mode runs on already-broken
