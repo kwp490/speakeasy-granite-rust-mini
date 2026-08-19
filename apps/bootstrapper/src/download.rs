@@ -32,6 +32,27 @@ use speakeasy_models::{
 
 use crate::{catalog, uninstall};
 
+/// Where the shipped pack lands once setup has installed it.
+///
+/// `models/<id>/<revision>`, matching what `granite_engine` composes from
+/// `ModelCoordinator`'s root in the app. Resolved from the manifest rather than
+/// spelled out, so a pack swap moves this with it -- and returned as an
+/// `Option` because every input can be absent: no manifest, no eligible pack, no
+/// data directory.
+#[must_use]
+pub fn installed_model_root() -> Option<PathBuf> {
+    let manifest = bundled_manifest().ok()?;
+    let pack = manifest
+        .select_sole_install_eligible(PackRole::FinalAsr, ExecutionProvider::Cpu)
+        .ok()?;
+    Some(
+        model_lifecycle_root()?
+            .join("models")
+            .join(pack.id())
+            .join(pack.revision()),
+    )
+}
+
 /// Where the app keeps its models.
 ///
 /// `model-lifecycle` under the app's data directory, matching

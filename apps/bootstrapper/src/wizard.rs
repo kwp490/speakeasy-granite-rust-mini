@@ -21,7 +21,7 @@ use std::rc::Rc;
 use winsafe::prelude::*;
 use winsafe::{self as w, co, gui};
 
-use crate::{catalog, download, install, probe};
+use crate::{catalog, download, install, probe, smoke};
 
 /// Layout, in DPI-independent units.
 ///
@@ -82,6 +82,8 @@ pub struct Wizard {
     back: gui::Button,
     next: gui::Button,
     cancel: gui::Button,
+    /// Runs the engine check again. Only visible on the step that owns it.
+    retry: gui::Button,
     /// Which step is showing.
     ///
     /// `Rc<Cell<_>>` because `winsafe` requires `'static` event closures, so the
@@ -102,6 +104,16 @@ pub struct Wizard {
     /// has to read it without taking it. `None` until the user reaches the step:
     /// nothing downloads because a window opened.
     run: Rc<RefCell<Option<download::Run>>>,
+    /// The engine check, once the last step has started one.
+    ///
+    /// Same shape as `run` and for the same reasons: not `Copy`, read by the
+    /// timer without taking it, and `None` until the user arrives -- a wizard
+    /// that loaded a 2 GB model because a window opened would be worse than one
+    /// that waits to be asked.
+    verify: Rc<RefCell<Option<smoke::Run>>>,
+    /// Set once the engine check reported finished, so its verdict is written
+    /// once rather than on every timer tick.
+    verify_settled: Rc<Cell<bool>>,
     /// Set once the run reported finished, so the completion message is written
     /// once rather than every timer tick.
     settled: Rc<Cell<bool>>,
@@ -123,6 +135,10 @@ pub struct Wizard {
 const STEP_COMPATIBILITY: usize = 0;
 const STEP_DOWNLOAD: usize = 2;
 const STEP_INSTALL: usize = 3;
+/// The engine check, and the last step. `STEPS.len() - 1` rather than a
+/// literal so adding a step ahead of it does not silently point this at copy
+/// about something else.
+const STEP_VERIFY: usize = catalog::STEPS.len() - 1;
 
 /// How often the window reads the transfer's progress.
 ///
@@ -209,20 +225,7 @@ impl Wizard {
             },
         );
 
-        // Right-aligned, in reading order from the right edge: Cancel, Next,
-        // Back. Windows convention, and the one the user's other installers use.
-        let right = layout::WINDOW.0 - layout::MARGIN;
-        let cancel = Self::button(&window, catalog::CANCEL, right - layout::BUTTON.0);
-        let next = Self::button(
-            &window,
-            catalog::NEXT,
-            right - (layout::BUTTON.0 * 2) - layout::BUTTON_GAP,
-        );
-        let back = Self::button(
-            &window,
-            catalog::BACK,
-            right - (layout::BUTTON.0 * 3) - (layout::BUTTON_GAP * 2),
-        );
+        let [cancel, next, back, retry] = Self::button_row(&window);
 
         let wizard = Self {
             window,
@@ -235,7 +238,10 @@ impl Wizard {
             back,
             next,
             cancel,
+            retry,
             step: Rc::new(Cell::new(0)),
+            verify: Rc::new(RefCell::new(None)),
+            verify_settled: Rc::new(Cell::new(false)),
             machine: Rc::new(probe::run()),
             install: Rc::new(install::decide_now()),
             run: Rc::new(RefCell::new(None)),
@@ -259,6 +265,27 @@ impl Wizard {
         )
     }
 
+    /// The button row, right-aligned in reading order from the right edge.
+    ///
+    /// Cancel, Next, Back is the Windows convention and the one the user's other
+    /// installers follow. Retry sits *left* of Back rather than among them, so
+    /// showing it on the engine-check step moves nothing the user is already
+    /// aiming at.
+    ///
+    /// Extracted from `new` only because it pushed that function past the
+    /// hundred-line lint; the grouping happens to be the right one anyway.
+    fn button_row(window: &gui::WindowMain) -> [gui::Button; 4] {
+        let right = layout::WINDOW.0 - layout::MARGIN;
+        let slot =
+            |index: i32| right - (layout::BUTTON.0 * index) - (layout::BUTTON_GAP * (index - 1));
+        [
+            Self::button(window, catalog::CANCEL, slot(1)),
+            Self::button(window, catalog::NEXT, slot(2)),
+            Self::button(window, catalog::BACK, slot(3)),
+            Self::button(window, catalog::RETRY, slot(4)),
+        ]
+    }
+
     fn wire_events(&self) {
         let on_create = self.clone();
         self.window.on().wm_create(move |_| {
@@ -276,6 +303,13 @@ impl Wizard {
         let on_tick = self.clone();
         self.window.on().wm_timer(POLL_ID, move || {
             on_tick.poll_transfer()?;
+            on_tick.poll_verify()?;
+            Ok(())
+        });
+
+        let on_retry = self.clone();
+        self.retry.on().bn_clicked(move || {
+            on_retry.begin_verify();
             Ok(())
         });
 
@@ -411,6 +445,71 @@ impl Wizard {
     }
 
     /// Read the transfer and repaint, if one is running and its step is showing.
+    /// Starts the engine check, replacing any previous verdict.
+    ///
+    /// Idempotent while one is in flight, so a second Retry click does not
+    /// spawn a second worker and a second ~2 GB model load.
+    fn begin_verify(&self) {
+        if self
+            .verify
+            .try_borrow()
+            .is_ok_and(|slot| slot.as_ref().is_some_and(|run| !run.progress().finished()))
+        {
+            return;
+        }
+        self.verify_settled.set(false);
+        let root = probe::install_root();
+        let Some(root) = root else {
+            // The same refusal `place` gives. Reached only if the profile lost
+            // LOCALAPPDATA between installing and this step, which is not a
+            // condition to guess a path for.
+            let _ = self
+                .notice
+                .hwnd()
+                .SetWindowText(catalog::INSTALL_ROOT_UNLOCATABLE);
+            return;
+        };
+        let Some(model_root) = download::installed_model_root() else {
+            let _ = self
+                .notice
+                .hwnd()
+                .SetWindowText(catalog::DATA_ROOT_UNLOCATABLE);
+            return;
+        };
+        *self.verify.borrow_mut() = Some(smoke::start(smoke::staged_worker(&root), model_root));
+        let _ = self.notice.hwnd().SetWindowText(catalog::SMOKE_RUNNING);
+        let _ = self.retry.hwnd().EnableWindow(false);
+    }
+
+    /// Writes the engine check's verdict once it settles.
+    fn poll_verify(&self) -> w::AnyResult<()> {
+        if self.step.get() != STEP_VERIFY || self.verify_settled.get() {
+            return Ok(());
+        }
+        let Ok(slot) = self.verify.try_borrow() else {
+            return Ok(());
+        };
+        let Some(run) = slot.as_ref() else {
+            return Ok(());
+        };
+        if !run.progress().finished() {
+            return Ok(());
+        }
+        self.verify_settled.set(true);
+        // A verdict that settled with nothing in the slot cannot happen --
+        // `start` writes it before the flag -- but reporting success for it
+        // would be the silent-pass this whole step exists to prevent, so an
+        // absent verdict reads as the engine not having run.
+        let message = match run.progress().verdict() {
+            Some(smoke::Verdict::Verified) => catalog::SMOKE_VERIFIED,
+            Some(smoke::Verdict::Mismatch { .. }) => catalog::SMOKE_MISMATCH,
+            Some(smoke::Verdict::Unavailable { .. }) | None => catalog::SMOKE_UNAVAILABLE,
+        };
+        self.notice.hwnd().SetWindowText(message)?;
+        self.retry.hwnd().EnableWindow(true);
+        Ok(())
+    }
+
     fn poll_transfer(&self) -> w::AnyResult<()> {
         if self.step.get() != STEP_DOWNLOAD {
             return Ok(());
@@ -528,7 +627,7 @@ impl Wizard {
         // is absent on purpose: `begin_transfer` below owns its text, because
         // what to say depends on whether there is anything to fetch, and
         // deciding that twice would be two answers that can disagree.
-        if index != STEP_DOWNLOAD {
+        if index != STEP_DOWNLOAD && index != STEP_VERIFY {
             self.notice.hwnd().SetWindowText(&match index {
                 STEP_COMPATIBILITY => catalog::describe_machine(&self.machine),
                 STEP_INSTALL => catalog::describe_install_decision(&self.install),
@@ -536,6 +635,15 @@ impl Wizard {
             })?;
             self.transfer.hwnd().ShowWindow(co::SW::HIDE);
         }
+
+        // Retry belongs to the engine check alone. Hidden rather than disabled
+        // everywhere else: it sits outside the three navigation buttons, so
+        // hiding it moves nothing the user is aiming at.
+        self.retry.hwnd().ShowWindow(if index == STEP_VERIFY {
+            co::SW::SHOW
+        } else {
+            co::SW::HIDE
+        });
         self.progress
             .set_position(u32::try_from(index + 1).unwrap_or(1));
 
@@ -555,6 +663,13 @@ impl Wizard {
             } else {
                 catalog::NEXT
             })?;
+        // Arriving at the engine check starts it, once. Returning here with a
+        // verdict already settled leaves it on screen rather than re-running a
+        // ~2 GB model load because the user pressed Back and Next.
+        if index == STEP_VERIFY && self.verify.try_borrow().is_ok_and(|slot| slot.is_none()) {
+            self.begin_verify();
+        }
+
         // Last, because it both writes the notice and sets Next: run earlier and
         // the generic paths above would overwrite what it decided.
         if index == STEP_DOWNLOAD {

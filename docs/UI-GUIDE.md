@@ -199,7 +199,29 @@ apply, since `winsafe` panics if a control is created after its parent window.
 A step whose controls are not yet built says exactly that. An empty step is
 indistinguishable from a step whose controls failed to appear.
 
-**The wizard must never hold the foreground while the test dictation runs.**
+**The last step runs the engine and checks what it heard.** Setup transcribes a
+recording compiled into the installer and compares the result against the words
+that recording speaks. This is the only step that proves the speech model can
+hear: a model whose audio projector failed to attach does not error, it answers
+the prompt from the instruction alone and writes fluent invented text, so a
+transcript on its own is evidence of nothing.
+
+It compares **words**, case-folded and stripped of punctuation, not the
+transcript verbatim — and that is measured rather than cautious. On 2026-08-19
+the clip's "…the lazy dog, and Monday begins at dawn." came back as "…the lazy
+dog. And Monday begins at dawn.": every word right, a period for a comma. An
+exact comparison would have refused a working install. The verbatim pin belongs
+in `granite_worker_smoke.rs`, where a change is a finding for a developer rather
+than a blocked user.
+
+**A failed check does not block the install** (owner decision, 2026-08-19). The
+step offers **Retry**, and both Continue and Cancel stay available. The copy
+names a likely cause and an action, and states what continuing costs — a skipped
+check must never read as a passed one. The two failures get different advice
+because they have different causes: a mismatch means the engine ran and cannot
+hear, which implicates the model files; an engine that never ran does not.
+
+**The wizard must never hold the foreground while the engine check runs.**
 Anything SpeakEasy Mini puts in the foreground becomes the delivery target, and the
 failure is silent — delivery refuses with `target_inspect_refused` and falls back
 to the clipboard, which reads as a bug in some other subsystem.

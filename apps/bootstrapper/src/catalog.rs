@@ -96,13 +96,71 @@ pub const STEPS: &[Step] = &[
                misheard.",
     },
     Step {
-        heading: "Check it works",
-        body: "Setup runs the graphics-card check for each engine that chose \
-               one, then a real dictation you can watch succeed.\n\n\
-               Until this step passes, nothing here has been proven to work — \
-               it has only been installed.",
+        heading: "Check that dictation works",
+        // Was "Setup runs the graphics-card check for each engine that
+        // chose one, then a real dictation you can watch succeed." Two
+        // engines, and a dictation the *user* performs; neither is true. One
+        // engine now, and the check is a bundled recording rather than a live
+        // microphone -- setup cannot ask someone to speak into a machine it
+        // has not finished configuring, and a clip with known words is a
+        // better instrument anyway.
+        body: "Setup dictates a short recording that ships with SpeakEasy Mini \
+               and compares what comes back, word for word, against what the \
+               recording says.\n\n\
+               This is the only check that proves the speech model can \
+               actually hear. A model whose audio component failed to load \
+               does not report an error — it writes fluent text that \
+               has nothing to do with the audio, so a transcript on its own \
+               proves nothing.",
     },
 ];
+
+/// The check passed.
+pub const SMOKE_VERIFIED: &str =
+    "The speech model transcribed the recording correctly. Dictation works on this computer.";
+
+/// Shown while the engine is loading and transcribing.
+///
+/// Says a wait is expected. A cold model load is seconds at best, and without
+/// this the step reads as stalled.
+pub const SMOKE_RUNNING: &str = "Loading the speech model and transcribing the recording. The first load \
+     takes longer than later ones.";
+
+/// The engine ran and did not hear the clip.
+///
+/// Names a likely cause and an action, because "verification failed" is not
+/// something a user can do anything with. Retry leads, because the cheapest
+/// explanation is a file still being flushed after a large download.
+///
+/// The last line is the honest cost of continuing. Setup does not block here --
+/// owner decision, 2026-08-19 -- so it has to say what continuing means rather
+/// than let the user infer that a skipped check is a passed one.
+pub const SMOKE_MISMATCH: &str = "The speech model produced text, but not what the recording says. That \
+     usually means its audio component did not load, which the model does not \
+     report as an error.\n\n\
+     Try Retry first — a first run after a large download sometimes fails on a \
+     file still being written. If it fails again, the model files are likely \
+     damaged despite matching their checksums; remove SpeakEasy Mini and run \
+     setup again to fetch them fresh.\n\n\
+     You can continue without this check. Dictation may produce text unrelated \
+     to what you say.";
+
+/// The engine never produced a transcript to compare.
+///
+/// Deliberately different advice from [`SMOKE_MISMATCH`]. Nothing ran, so the
+/// model files are not implicated the way they are when text came back wrong,
+/// and telling the user to re-download them would be a guess.
+pub const SMOKE_UNAVAILABLE: &str = "The speech model did not run, so there is nothing to compare. Setup could \
+     not start it, load it, or reach the end of the recording.\n\n\
+     Check that this computer still has the free memory the first step \
+     reported, and close other large applications before Retry. If it keeps \
+     failing, the installed files are incomplete — remove SpeakEasy Mini and \
+     run setup again.\n\n\
+     You can continue without this check. Dictation will fail the same way \
+     until this is resolved.";
+
+/// Label for the control that runs the check again.
+pub const RETRY: &str = "Retry";
 
 /// Shown under the heading as "Step N of M".
 pub fn step_position(index: usize) -> String {

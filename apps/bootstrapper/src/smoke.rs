@@ -35,16 +35,11 @@
 //! Never a substring or a prefix. A `contains` assertion went green in this
 //! repository on a transcript missing a third of its utterance.
 
-// Nothing calls `verify_engine` yet: the wizard step that will is held back
-// until its copy is reviewed, because setup's wording is reviewable by rule.
-// The module is proven against the real engine by its own hardware test in the
-// meantime. **Remove this the moment the wizard calls it** -- a standing
-// `dead_code` allow is how an unused module stops being noticed.
-#![allow(dead_code)]
-
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use speakeasy_domain::{
@@ -67,6 +62,15 @@ use speakeasy_windows::{CrashThrottle, ProcessDeadlines, ProcessSupervisor, Proc
 /// the product name came back as "Granit", which would have pinned a
 /// mis-transcription and broken the day a model update got it right.
 pub const SPOKEN: &str = "The quick brown fox jumps over the lazy dog, and Monday begins at dawn.";
+
+/// The clip itself, compiled into the installer.
+///
+/// `include_bytes!` rather than a staged file: the bootstrapper is one
+/// executable by design, and a clip that travels beside it is a file that can go
+/// missing between being written and being read. 205 KB against a 7 MB
+/// installer buys the removal of a whole failure mode -- there is no
+/// "clip missing" verdict because there is no clip to miss.
+const BUNDLED_CLIP: &[u8] = include_bytes!("../fixtures/smoke.wav");
 
 /// The artifact the worker is asked to load. Must match the worker's own
 /// `GRANITE_ARTIFACT_ID`, which is a literal there because that crate
@@ -104,14 +108,6 @@ pub enum Verdict {
     Unavailable { reason: &'static str },
 }
 
-impl Verdict {
-    /// Whether setup may present this as a working engine.
-    #[must_use]
-    pub const fn is_verified(&self) -> bool {
-        matches!(self, Self::Verified)
-    }
-}
-
 /// Runs the engine once and reports what it heard.
 ///
 /// Spawns through [`ProcessWorkerClient`] rather than a `Command` of its own,
@@ -123,8 +119,8 @@ impl Verdict {
 /// front of the user with an instruction, because "setup crashed" is a worse
 /// outcome here than "setup can say what is wrong".
 #[must_use]
-pub fn verify_engine(worker_exe: &Path, model_root: &Path, clip: &Path) -> Verdict {
-    let samples = match read_fixture_samples(clip) {
+pub fn verify_engine(worker_exe: &Path, model_root: &Path) -> Verdict {
+    let samples = match read_fixture_samples(BUNDLED_CLIP) {
         Ok(samples) => samples,
         Err(reason) => return Verdict::Unavailable { reason },
     };
@@ -239,8 +235,7 @@ fn transcribe(
 /// by `scripts/New-SmokeFixture.ps1`, and anything else reaching here means the
 /// committed file is not the file this expects. Guessing at another layout would
 /// feed the engine noise and then report the engine as broken.
-fn read_fixture_samples(path: &Path) -> Result<Vec<f32>, &'static str> {
-    let bytes = std::fs::read(path).map_err(|_| "clip_missing")?;
+fn read_fixture_samples(bytes: &[u8]) -> Result<Vec<f32>, &'static str> {
     if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         return Err("clip_unreadable");
     }
@@ -291,6 +286,67 @@ fn words(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// A verification running on its own thread, polled by the wizard.
+///
+/// Mirrors `download::Run` deliberately: the wizard already has one 250 ms
+/// timer and one polling shape, and a second shape would be a second thing to
+/// get right. The engine check has to be off the UI thread for the same reason
+/// the transfer is -- a cold model load is seconds at best, and the wizard must
+/// keep painting while it happens.
+pub struct Run {
+    progress: Arc<Progress>,
+}
+
+#[derive(Default)]
+pub struct Progress {
+    finished: AtomicBool,
+    verdict: Mutex<Option<Verdict>>,
+}
+
+impl Progress {
+    /// Whether the run has settled.
+    pub fn finished(&self) -> bool {
+        self.finished.load(Ordering::Relaxed)
+    }
+
+    /// The verdict, once [`Self::finished`] is true.
+    pub fn verdict(&self) -> Option<Verdict> {
+        self.verdict.lock().ok().and_then(|slot| slot.clone())
+    }
+}
+
+impl Run {
+    /// The shared state the wizard polls.
+    #[must_use]
+    pub fn progress(&self) -> &Arc<Progress> {
+        &self.progress
+    }
+}
+
+/// Starts a verification on a background thread.
+#[must_use]
+pub fn start(worker_exe: PathBuf, model_root: PathBuf) -> Run {
+    let progress = Arc::new(Progress::default());
+    let worker_progress = Arc::clone(&progress);
+    std::thread::spawn(move || {
+        let verdict = verify_engine(&worker_exe, &model_root);
+        if let Ok(mut slot) = worker_progress.verdict.lock() {
+            *slot = Some(verdict);
+        }
+        // Set last, and after the verdict, so a poll that sees `finished` can
+        // trust `verdict` to have been written. The opposite order reports a
+        // finished check with no result for one poll interval.
+        worker_progress.finished.store(true, Ordering::Relaxed);
+    });
+    Run { progress }
+}
+
+/// Where the payload stages the worker and the clip, relative to an install root.
+#[must_use]
+pub fn staged_worker(install_root: &Path) -> PathBuf {
+    install_root.join("proof").join("granite-worker.exe")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,8 +373,7 @@ mod tests {
     /// The committed clip is the shape [`read_fixture_samples`] insists on.
     #[test]
     fn the_bundled_clip_reads_as_sixteen_kilohertz_mono() {
-        let clip = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/smoke.wav");
-        let samples = read_fixture_samples(&clip).expect("the bundled clip must read");
+        let samples = read_fixture_samples(BUNDLED_CLIP).expect("the bundled clip must read");
 
         assert!(samples.len() > 16_000, "clip must exceed one second");
         assert!(
@@ -360,9 +415,7 @@ mod tests {
             || repository.join(".tools/granite-speech-4.1-2b"),
             PathBuf::from,
         );
-        let clip = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/smoke.wav");
-
-        let verdict = verify_engine(&worker, &model_root, &clip);
+        let verdict = verify_engine(&worker, &model_root);
 
         assert_eq!(
             verdict,
@@ -371,25 +424,20 @@ mod tests {
         );
     }
 
-    /// A missing or malformed clip is `Unavailable`, never a mismatch.
+    /// An engine that cannot start is `Unavailable`, never a mismatch.
     ///
     /// The distinction is the point of the enum: a mismatch tells the user their
-    /// engine cannot hear, which is the wrong thing to say when the clip is what
-    /// is broken.
+    /// engine cannot hear, which is the wrong thing to say when the engine never
+    /// ran at all.
     #[test]
-    fn an_unreadable_clip_is_unavailable_rather_than_a_mismatch() {
-        let verdict = verify_engine(
-            Path::new("does-not-exist.exe"),
-            Path::new("does-not-exist"),
-            Path::new("does-not-exist.wav"),
-        );
+    fn an_engine_that_cannot_start_is_unavailable_rather_than_a_mismatch() {
+        let verdict = verify_engine(Path::new("does-not-exist.exe"), Path::new("does-not-exist"));
 
         assert_eq!(
             verdict,
             Verdict::Unavailable {
-                reason: "clip_missing"
+                reason: "worker_did_not_start"
             }
         );
-        assert!(!verdict.is_verified());
     }
 }
