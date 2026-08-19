@@ -12,6 +12,7 @@
 //! outcome. Collapsing that into a single "GPU: yes/no" would be wrong for one
 //! of them every time it happened.
 
+use std::ffi::OsStr;
 use std::path::PathBuf;
 
 use speakeasy_models::{
@@ -32,7 +33,18 @@ pub struct MachineReport {
     pub granite_weights_bytes: u64,
 }
 
-/// Where the app will be installed.
+/// This product's name, wherever a path, a registry value or a Start Menu folder
+/// has to carry it.
+///
+/// One constant because every one of these was independently the parent
+/// product's string until 2026-08-18, and each was its own route to installing
+/// over `SpeakEasy` or deleting it. A literal repeated five times is five
+/// chances to fix four of them. `install::VERSION_KEY` and
+/// `install::UNINSTALL_KEY` cannot use this — `concat!` takes literals, not
+/// consts — so they stay literals and are pinned against it by test instead.
+pub const PRODUCT: &str = "SpeakEasy Mini";
+
+/// Where the app will be installed, or `None` when the profile does not say.
 ///
 /// The disk figure has to be measured against the volume the files actually land
 /// on, not the current directory — setup is commonly run from a Downloads folder
@@ -44,11 +56,34 @@ pub struct MachineReport {
 /// `SpeakEasy` installation, and because `uninstall` removes the install
 /// directory whole, uninstalling Mini would then have taken `SpeakEasy` with it.
 /// Nothing caught it because no installer had been built since the fork.
-pub fn install_root() -> PathBuf {
-    std::env::var_os("LOCALAPPDATA").map_or_else(
-        || PathBuf::from("C:\\"),
-        |local| PathBuf::from(local).join("SpeakEasy Mini"),
-    )
+///
+/// **`None` rather than a guess.** This returned `C:\` when `LOCALAPPDATA` was
+/// unset, which is worse than the bug above: setup would have unpacked into the
+/// drive root, registered it as the install location, and uninstall would then
+/// have walked `C:\` removing what it found there. An absent profile variable is
+/// not a condition to paper over with a plausible-looking path — `shortcut`'s
+/// own missing-`APPDATA` handling already says as much — so every caller that
+/// would write somewhere now has to say it cannot instead.
+pub fn install_root() -> Option<PathBuf> {
+    install_root_under(std::env::var_os("LOCALAPPDATA").as_deref())
+}
+
+/// The whole of [`install_root`]'s decision, with the environment handed in.
+///
+/// Split out to be testable at all: `LOCALAPPDATA` is process-global, and this
+/// workspace is edition 2024 under `unsafe_code = "forbid"`, where
+/// `std::env::set_var` is `unsafe`. A test cannot reach the real variable, so
+/// the decision has to live somewhere a test can hand it one.
+///
+/// Empty counts as absent. `PathBuf::from("").join(PRODUCT)` is the bare
+/// relative path `SpeakEasy Mini`, which would install into whatever directory
+/// setup happened to be launched from.
+fn install_root_under(local_app_data: Option<&OsStr>) -> Option<PathBuf> {
+    let local = local_app_data?;
+    if local.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(local).join(PRODUCT))
 }
 
 /// Probe the machine.
@@ -57,7 +92,12 @@ pub fn install_root() -> PathBuf {
 /// compositor were holding 6.7 GB on the machine `gpu.rs` was written on — so
 /// every figure this report carries has to come from the same instant.
 pub fn run() -> MachineReport {
-    let hardware = SafeStandardHardwareProbe.probe(&install_root());
+    // Measured against the current directory when there is no install root to
+    // measure against. The figure is only ever reported, and every path that
+    // would actually write refuses separately on the same condition, so a
+    // disk number about the wrong volume cannot reach an install.
+    let hardware =
+        SafeStandardHardwareProbe.probe(&install_root().unwrap_or_else(|| PathBuf::from(".")));
     let gpu = NvmlGpuProbe.probe();
     let granite_weights_bytes = cuda_weights_bytes();
     let admissibility = admit_engine(&gpu, granite_weights_bytes);
@@ -108,4 +148,81 @@ fn cuda_weights_bytes() -> u64 {
     // weights" for a model over three gigabytes, measured 2026-08-15 in the
     // wizard.
     largest(PackRole::FinalAsr)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The install directory's leaf is this product's, not the parent's.
+    ///
+    /// Pinned because the defect it guards against shipped: the leaf was
+    /// `SpeakEasy` until 2026-08-18, which pointed setup at an existing install
+    /// of the parent product — and `uninstall` removes the install directory
+    /// whole, so uninstalling this app would have deleted that one.
+    ///
+    /// `Test-InstallerLifecycle.ps1` cannot catch this. It passes
+    /// `--install-root` explicitly, so it never exercises the default at all.
+    #[test]
+    fn the_install_root_leaf_is_this_product_and_sits_under_local_app_data() {
+        let root = install_root_under(Some(OsStr::new(r"C:\Users\alice\AppData\Local")))
+            .expect("a set LOCALAPPDATA resolves");
+
+        assert_eq!(
+            root,
+            PathBuf::from(r"C:\Users\alice\AppData\Local\SpeakEasy Mini"),
+            "install root must be PRODUCT under LOCALAPPDATA"
+        );
+        assert_eq!(
+            root.file_name().expect("leaf"),
+            OsStr::new(PRODUCT),
+            "leaf must be PRODUCT, not the parent's name"
+        );
+        assert_ne!(
+            root.file_name().expect("leaf"),
+            OsStr::new("SpeakEasy"),
+            "must not install into the parent's directory"
+        );
+    }
+
+    /// An absent or empty `LOCALAPPDATA` refuses instead of guessing.
+    ///
+    /// Both cases used to produce a writable path: absent gave `C:\`, and empty
+    /// gave the bare relative `SpeakEasy Mini`. The first would have unpacked
+    /// into the drive root and left `uninstall` walking it; the second would
+    /// have installed into whatever directory setup was launched from.
+    #[test]
+    fn an_unset_or_empty_local_app_data_yields_no_install_root() {
+        assert_eq!(install_root_under(None), None, "unset must refuse");
+        assert_eq!(
+            install_root_under(Some(OsStr::new(""))),
+            None,
+            "empty must refuse, not go relative"
+        );
+        assert_ne!(
+            install_root_under(None),
+            Some(PathBuf::from(r"C:\")),
+            "drive root is the guess this replaced"
+        );
+    }
+
+    /// Every identity string carries `PRODUCT`.
+    ///
+    /// The two registry keys are `const` and cannot be built from `PRODUCT`
+    /// (`concat!` takes literals), so this is what keeps them in step. Each of
+    /// these was independently the parent product's until 2026-08-18, and each
+    /// was its own way to write into or delete that installation.
+    #[test]
+    fn the_registry_identity_keys_name_this_product() {
+        assert!(
+            crate::install::VERSION_KEY.contains(PRODUCT),
+            "version stamp must be under PRODUCT: {}",
+            crate::install::VERSION_KEY
+        );
+        assert!(
+            crate::install::UNINSTALL_KEY.ends_with("ai.speakeasy.mini"),
+            "ARP entry must be this identifier: {}",
+            crate::install::UNINSTALL_KEY
+        );
+    }
 }

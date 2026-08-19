@@ -486,7 +486,9 @@ impl Wizard {
     fn place() -> Result<(), String> {
         let payload =
             install::payload_directory().ok_or_else(|| catalog::PAYLOAD_UNLOCATABLE.to_owned())?;
-        install::perform(&payload, &probe::install_root())
+        let root =
+            probe::install_root().ok_or_else(|| catalog::INSTALL_ROOT_UNLOCATABLE.to_owned())?;
+        install::perform(&payload, &root)
     }
 
     /// Close the wizard.

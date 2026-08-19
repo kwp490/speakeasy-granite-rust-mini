@@ -257,7 +257,21 @@ fn place(install_root: Option<&std::ffi::OsStr>, destination: console::Destinati
         );
         return ExitCode::FAILURE;
     }
-    let root = install_root.map_or_else(probe::install_root, std::path::PathBuf::from);
+    // An explicit `--install-root` wins; without one the profile has to say.
+    // Refusing here is the whole point of `install_root` returning an `Option`:
+    // the old default was `C:\`, and `install::perform` would have copied the
+    // payload into the drive root and registered it as the install location.
+    let Some(root) = install_root
+        .map(std::path::PathBuf::from)
+        .or_else(probe::install_root)
+    else {
+        repair::report(
+            catalog::INSTALL_ROOT_UNLOCATABLE,
+            destination,
+            repair::Severity::Failure,
+        );
+        return ExitCode::FAILURE;
+    };
     let Some(payload) = install::payload_directory() else {
         repair::report(
             catalog::PAYLOAD_UNLOCATABLE,
@@ -330,9 +344,20 @@ fn remove(silent: bool, remove_all: bool) -> ExitCode {
     // Resolved before `perform`, which is not incidental: `perform` clears the
     // registration first, so reading the recorded location afterwards would find
     // the key already gone and silently fall back to the default directory.
-    let root = install::installed_location().unwrap_or_else(probe::install_root);
-    let outcome = uninstall::perform(&root, removals);
     let destination = console::ensure_attached();
+    // No recorded location and no profile directory means there is nothing this
+    // can safely remove. It used to fall through to `C:\` here, where
+    // `uninstall::perform` would have walked the drive root deleting what it
+    // recognised.
+    let Some(root) = install::installed_location().or_else(probe::install_root) else {
+        repair::report(
+            catalog::INSTALL_ROOT_UNLOCATABLE,
+            destination,
+            repair::Severity::Failure,
+        );
+        return ExitCode::FAILURE;
+    };
+    let outcome = uninstall::perform(&root, removals);
     if outcome.failed.is_empty() {
         repair::report(
             &catalog::describe_uninstall(&outcome),

@@ -24,7 +24,7 @@ pub fn start_menu_folder() -> Option<PathBuf> {
     std::env::var_os("APPDATA").map(|appdata| {
         PathBuf::from(appdata)
             .join(r"Microsoft\Windows\Start Menu\Programs")
-            .join("SpeakEasy Mini")
+            .join(crate::probe::PRODUCT)
     })
 }
 

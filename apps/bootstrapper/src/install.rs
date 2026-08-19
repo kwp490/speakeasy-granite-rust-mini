@@ -286,9 +286,9 @@ fn register_uninstall(install_root: &Path) -> Result<(), String> {
         key.set_value(name, &value.to_owned())
             .map_err(|error| error.to_string())
     };
-    set("DisplayName", "SpeakEasy Mini")?;
+    set("DisplayName", crate::probe::PRODUCT)?;
     set("DisplayVersion", &candidate_version().to_string())?;
-    set("Publisher", "SpeakEasy Mini")?;
+    set("Publisher", crate::probe::PRODUCT)?;
     set("InstallLocation", &install_root.to_string_lossy())?;
     set(
         "UninstallString",

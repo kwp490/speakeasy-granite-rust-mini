@@ -1514,6 +1514,14 @@ test("setup's user-facing strings live in its catalog", async () => {
       // are never rendered to a user, and holding them at arm's length in a
       // catalog would put the explanation of a crash somewhere other than the
       // code that crashes.
+      //
+      // This exemption is per-line like the rule it sits inside, so it only
+      // sees a message on the same line as its macro. `rustfmt` splits a long
+      // `assert_eq!` across lines and leaves the message alone on one, where
+      // this cannot tell it from copy. That is a known false positive and the
+      // deliberate cost of not matching across lines: keep assertion messages
+      // under 60 characters and put the reasoning in the test's doc comment,
+      // which is where this codebase keeps it anyway.
       if (/\.expect\(|panic!|unreachable!|assert/.test(line)) continue;
       assert.ok(
         !sentence.test(line),

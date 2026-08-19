@@ -269,19 +269,18 @@ pub fn describe_install_decision(decision: &crate::install::Decision) -> String 
 /// saying so is what makes "without asking for administrator rights" a checkable
 /// claim instead of a reassurance.
 fn destinations() -> String {
-    let program = crate::probe::install_root();
-    let shortcuts = crate::shortcut::start_menu_folder();
-    match shortcuts {
-        Some(shortcuts) => format!(
-            "Program files: {}\nStart Menu: {}",
-            program.display(),
-            shortcuts.display()
-        ),
-        // No APPDATA is not a condition to paper over with a plausible-looking
-        // path — it means the shortcut cannot be created, and setup should say
-        // only what it knows.
-        None => format!("Program files: {}", program.display()),
+    // Neither line is guessed. No `APPDATA` means the shortcut cannot be
+    // created; no `LOCALAPPDATA` means there is nowhere to install at all, and
+    // `place` refuses on that separately. Setup says only what it knows.
+    let mut lines = Vec::new();
+    match crate::probe::install_root() {
+        Some(program) => lines.push(format!("Program files: {}", program.display())),
+        None => lines.push("Program files: cannot be determined on this account".to_owned()),
     }
+    if let Some(shortcuts) = crate::shortcut::start_menu_folder() {
+        lines.push(format!("Start Menu: {}", shortcuts.display()));
+    }
+    lines.join("\n")
 }
 
 /// Shown when placing the files failed.
@@ -451,6 +450,15 @@ pub const CATALOG_UNAVAILABLE: &str = "Setup's list of verified downloads could 
      This is a fault in this copy of setup rather than anything on this computer.";
 
 /// Shown when the app's own data directory cannot be located.
+/// No `LOCALAPPDATA`, so setup does not know where the per-user program
+/// directory is.
+///
+/// Named rather than guessed. The guess used to be `C:\`, which would have
+/// unpacked the payload into the drive root and left uninstall walking it.
+pub const INSTALL_ROOT_UNLOCATABLE: &str = "Setup could not work out where to put the program on this computer, because \
+     this account's local application-data folder is not set. Nothing was \
+     installed. Sign in as a normal user and run setup again.";
+
 pub const DATA_ROOT_UNLOCATABLE: &str = "Setup could not find where SpeakEasy Mini keeps its models on this computer, so \
      nothing was downloaded. Nothing was changed.";
 
