@@ -1,4 +1,4 @@
-# Handoff — SpeakEasy Mini, as of 2026-08-18
+# Handoff — SpeakEasy Mini, as of 2026-08-19
 
 The state of the fork, what is finished, what is not, and the things that will
 cost you an afternoon if you rediscover them yourself.
@@ -28,30 +28,51 @@ predicted:
 | | |
 | --- | --- |
 | Full gate | passes end to end |
-| A real dictation | delivered, `hotkey_delivery result=committed` |
-| Installer lifecycle | `Test-InstallerLifecycle.ps1` passes |
+| A real dictation | delivered, `hotkey_delivery result=committed` (2026-08-18) |
+| Installer lifecycle | `Test-InstallerLifecycle.ps1` passes, against a built installer |
+| Setup's engine check | transcribes the bundled clip through the real worker in ~5 s |
 | `speakeasy-granite` | compiles, ~2 min cold |
+| Broken doc links | none, `--document-private-items` and denied, workspace-wide |
 | Branch | `main`, pushed to `kwp490/speakeasy-granite-rust-mini` |
 
-**The four things most worth doing next**, in the order I would do them:
+**One thing is left of the four this file used to list.** The other three landed
+on 2026-08-19; see "What happened on 2026-08-19" below for what each turned out
+to involve, which was in every case more than the entry described.
 
-1. **Pin `install_root()`'s leaf to the product identity.** The worst defect
-   found on 2026-08-18 was `probe::install_root()` defaulting to
-   `%LOCALAPPDATA%\SpeakEasy` — setup would have installed over the parent
-   product and uninstall would have deleted it. The lifecycle test passes
-   `--install-root` explicitly, so **it does not exercise that default** and
-   nothing pins it. This is a handful of lines and it is the cheapest insurance
-   in the repository. Do it before anything else touches the installer.
-2. **Build the engine smoke-test runner** (item 2 below). The clip is committed
-   and its ground truth verified; only the runner is missing. Decided
-   2026-08-18: lift the worker spawning out of the desktop crate's
-   `process_worker.rs` into somewhere both it and `apps/bootstrapper` can reach,
-   rather than writing a second spawn — that function is where
-   `CREATE_NO_WINDOW` lives, and its comment says it is the only place the flag
-   is needed.
-3. **The remaining two installer pieces**: the retention question and recording
-   which configuration was installed.
-4. **Delete the dead onboarding plumbing** (item 5).
+1. **Finish setup's seed channel** — the whole of it, decided 2026-08-19, not
+   just the retention question the old entry named. `apps/bootstrapper` writes
+   **no** config seed at all today, while `apps/desktop` already reads two:
+   `consume_installer_logging_seed` and its hotkey sibling in
+   `commands/dictation.rs` look for `config/install-logging.txt` and
+   `config/install-hotkey.txt`. Nothing writes either, so the shortcut a user
+   picks in setup and the logging choice they make are **collected and silently
+   discarded**. That is the same read-side-complete, no-writer shape that left
+   `smoke.rs` unbuilt behind a comment promising it existed.
+
+   So the work is one writer in the bootstrapper, used three times:
+
+   - **the shortcut**, which setup already collects and throws away;
+   - **the logging choice**, likewise;
+   - **the retention question**, which is new. Setup asks whether to keep
+     transcripts between sessions. **Default off, framed as privacy** (owner
+     decision, 2026-08-19): "Transcripts are kept only while the app is open",
+     preselected. That matches what the app already does — retention clears on
+     close by never writing rather than deleting on exit, so a crash cannot leak
+     them — and a privacy-preserving default needs no justification to the user.
+     It needs a `consume_installer_retention_seed` on the desktop side; follow
+     `consume_installer_logging_seed` exactly rather than inventing a channel.
+
+   Seeds are one-shot: the file carries `0` or `1` and is deleted after reading,
+   so a later change by the user always wins. A new wizard control is needed for
+   the retention question — the wizard has `gui::Label`, `gui::Button` and
+   `gui::ProgressBar` today and no checkbox, and **every control must be created
+   in `Wizard::new`**, because `winsafe` panics if one is created after its
+   parent window.
+
+   **Recording which configuration was installed** belongs in the same pass and
+   is the smaller half: setup does not record CPU-versus-GPU anywhere, and the
+   app needs it to tell "a CPU install running on CPU", which is normal, from "a
+   GPU install that cannot load CUDA", which is an error.
 
 **Two things need you rather than an agent**: publishing the CUDA worker
 (item 3, needs the CUDA Toolkit and Hugging Face credentials), and any decision
@@ -60,6 +81,138 @@ about what setup *says*, since its copy is reviewable by rule.
 **Before running the installer lifecycle test**, kill any `ai-speakeasy-mini`.
 An aborted run leaves the app it launched for the running-app check alive, and
 the pre-flight guard then refuses every retry.
+
+## What happened on 2026-08-19
+
+Six commits, `e03eb78`..`da612fa`. Three of the four "most worth doing next"
+entries above are gone; each was larger than its entry said, and the overrun was
+the same shape every time — **the entry described the symptom someone had
+noticed, not the condition underneath it.** Budget for that on the fourth.
+
+### The citation sweep (`e03eb78`) — 3× the recorded size
+
+Recorded as "25 comments across 21 files cite deleted handoff documents". It was
+**35 citations across 27 files naming six deleted docs**, because the original
+count searched three of the six names. None of the six was ever in this
+repository's history, so most citations had nothing to be rewritten *against*.
+
+Three citation classes exist, and a sweep that finds one looks finished:
+
+- the **filename** (`granite-final-pass.md`) — greppable;
+- the **bare number** (`§9.4`, `Phase 6`) — 96 and 22 of them, and the larger
+  half of the debt. `docs/UI-GUIDE.md` does not number its headings, so nothing
+  could be carried across;
+- the **prose** ("the handoff", "the brief", "the GPU migration handoff, item
+  14") — matches no grep for a path or a `§`.
+
+A fourth trap: the first sweep filtered `*.ts`/`*.tsx` and the scaffold suite is
+`.mjs`, which hid 21 more. **Enumerate extensions before believing a zero.**
+
+Three defects fell out that no citation sweep was looking for:
+
+- `speakeasy-granite`'s crate doc claimed the delivered transcript came from the
+  *streaming* model run twice. It has not since the fork.
+- **Eight invisible U+009D control characters** in comments across five files,
+  present since the first commit, each following an em-dash. Found only because
+  a scripted replacement refused to match a line identical on screen.
+- **Three broken rustdoc links**, which `cargo doc` had never reported —
+  see `CLAUDE.md`'s entry on `--document-private-items`.
+
+### `install_root` (`21f2884`) — the value was already right
+
+The recorded defect was the leaf, and the leaf had already been fixed. What
+nothing had noticed is that the **fallback** returned `C:\` when `LOCALAPPDATA`
+was unset: setup would have unpacked into the drive root, registered it as the
+install location, and uninstall would then have walked `C:\`. Worse than the
+recorded bug, and reachable from the same function.
+
+It returns `Option<PathBuf>` now and the three writing callers refuse. Empty
+counts as absent too — `PathBuf::from("").join(PRODUCT)` is a bare relative path.
+
+**A test cannot set `LOCALAPPDATA`.** Edition 2024 under `unsafe_code =
+"forbid"` makes `std::env::set_var` unsafe, so the decision lives in
+`install_root_under`, which takes the environment as an argument. Any future
+env-dependent decision worth pinning needs the same split.
+
+### The two dead subsystems (`fa49173`)
+
+Onboarding was recorded as "10 references"; it was 16 across 7 files **plus a
+persisted settings field, an IPC view field, a registered Tauri command, and a
+validation gate that could reject a whole settings file**. `setup_requirement`
+was listed with them and is *live* — it is on the 10 Hz HUD poll.
+
+Removing a persisted field is safe here because `Settings` has a
+`#[serde(default, flatten)]` catch-all, so an older profile's `onboarding`
+object lands in `extensions` and is written back. **That is pinned, not
+assumed**: delete the catch-all and the migration test fails.
+
+`proof-mode` went entirely. Its own `main.rs` comment already said no script
+built it, and `run_phase2_installed_smoke` resolved a `StreamingAsr` pack that
+cannot exist. Removing it also took a `not(feature = "proof-mode")` arm off the
+release `windows_subsystem` attribute — an opt-out nobody could select, on the
+one attribute deciding whether the shipped binary allocates a console and steals
+the foreground from delivery.
+
+### Setup's engine check (`f5e951a`, `0606275`, `da612fa`)
+
+The spawn went to **`speakeasy-windows`**, not `speakeasy-worker`. Both are
+reachable from both crates, but the spawn's hard parts — job-object ownership
+and `CREATE_NO_WINDOW` — are Windows concerns already living there, and
+`speakeasy-worker` depends on `speakeasy-domain` alone and checks in seconds.
+`append_diagnostics_line` moved with it: it is the single redacting boundary for
+diagnostics and `worker_process` writes through it, so leaving it behind would
+have split that boundary across two crates.
+
+The scaffold assertion pinning `CREATE_NO_WINDOW` followed and got stronger — it
+now asserts the flag appears in exactly one place workspace-wide. Writing that
+check immediately found a second `creation_flags` call, the bootstrapper's
+`relaunch_detached`, which sets `DETACHED_PROCESS` for a different job. **The
+rule names the constant, not the method**, so it does not sweep that up.
+
+**The check compares words, and that is measured rather than cautious.** The
+clip says
+
+> The quick brown fox jumps over the lazy dog, and Monday begins at dawn.
+
+and Granite `Q4_K_M` returned, 2026-08-19,
+
+> The quick brown fox jumps over the lazy dog. And Monday begins at dawn.
+
+A period for a comma, a capital for a lowercase, every word right. **An
+exact-transcript comparison would have refused a working install.** The verbatim
+pin stays in `granite_worker_smoke.rs`, where a change is a developer's finding
+rather than a blocked user.
+
+A failed check does not block the install (owner decision): Retry, with Continue
+and Cancel both live, and copy that says what continuing costs. The clip is
+`include_bytes!`'d rather than staged — the bootstrapper is one executable, and
+that removes the "clip missing" verdict entirely.
+
+`smoke.rs` also settled an open promise: `New-SmokeFixture.ps1` had claimed
+since it was written that its sentence was "kept here and in `smoke.rs` — and
+checked against each other by the bootstrapper's own test". Neither existed.
+
+### How the engine check is proven, and how to re-run it
+
+Not by its unit tests. `the_real_engine_transcribes_the_bundled_clip` spawns the
+real worker, loads the real model and transcribes the committed clip in ~5 s. It
+is `#[ignore]`d for hardware. Two env overrides let it run against an existing
+install rather than a second copy of ~2 GB:
+
+```powershell
+$env:SPEAKEASY_GRANITE_WORKER = (Resolve-Path 'target\release\speakeasy-granite-worker.exe').Path
+$env:SPEAKEASY_GRANITE_MODEL_ROOT = '<a directory holding both GGUFs>'
+cargo test -p speakeasy-bootstrapper --offline the_real_engine -- --ignored
+```
+
+Both controls were run and both fail as they should: a nonexistent model root
+gives `model_did_not_load`, and expecting a sentence the clip does not say gives
+`Mismatch` carrying the real transcript. **Re-run the controls if you change the
+comparison** — a smoke test that cannot fail is the exact thing this step exists
+to prevent elsewhere.
+
+On this machine the GGUFs are under the **parent** product's data directory
+(`ai.speakeasy.desktop`), left by an earlier install. `.tools/` is empty.
 
 ## Where the project is
 
@@ -338,15 +491,16 @@ long dictation, and an installed release build.
 ### 2. Finish the installer (`apps/bootstrapper`)
 The bootstrapper is further along than it looks: the hardware probe, the
 resumable digest-verified download, the native wizard, Start Menu shortcuts,
-WebView2 provisioning and the uninstaller all exist and work. Three things are
-missing.
+WebView2 provisioning and the uninstaller all exist and work. The engine smoke
+test joined them on 2026-08-19; the seed channel is what is left.
 
-**The engine smoke test.** Setup must transcribe a short bundled clip and
-compare the result against known ground truth, word for word — the decision is
-recorded in `docs/ARCHITECTURE.md` under Setup. A speech model whose audio
-projector failed to attach does not error; it writes fluent text from the
-instruction alone, so "it returned a transcript" proves nothing and only content
-does.
+**The engine smoke test — done 2026-08-19.** Built, wired into the last step,
+and proven against the real worker and model. See "What happened on 2026-08-19"
+above for how it is re-run and why it compares words rather than the transcript
+verbatim. The original entry follows, kept because its reasoning is why the
+step exists at all: a speech model whose audio projector failed to attach does
+not error, it writes fluent text from the instruction alone, so "it returned a
+transcript" proves nothing and only content does.
 
 > **The clip exists now; the step that runs it does not.** `beckett.wav` was
 > gone — not in this repository, not in the parent, not in either git history
@@ -459,11 +613,16 @@ default install root, the Start Menu folder and the Add/Remove Programs
 `DisplayName` — all recorded above under "The installer has now been built and
 run". The lifecycle test now passes.
 
-### 5. Dead onboarding plumbing
-`OnboardingProgress` and `setup_requirement` still compile with nothing driving
-them (10 references under `apps/desktop/src-tauri/src`). The in-app setup wizard
-is gone and setup is the installer's job, so these should be removed rather than
-left as a flag nothing sets.
+### 5. Dead onboarding plumbing — done 2026-08-19
+Larger than the 10 references recorded here: 16 across 7 files, plus the
+persisted `OnboardingProgress`, its profile IPC field, the `onboarding_advance`
+command, and a `current_step > 7` validation that could reject a settings file.
+All gone. `setup_requirement` was listed with them and **is live** — it is on
+the 10 Hz HUD poll and answers whether this profile can dictate right now.
+
+The persisted field was safe to drop because `Settings` has a
+`#[serde(default, flatten)]` catch-all; the migration test pins that rather
+than assuming it.
 
 ### 6. Two comments that outlived their reasoning — done 2026-08-18
 Both were found while fixing the launch. One turned out to be a live defect
@@ -659,9 +818,53 @@ Every one of these was an explicit owner decision this session.
   later, under different conditions. A line number inside a shared helper does
   not say which invocation.
 
+### 2026-08-19
+
+- **A bulk edit cut the wrong lines, twice, and only a dry run caught it.**
+  A script deleting whole Rust items ended each cut at "the first line equal to
+  `}`", which for any item with a nested block is an *inner* brace: it removed
+  the first third of two functions and left the remainder dangling. The second
+  attempt matched multi-line byte strings and silently found nothing, because
+  the files are CRLF and the patterns were LF. Both were caught by printing the
+  intended cut before writing, not by reading the result afterwards. **A
+  structural edit needs a dry run and brace counting**; line-shape heuristics
+  are guesses about syntax.
+
+- **A reflow pass churned comments nobody had edited.** Rewrapping every ragged
+  paragraph in a touched *file* rewrote text the change never went near, which
+  buries the real diff. Scope a formatting sweep to paragraphs containing a line
+  the diff actually added. Related: a short comment line is only a defect when
+  it is **not** the paragraph's last line — a one-line doc comment is supposed
+  to be short, and a detector that misses that flags dozens of false positives.
+
+- **`repr()` is not a way to count backslashes.** Repairing a mangled JS regex,
+  a Python `repr` showing `/\\/g` was read as two backslashes when it is one, so
+  the "fix" replaced the broken form with itself and reported success. The file
+  still had a syntax error. Build such strings from `chr(92)` and assert on the
+  count, or check with something that is not itself escaping the output.
+
+- **A heredoc is the wrong tool for a file full of quotes.** Two attempts to
+  write `smoke.rs` through a shell heredoc died on its own quoting before a byte
+  reached disk. The dedicated file-writing tool took it unchanged. Reach for the
+  shell for edits, not for authoring source that is dense in `"` and `\`.
+
+- **New assertions found real things immediately, which is the argument for
+  writing them.** "The flag appears in exactly one place" found a second
+  `creation_flags` call in its first run. "The generator's sentence matches the
+  constant" existed only as a promise in a comment. Neither was hypothetical.
+
+- **Three scoping questions were answered by looking rather than guessing**, and
+  every one changed the work: `install_root`'s recorded defect was already
+  fixed and a worse one sat beside it; onboarding reached persisted settings and
+  an IPC contract; the retention question turned out to be one third of a seed
+  channel with no writer. **Cost a few minutes of grep each.** The pattern in
+  this file is that an outstanding entry describes the symptom someone noticed,
+  not the condition under it.
+
 ## Repository facts worth knowing
 
-- Five commits on `main`, private, `kwp490/speakeasy-granite-rust-mini`.
+- 21 commits on `main`, private, `kwp490/speakeasy-granite-rust-mini`.
+  Six of them are 2026-08-19's, `e03eb78`..`da612fa`.
 - The tree is ~300 files, down from 2,611 — `vendor/transcribe.cpp` alone was
   2,265 of them.
 - `speakeasy-worker` (was `speakeasy-asr`) links **no native libraries** and
