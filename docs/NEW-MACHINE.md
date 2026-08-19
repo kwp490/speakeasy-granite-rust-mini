@@ -2,8 +2,10 @@
 
 Everything below is what a `git clone` does *not* give you. The repo carries
 the code, the version pins and the trusted manifest; it deliberately carries
-none of the toolchain, none of the ~1.4 GB native runtime, and none of the
-~5.7 GB of models, all of which are fetched and hash-verified by scripts here.
+none of the toolchain and none of the ~2.2 GB of model weights, which are
+fetched and hash-verified by the scripts here. There is no native runtime to
+stage any more — that left with the streaming engine; see "Fetch the native
+runtime" below.
 
 Budget roughly an hour, most of it downloads, plus one long first compile —
 `speakeasy-granite` builds llama.cpp from source.
@@ -50,7 +52,8 @@ rather than at setup time. Read its output.
 ## 2. Clone and install
 
 Clone to **`C:\Coding_Projects\speakeasy-granite-rust-mini`** if you want Claude
-Code's project memory to carry over without renaming anything — see §7.
+Code's project memory to carry over without renaming anything — see
+"Machine-local state worth carrying over" below.
 
 ```powershell
 git clone https://github.com/kwp490/speakeasy-granite-rust-mini.git
@@ -115,12 +118,16 @@ whole gate. To put it on the GPU on a machine that has the Toolkit:
 overwrites `proof\granite-worker.exe`. Re-run the script afterwards; `-Verify`
 is how you tell.
 
-The shipped installer closes this gap differently: it fetches a published CUDA
-worker and its two CUDA DLLs when the hardware warrants it, pinned by digest
-like the model weights, and records that it installed the GPU configuration. A
-GPU install whose worker then fails to load is reported as an error rather than
-quietly running on the CPU — which is exactly the failure this script's
-`-Verify` flag exists to catch by hand.
+The shipped installer does **not** close this gap yet, and says so rather than
+appearing to: its "choose how it runs" page shows the graphics-card option
+disabled, because no CUDA worker has been published for it to install. When one
+is — pinned by digest in `models/trusted-manifest.json`, like the model weights
+— the option becomes selectable with no other change, and setup records that it
+installed the GPU configuration. What setup already records today is that it
+installed the *processor* configuration, which is what lets the app report a
+CPU run as expected rather than as a silent fallback: look for `installed=` in
+the `granite_warm` log line. This script's `-Verify` flag is the by-hand version
+of the same question.
 
 Measured on an RTX 5090: Granite's resident pass is 1,571.9 ms on CPU against
 156.4 ms on CUDA — RTF 0.158 versus 0.0157 — holding ~3.3 GiB of VRAM. Cold load
@@ -208,5 +215,5 @@ position, history consent:
 
 **Do not copy** `target\` or most of `.tools\` — they are build output and
 fetched artifacts, they are large, and they are wrong on a different machine.
-The one exception worth copying to save a download is the model directory in
-§4.
+The one exception worth copying to save a download is the model directory under
+"Fetch the models".

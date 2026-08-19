@@ -10,12 +10,24 @@ the two never fight over one.
 
 ## Install and first dictation
 
-1. Run the installer as your normal Windows user. Do not elevate it.
-2. It checks your hardware, downloads the transcription model, verifies every
-   file, and then **tests that transcription actually works** by transcribing a
-   short built-in clip and checking the result. It asks one question — whether
-   to keep your transcripts between sessions — and the default is no.
-3. When it finishes, the app opens. There is no second setup to walk through.
+1. Download `SpeakEasyMiniSetup.exe` from
+   [Releases](https://github.com/kwp490/speakeasy-granite-rust-mini/releases) and
+   run it as your normal Windows user. Do not elevate it. Windows SmartScreen
+   will warn about it, because the build is not signed; the release page carries
+   a SHA-256 you can check the download against.
+2. It checks your hardware, downloads the transcription model (about 2.2 GB) and
+   verifies every file against a checksum fixed in advance.
+3. It asks four things: which configuration to run, your dictation shortcut, any
+   words you want protected from being respelled, and whether to keep your
+   transcripts after you close the app. The last one defaults to **no** —
+   transcripts are held in memory and never written to disk unless you say
+   otherwise.
+4. Then it **tests that transcription actually works**, by transcribing a short
+   built-in clip and checking the result word for word. This is the step worth
+   waiting for: a speech model that has stopped listening does not report an
+   error, it writes fluent text about nothing.
+5. When it finishes, the app opens. There is no second setup to walk through,
+   and the answers you gave are already applied.
 4. Allow Windows microphone access if prompted, and pick your microphone from
    **Settings → Audio** if the default is not the one you want.
 5. Click into a text field somewhere, press `Ctrl+Alt+P`, say a sentence, and
