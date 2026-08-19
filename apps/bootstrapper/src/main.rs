@@ -46,6 +46,7 @@ mod install;
 mod probe;
 mod repair;
 mod shortcut;
+mod smoke;
 mod uninstall;
 mod webview2;
 mod wizard;
