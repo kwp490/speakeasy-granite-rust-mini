@@ -10,11 +10,7 @@
       "window": "main",
       "mutates": false
     },
-    "onboarding_advance": {
-      "response": "ProfileView",
-      "window": "main",
-      "mutates": true
-    },
+
     "history_configure": {
       "response": "ProfileView",
       "window": "main",

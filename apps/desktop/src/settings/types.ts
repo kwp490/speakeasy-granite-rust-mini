@@ -67,20 +67,8 @@ export type ModelInstallStatus = {
   bytes_total?: number | null;
 };
 
-export type OnboardingProgress = {
-  completed: boolean;
-  current_step: number;
-  privacy_reviewed: boolean;
-  microphone_checked: boolean;
-  hotkey_checked: boolean;
-  model_choice_reviewed: boolean;
-  try_it_completed: boolean;
-  delivery_choice_reviewed: boolean;
-};
-
 export type ProfileStatus = {
   schema_version: number;
-  onboarding: OnboardingProgress;
   startup_with_windows: boolean;
   /** Which presentation of the compact transcriber is showing. */
   history_enabled: boolean;

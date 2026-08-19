@@ -80,7 +80,7 @@ impl ModelCoordinator {
 }
 
 
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 impl Phase1Coordinator {
     /// Returns the number of retained redacted events without exposing content.
     ///
@@ -245,7 +245,7 @@ impl Phase1Coordinator {
     }
 }
 
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 fn apply_phase(
     reducer: &mut Reducer,
     correlation_id: CorrelationId,
@@ -269,7 +269,7 @@ fn apply_phase(
         .ok_or("invalid_transition")
 }
 
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 const fn state(
     sequence: u64,
     session: SessionPhase,

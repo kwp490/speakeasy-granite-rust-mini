@@ -104,11 +104,14 @@ fn capture_hud_status(app: tauri::AppHandle) -> Result<CaptureHudView, &'static 
 /// The next concrete thing standing between this profile and a dictation, or
 /// `None` when nothing is.
 ///
-/// Deliberately capability, not bookkeeping. `onboarding.completed` is a wizard
-/// flag: a profile can have skipped the seven steps and still have a verified
-/// model and a working microphone, and telling that user "Setup needed" while
-/// their shortcut dictates perfectly well would be false. The unfinished wizard
-/// is surfaced in settings, which is where it can actually be finished.
+/// Deliberately capability, not bookkeeping. This used to consult an
+/// `onboarding.completed` flag as well, which was a wizard's bookkeeping rather
+/// than a fact about the machine: a profile could have skipped the seven steps
+/// and still have a verified model and a working microphone, and telling that
+/// user "Setup needed" while their shortcut dictated perfectly well would have
+/// been false. The wizard and the flag are both gone -- setup is the installer's
+/// job -- and what is left is the question actually worth asking, which is
+/// whether this profile can dictate right now.
 ///
 /// On a genuine first run the model is absent, so first launch still lands on
 /// Setup needed with a concrete requirement.

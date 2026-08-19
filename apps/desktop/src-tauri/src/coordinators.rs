@@ -777,7 +777,6 @@ impl ProfileCoordinator {
             .map_err(|_| "profile_state_unavailable")?;
         Ok(ProfileView {
             schema_version: DOMAIN_SCHEMA_VERSION,
-            onboarding: settings.onboarding.clone(),
             startup_with_windows: settings.startup_with_windows,
             history_enabled: settings.privacy.persisted_history_enabled,
             history_retention_days: settings.privacy.history_retention_days,

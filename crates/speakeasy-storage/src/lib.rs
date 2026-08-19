@@ -29,6 +29,6 @@ pub use settings::{
     APP_CAPABILITY_EVIDENCE_SCHEMA_VERSION, ActivationHotkeyMode, AppCapabilityEvidence,
     AppDeliveryCapability, CloudPolishConsent, CloudPolishPreferences, DEFAULT_ACTIVATION_HOTKEY,
     DeliveryPreferences, HotkeyPreferences, HudDockEdge, HudDockPlacement, LiveDeliveryChoice,
-    LoadOutcome, OnboardingProgress, PrivacyPreferences, SafeDeliveryPreference, Settings,
-    SettingsError, SettingsStore, ThemePreference, WritingRulePreferences,
+    LoadOutcome, PrivacyPreferences, SafeDeliveryPreference, Settings, SettingsError,
+    SettingsStore, ThemePreference, WritingRulePreferences,
 };

@@ -1,14 +1,5 @@
 macro_rules! desktop_handler {
-    ($($command:ident),+ $(,)?) => {{
-        #[cfg(feature = "proof-mode")]
-        {
-            tauri::generate_handler![phase1_run_fake, $($command),+]
-        }
-        #[cfg(not(feature = "proof-mode"))]
-        {
-            tauri::generate_handler![$($command),+]
-        }
-    }};
+    ($($command:ident),+ $(,)?) => {{ tauri::generate_handler![$($command),+] }};
 }
 
 /// Starts the desktop composition root and blocks until it exits.
@@ -28,8 +19,6 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(HotkeyCoordinator::default());
-    #[cfg(feature = "proof-mode")]
-    let builder = builder.manage(Phase1Coordinator::default());
     let builder = builder.setup(|app| {
         let app_root = app.path().app_data_dir()?;
         migrate_legacy_startup(&std::env::current_exe()?)
@@ -171,7 +160,6 @@ pub fn run() {
         personalization_import_commit,
         personalization_export,
         personalization_reset,
-        onboarding_advance,
         history_configure,
         disk_logging_configure,
         delivery_configure,

@@ -147,7 +147,7 @@ export const messages = {
   // read.
   ceilingShort: (minutes: string) => `Auto-stops in ${minutes} min`,
   setupReasons: {
-    onboarding_incomplete: "Finish setup before dictating.",
+    setup_incomplete: "Finish setup before dictating.",
     model_missing: "Install the transcription model before dictating.",
     microphone_missing: "Connect a microphone before dictating.",
     shortcut_unavailable: "Choose a working keyboard shortcut before dictating.",
@@ -286,28 +286,6 @@ export const messages = {
     hotkey_auto_paste_enabled: "Inserting into the focused app is turned on",
     bundled_trusted_manifest: "Bundled trusted manifest",
   },
-  onboarding: "First safe dictation",
-  onboardingProgress: "First-run progress",
-  onboardingSteps: [
-    "Privacy",
-    "Import",
-    "Microphone",
-    "Activation",
-    "Model",
-    "Try it",
-    "Delivery",
-  ],
-  onboardingCopy: [
-    "Audio and results stay in memory by default. History, remote audio, cloud text, diagnostic audio, and disk logs are off.",
-    "If SpeakEasy v1 is detected, review a read-only preview. Import never removes or rewrites v1.",
-    "Choose a microphone on the Audio page, and resolve any Windows permission or device error before continuing.",
-    "Press the shortcut to start dictation and press it again to stop. The transcriber's record button does exactly the same thing.",
-    "Review the measured preset, exact download and installed size, source, license, capabilities, and hardware evidence on the Transcription page.",
-    // Points at the transcriber and the shortcut, because settings has no capture
-    // controls to point at any more (decision 6).
-    "Dictate one short phrase — press the shortcut, or use Start recording in the transcriber — and a finished transcript will appear here.",
-    "Choose what happens to the transcript kept in this window. Dictation always inserts its final transcript into the app you were using, unless that app refuses inserted text.",
-  ],
   back: "Back",
   continue: "Continue",
   completeSetup: "Complete setup",
@@ -598,12 +576,6 @@ export const messages = {
     session_transcript_entry_unavailable: "That transcript is no longer in this session's list.",
     profile_recovery_required: "Settings need recovery. Use the local Repair shortcut before changing this profile.",
     history_recovery_required: "Optional history needs recovery. Dictation remains available without history.",
-    // Setup steps refuse rather than pretend. Each says what is still missing.
-    onboarding_try_it_required:
-      "Dictate one short phrase first — press the shortcut, or use Start recording in the transcriber — then continue.",
-    onboarding_delivery_choice_required: "Choose what happens to the transcript kept in this window before continuing.",
-    onboarding_step_out_of_order: "That setup step cannot be reached yet. Continue from the current step.",
-    onboarding_step_invalid: "That setup step does not exist.",
   },
   degradationReasons: {
     "degradation.microphone_denied": "Microphone access was denied.",

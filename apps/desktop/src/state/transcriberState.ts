@@ -25,7 +25,7 @@ export const PENDING_TIMEOUT_MS = 4_000;
 export const REQUEST_DEBOUNCE_MS = 150;
 
 export type SetupReason =
-  | "onboarding_incomplete"
+  | "setup_incomplete"
   | "model_missing"
   | "microphone_missing"
   | "shortcut_unavailable";
@@ -195,7 +195,7 @@ export const initialTranscriberModel: TranscriberModel = {
 };
 
 const SETUP_REASONS: ReadonlySet<string> = new Set<SetupReason>([
-  "onboarding_incomplete",
+  "setup_incomplete",
   "model_missing",
   "microphone_missing",
   "shortcut_unavailable",
@@ -220,7 +220,7 @@ const RECOVERABLE_CODES: ReadonlySet<string> = new Set([
 ]);
 
 function setupReasonOf(raw: string | null): SetupReason {
-  return raw !== null && SETUP_REASONS.has(raw) ? (raw as SetupReason) : "onboarding_incomplete";
+  return raw !== null && SETUP_REASONS.has(raw) ? (raw as SetupReason) : "setup_incomplete";
 }
 
 function deliveryOutcomeOf(raw: string): DeliveryOutcome {

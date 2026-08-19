@@ -1,13 +1,3 @@
-#[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-#[cfg(feature = "proof-mode")]
-fn phase1_run_fake(
-    state: tauri::State<'_, Phase1Coordinator>,
-    request: FakeFlowRequest,
-) -> Result<FakeFlowResponse, &'static str> {
-    state.run_fake(&request)
-}
-
 fn require_main_window(window: &tauri::WebviewWindow) -> Result<(), &'static str> {
     (window.label() == "main")
         .then_some(())
@@ -223,57 +213,6 @@ fn personalization_reset(
         .reset()
         .map_err(|_| "personalization_reset_failed")?;
     state.view()
-}
-
-#[tauri::command]
-fn onboarding_advance(
-    window: tauri::WebviewWindow,
-    profile: tauri::State<'_, ProfileCoordinator>,
-    results: tauri::State<'_, ResultCoordinator>,
-    step: u8,
-    delivery_choice: Option<SafeDeliveryPreference>,
-) -> Result<ProfileView, &'static str> {
-    require_main_window(&window)?;
-    if step > 7 {
-        return Err("onboarding_step_invalid");
-    }
-    let mut settings = profile
-        .settings
-        .lock()
-        .map_err(|_| "profile_state_unavailable")?
-        .clone();
-    if step > settings.onboarding.current_step.saturating_add(1) {
-        return Err("onboarding_step_out_of_order");
-    }
-    match step {
-        1 => settings.onboarding.privacy_reviewed = true,
-        3 => settings.onboarding.microphone_checked = true,
-        4 => settings.onboarding.hotkey_checked = true,
-        5 => settings.onboarding.model_choice_reviewed = true,
-        6 => {
-            if results.view()?.text.is_none() {
-                return Err("onboarding_try_it_required");
-            }
-            settings.onboarding.try_it_completed = true;
-        }
-        7 => {
-            if !settings.onboarding.try_it_completed {
-                return Err("onboarding_try_it_required");
-            }
-            settings.delivery.safe_preference =
-                delivery_choice.ok_or("onboarding_delivery_choice_required")?;
-            settings.onboarding.delivery_choice_reviewed = true;
-            settings.onboarding.completed = true;
-        }
-        _ => {}
-    }
-    settings.onboarding.current_step = step;
-    profile.save(&settings)?;
-    *profile
-        .settings
-        .lock()
-        .map_err(|_| "profile_state_unavailable")? = settings;
-    profile.view()
 }
 
 #[tauri::command]

@@ -27,27 +27,6 @@ pub enum ThemePreference {
     Dark,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-#[allow(clippy::struct_excessive_bools)]
-pub struct OnboardingProgress {
-    #[serde(default)]
-    pub completed: bool,
-    #[serde(default)]
-    pub current_step: u8,
-    #[serde(default)]
-    pub privacy_reviewed: bool,
-    #[serde(default)]
-    pub microphone_checked: bool,
-    #[serde(default)]
-    pub hotkey_checked: bool,
-    #[serde(default)]
-    pub model_choice_reviewed: bool,
-    #[serde(default)]
-    pub try_it_completed: bool,
-    #[serde(default)]
-    pub delivery_choice_reviewed: bool,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PrivacyPreferences {
     #[serde(default)]
@@ -283,8 +262,6 @@ pub struct Settings {
     #[serde(default)]
     pub hotkey: HotkeyPreferences,
     #[serde(default)]
-    pub onboarding: OnboardingProgress,
-    #[serde(default)]
     pub privacy: PrivacyPreferences,
     #[serde(default)]
     pub writing_rules: WritingRulePreferences,
@@ -346,7 +323,6 @@ impl Default for Settings {
             queue_capacity: 8,
             delivery: DeliveryPreferences::default(),
             hotkey: HotkeyPreferences::default(),
-            onboarding: OnboardingProgress::default(),
             privacy: PrivacyPreferences::default(),
             writing_rules: WritingRulePreferences::default(),
             startup_with_windows: false,
@@ -482,7 +458,6 @@ fn validate(settings: &Settings) -> Result<(), SettingsError> {
         || settings.queue_capacity == 0
         || settings.queue_capacity > 1_024
         || !(1..=365).contains(&settings.privacy.history_retention_days)
-        || settings.onboarding.current_step > 7
     {
         return Err(SettingsError::Invalid);
     }
@@ -633,11 +608,14 @@ mod tests {
         )
         .expect("a profile written before HUD placement existed still loads");
 
+        // The `onboarding` object above is no longer a field. It has to keep
+        // loading rather than failing the parse, and it lands in `extensions`
+        // where `save` writes it back -- so removing the in-app setup wizard
+        // does not quietly discard part of a profile written before it went.
         assert!(
-            existing.onboarding.completed,
-            "migration must not re-open onboarding"
+            existing.extensions.contains_key("onboarding"),
+            "a retired field must survive in extensions"
         );
-        assert_eq!(existing.onboarding.current_step, 7);
         assert!(existing.privacy.persisted_history_enabled);
         assert_eq!(existing.privacy.history_retention_days, 14);
         assert_eq!(existing.hotkey.activation_binding, "Ctrl+Alt+K");

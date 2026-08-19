@@ -2,11 +2,11 @@ use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::fs;
 use std::io::Write as _;
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -14,45 +14,6 @@ use std::time::Duration;
 use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Exercises the installed binary's fake success and failure coordinator paths
-/// without emitting transcript content.
-///
-/// # Errors
-///
-/// Returns a sanitized reason when either terminal-state contract fails.
-#[cfg(feature = "proof-mode")]
-pub fn run_phase1_installed_smoke() -> Result<(), &'static str> {
-    let coordinator = Phase1Coordinator::default();
-    for index in 0..200 {
-        let success = coordinator.run_fake(&FakeFlowRequest {
-            schema_version: DOMAIN_SCHEMA_VERSION,
-            failure: None,
-        })?;
-        if success.states.last().map(|state| state.session) != Some("delivered") {
-            return Err("installed_fake_terminal_state_mismatch");
-        }
-        if index % 25 == 0 {
-            for failure in [
-                FakeFailure::AudioStart,
-                FakeFailure::Finalize,
-                FakeFailure::Delivery,
-            ] {
-                let failed = coordinator.run_fake(&FakeFlowRequest {
-                    schema_version: DOMAIN_SCHEMA_VERSION,
-                    failure: Some(failure),
-                })?;
-                if failed.states.last().map(|state| state.session) != Some("failed") {
-                    return Err("installed_fake_failure_state_mismatch");
-                }
-            }
-        }
-    }
-    println!("phase8_installed_sessions=200");
-    println!("phase8_installed_failures=24");
-    println!("phase8_installed_terminal_state=delivered_or_recoverable_failed");
-    println!("transcript_content_emitted=false");
-    Ok(())
-}
 use capture_wizard::{CaptureDeviceView, CaptureWizardCoordinator, CaptureWizardView};
 use granite_engine::{
     GraniteEngineCoordinator, GraniteEnvironment, run_granite_final_pass,
@@ -60,7 +21,7 @@ use granite_engine::{
 };
 use process_worker::ProcessWorkerClient;
 use runtime_wizard::RuntimeWizardCoordinator;
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 use serde::Deserialize;
 use serde::Serialize;
 use speakeasy_worker::{
@@ -77,12 +38,10 @@ use speakeasy_domain::{
     FinalTranscript, OperationArbiter, OperationDisposition, SessionId, SystemClock,
     TranscriptProvenance, UtteranceAudio,
 };
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 use speakeasy_domain::{
     AppReadiness, IngressEvent, ProducerId, Reducer, ReducerDisposition, SessionPhase,
 };
-#[cfg(feature = "proof-mode")]
-use speakeasy_models::InstallError;
 use speakeasy_models::{
     Archive, DownloadPolicy, DownloadRequest, GpuProbe, GpuQualification,
     HardwareProbe, InstallManager, InstallSpec, LooseInstallFile, NvmlGpuProbe, Pack, RequiredFile,
@@ -91,7 +50,7 @@ use speakeasy_models::{
 use speakeasy_storage::{
     ActivationHotkeyMode, DEFAULT_ACTIVATION_HOTKEY, HistoryPolicy, HistoryRepository,
     HudDockEdge, HudDockPlacement, ImportChoices, ImportPreview,
-    ImportReport, OnboardingProgress, PersonalizationRepository, ProductionImportPlan,
+    ImportReport, PersonalizationRepository, ProductionImportPlan,
     ProductionImportRoot, ResultProvenance, SafeDeliveryPreference, SessionResultList, Settings,
     SettingsStore, TranscriptResult, WritingRulePreferences,
     clear_pending_update_after_health_checks, extract_v1_protected_terms,
@@ -111,52 +70,14 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 const FAKE_TRANSCRIPT: &str = "This is a private fake transcript.";
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 const AUDIT_CAPACITY: usize = 64;
-
-/// Exercises the installed binary's real admitted-pack lifecycle through
-/// `VerifiedOnDisk` without loading the runtime or introducing `Ready`.
-///
-/// # Errors
-///
-/// Returns a sanitized error when trust, extraction, activation, reverification,
-/// replacement, or lease protection fails.
-#[cfg(feature = "proof-mode")]
-pub fn run_phase2_installed_smoke(archive: &Path, root: &Path) -> Result<(), &'static str> {
-    let manifest = bundled_manifest().map_err(|_| "catalog_unavailable")?;
-    let pack = manifest
-        .select_sole_install_eligible(
-            speakeasy_models::PackRole::StreamingAsr,
-            // Probed: GPU preferred, CPU fallback, decided in one place.
-            speakeasy_models::admit(&NvmlGpuProbe.probe()).preferred_provider(),
-        )
-        .map_err(|_| "pack_not_admitted")?;
-    let spec = InstallSpec::from(pack);
-    let manager = InstallManager::new(root);
-    manager
-        .install_archive(&spec, archive, &CancelToken::default())
-        .map_err(|_| "installed_archive_install_failed")?;
-    manager
-        .reverify(&spec)
-        .map_err(|_| "installed_reverification_failed")?;
-    manager
-        .install_archive(&spec, archive, &CancelToken::default())
-        .map_err(|_| "installed_replacement_failed")?;
-    let lease = manager.lease(&spec).map_err(|_| "installed_lease_failed")?;
-    if !matches!(manager.delete(&spec), Err(InstallError::InUse)) {
-        return Err("installed_lease_did_not_block_removal");
-    }
-    drop(lease);
-    println!("phase2_installed_state=verified_on_disk");
-    println!("phase2_installed_ready=false");
-    Ok(())
-}
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 pub enum FakeFailure {
     AudioStart,
     Finalize,
@@ -164,14 +85,14 @@ pub enum FakeFailure {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 pub struct FakeFlowRequest {
     pub schema_version: u16,
     pub failure: Option<FakeFailure>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 pub struct IpcState {
     pub schema_version: u16,
     pub sequence: u64,
@@ -184,34 +105,34 @@ pub struct IpcState {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 pub struct FakeFlowResponse {
     pub schema_version: u16,
     pub states: Vec<IpcState>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 struct RedactedAuditEvent {
     code: &'static str,
     transcript_characters: usize,
 }
 
 #[derive(Debug)]
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 struct FakeActorRequest {
     failure: Option<FakeFailure>,
     reply: SyncSender<Result<FakeFlowResponse, &'static str>>,
 }
 
 #[derive(Debug)]
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 pub struct Phase1Coordinator {
     audit: Arc<Mutex<VecDeque<RedactedAuditEvent>>>,
     requests: SyncSender<FakeActorRequest>,
 }
 
-#[cfg(any(test, feature = "proof-mode"))]
+#[cfg(test)]
 impl Default for Phase1Coordinator {
     fn default() -> Self {
         let audit = Arc::new(Mutex::new(VecDeque::new()));
@@ -393,7 +314,6 @@ pub struct CudaRuntimeView {
 #[derive(Clone, Debug, Serialize)]
 pub struct ProfileView {
     schema_version: u16,
-    onboarding: OnboardingProgress,
     startup_with_windows: bool,
     history_enabled: bool,
     history_retention_days: u16,

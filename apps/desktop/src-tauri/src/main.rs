@@ -11,56 +11,13 @@
 // hidden settings window taking focus, from a second cause, and it was found by
 // the same dictation proof.
 //
-// `proof-mode` is excluded deliberately: `run_proof_mode` reports through
-// `eprintln!` and exit codes for the installed smoke entry points, and those need
-// somewhere for stderr to land. No script builds that feature today, so the
-// shipped binary is always the windowed one.
-#![cfg_attr(
-    all(not(debug_assertions), not(feature = "proof-mode")),
-    windows_subsystem = "windows"
-)]
+// Unconditional in a release build. It used to be conditioned on the
+// `proof-mode` feature as well, so a smoke-test build could keep its console
+// for `eprintln!` output. That feature is gone -- no script ever built it --
+// and an arm for a configuration nobody can select only obscured which binary
+// actually ships.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    #[cfg(feature = "proof-mode")]
-    if run_proof_mode() {
-        return;
-    }
     speakeasy_desktop::run();
-}
-
-#[cfg(feature = "proof-mode")]
-fn run_proof_mode() -> bool {
-    let arguments = std::env::args_os().collect::<Vec<_>>();
-    if arguments
-        .iter()
-        .any(|argument| argument == "--phase1-installed-smoke")
-    {
-        if let Err(error) = speakeasy_desktop::run_phase1_installed_smoke() {
-            eprintln!("phase1_installed_smoke={error}");
-            std::process::exit(1);
-        }
-        return true;
-    }
-    if let Some(index) = arguments
-        .iter()
-        .position(|argument| argument == "--phase2-installed-smoke")
-    {
-        let Some(archive) = arguments.get(index + 1) else {
-            eprintln!("phase2_installed_smoke=archive_required");
-            std::process::exit(2);
-        };
-        let Some(root) = arguments.get(index + 2) else {
-            eprintln!("phase2_installed_smoke=root_required");
-            std::process::exit(2);
-        };
-        if let Err(error) = speakeasy_desktop::run_phase2_installed_smoke(
-            std::path::Path::new(archive),
-            std::path::Path::new(root),
-        ) {
-            eprintln!("phase2_installed_smoke={error}");
-            std::process::exit(1);
-        }
-        return true;
-    }
-    false
 }

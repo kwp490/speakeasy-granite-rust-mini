@@ -9,7 +9,6 @@ publish.workspace = true
 [features]
 default = []
 custom-protocol = ["tauri/custom-protocol"]
-proof-mode = []
 
 [[bin]]
 name = "ai-speakeasy-mini"

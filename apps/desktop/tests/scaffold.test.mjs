@@ -24,7 +24,7 @@ async function readFile(path, encoding) {
  * Concatenates every source under `src/` with one of `extensions`.
  *
  * These assertions used to read `App.tsx` alone, which worked only while the
- * whole UI lived in one file. After the §20 split, reading one file would let a
+ * whole UI lived in one file. Once it was split up, reading one file would let a
  * guarantee move into a component and quietly stop being checked — so they read
  * the tree instead.
  */
@@ -47,7 +47,7 @@ function readComponents() {
  * Every `.ts` and `.tsx` in `src/`. Use for rules about **wiring** — which
  * commands are invoked, which catalog strings are read.
  *
- * The §9 settings rewrite moved the profile mutators and the catalog lookups out
+ * The settings rewrite moved the profile mutators and the catalog lookups out
  * of components and into `useProfile.ts` and `format.ts`, and six assertions that
  * read only `.tsx` stopped seeing the thing they were guarding. That is the same
  * failure the tsx-only reader was introduced to prevent, one directory deeper: a
@@ -167,14 +167,20 @@ test("the shipped binary is windowed, not a console app", async () => {
   // foreground window to choose its target — so the first dictation after launch
   // aimed at a terminal instead of at the user's own application.
   //
-  // `proof-mode` stays excluded because its installed-smoke entry points report
-  // through eprintln! and need a console to report into.
+  // Unconditional on release now. It used to carry a `not(feature =
+  // "proof-mode")` arm so a smoke-test build could keep a console for its
+  // eprintln! output; that feature was removed on 2026-08-19 having never been
+  // built by any script, and this pattern narrowed with it. The invariant is
+  // unchanged — a release build must declare the attribute — so only the shape
+  // being matched moved.
   const main = await readFile(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
   assert.match(
     main,
-    /#!\[cfg_attr\(\s*all\(\s*not\(debug_assertions\),\s*not\(feature = "proof-mode"\)\s*\),\s*windows_subsystem = "windows"\s*\)\]/,
+    /#!\[cfg_attr\(not\(debug_assertions\), windows_subsystem = "windows"\)\]/,
     "release builds must declare windows_subsystem so no console is allocated",
   );
+  // And nothing re-introduces a configuration that opts back out of it.
+  assert.doesNotMatch(main, /proof-mode"\)\s*\),\s*windows_subsystem/);
 
   // The other half of the same defect. The workers are console binaries, so a
   // windowed parent leaves them no console to inherit and Windows gives each its
@@ -584,7 +590,7 @@ test("the side dock is a transparent card that can end the dictation it shows", 
     "the dock wordmark must be set sideways as a unit, not stacked and flipped",
   );
 
-  // Stop is on the dock (§ the side dock). Hands-free is one of three
+  // Stop is on the dock (UI-GUIDE "Main window and focus"). Hands-free is one of three
   // activation modes and has no key that ends a recording, so the presentation
   // the user moved away to is not allowed to be the only way out.
   assert.match(dock, /onClick=\{stop\}/);
@@ -638,7 +644,7 @@ test("the side dock is a transparent card that can end the dictation it shows", 
 
   // Loud is purple, middling is blue, quiet is green — each band its own token,
   // and all three only while capture is running. At rest the rail is grey, so
-  // the resting state differs in shape *and* colour (§11).
+  // the resting state differs in shape *and* colour (never colour alone).
   for (const [tone, token] of [
     ["low", "--hud-level"],
     ["mid", "--hud-level-mid"],
@@ -703,7 +709,7 @@ test("the side dock is a transparent card that can end the dictation it shows", 
 
   // Both failure outcomes are told apart by glyph, not only by colour — which
   // is what has to carry them under forced-colors, where the two tones flatten
-  // to the same system colour (§11).
+  // to the same system colour (UI-GUIDE "Contrast, themes, and motion").
   assert.match(dock, /state\.kind === "delivered" && state\.outcome === "refused"/);
   assert.match(dock, /state\.kind === "failed"/);
   assert.match(dock, /<ClipboardGlyph \/>/);
@@ -949,7 +955,8 @@ test("settings keep five groups, inert content, and keyboard tab semantics", asy
   const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
 
-  // Still exactly five (§15 amendment 2 renames them; the limit itself stays).
+  // Still exactly five here; the transcript log is the sixth group and is
+  // asserted separately.
   assert.match(app, /const settingsGroups/);
   assert.equal(
     (app.match(/\{ id: "(general|audio|transcription|output|advanced)"/g) ?? []).length,
@@ -988,7 +995,7 @@ test("settings carries no capture controls and no second start path", async () =
   // Decision 6 + owner decision 1: the guided-test path is gone, commands and
   // all. `capture_stop` stopped without delivering, so a dictation started from
   // settings silently skipped the paste the shortcut performed — the exact
-  // two-controllers failure §8.1 exists to prevent.
+  // two-controllers failure the single-controller rule exists to prevent.
   for (const command of ["capture_start", "capture_stop", "capture_transcribe"]) {
     assert.equal(schema.commands[command], undefined);
     assert.doesNotMatch(app, new RegExp(`invoke\\("${command}"`));
@@ -1000,7 +1007,7 @@ test("settings carries no capture controls and no second start path", async () =
 
   // What did *not* go: retrying a transcription whose audio is still retained.
   // That is recovery, not a guided test, and dropping it would lose a capability
-  // the user has today (§18: nothing silently dropped).
+  // the user has today, and nothing is silently dropped.
   assert.match(app, /invoke\("dictation_retry"\)/);
   // And it must not deliver — settings is the focused app while the user reads it.
 });
@@ -1035,7 +1042,8 @@ test("the session transcript log copies text and writes nothing to disk", async 
 test("the dock's actions all have a keyboard path in settings", async () => {
   const app = await readAllSources();
 
-  // §13: the dock never takes focus, so it is not keyboard operable — a
+  // UI-GUIDE "Accessibility and input": the dock never takes focus, so it is
+  // not keyboard operable — a
   // deliberate trade that only holds if every action it offers is reachable
   // here. Start and stop are the global shortcut; the microphone is the Audio
   // page; quit had no keyboard path at all before this.
@@ -1067,7 +1075,7 @@ test("IPC schema is narrow and the HUD keeps an explicit command allowlist", asy
   assert.equal(schema.commands.capture_hud_status.window, "hud-dock");
   assert.equal(schema.commands.capture_hud_status.mutates, false);
 
-  // Exactly the §8.2 allowlist. Adding a command here is a deliberate decision
+  // Exactly the session-controls allowlist. Adding a command here is a deliberate decision
   // about what a no-activate window is allowed to do, not a formality.
   const dockReachable = Object.entries(schema.commands)
     .filter(([, spec]) => spec.window.split("|").includes("hud-dock"))
@@ -1145,7 +1153,7 @@ test.skip("the HUD's session controls share one implementation with the global s
   // placeholder keeps the architecture note visible without parsing Rust from Node.
   const backend = "";
 
-  // §8.1: the regression this exists to prevent is a dictation started from the
+  // The regression this exists to prevent is a dictation started from the
   // button skipping delivery while the identical action from the shortcut
   // pastes. Both must reach the same two functions.
   assert.match(backend, /fn start_dictation\(/);
@@ -1177,7 +1185,7 @@ test.skip("window close means different things for the transcriber and for setti
   assert.ok(true, "window lifecycle behavior is covered by Rust tests");
 
   // There was no window-event handler at all before the redesign; the only exit
-  // path was the tray. §8.7.
+  // path was the tray.
   assert.match(backend, /fn on_window_event\(/);
   assert.match(backend, /\.on_window_event\(on_window_event\)/);
 
@@ -1230,7 +1238,7 @@ test.skip("the transcriber is the surface a relaunch and a restore bring back", 
   const hud = config.app.windows.find((window) => window.label === "hud");
   const main = config.app.windows.find((window) => window.label === "main");
 
-  // §17.6: startup shows the transcriber alone.
+  // Startup shows the transcriber alone.
   assert.equal(main.visible, false);
   assert.equal(hud.visible ?? true, true);
 
@@ -1251,11 +1259,12 @@ test.skip("the transcriber is the surface a relaunch and a restore bring back", 
   assert.equal(main.focus, false, "a hidden settings window must not take the foreground");
 
   /*
-   * The settings window's minimum must fit the work area at 200% scaling (§13),
+   * The settings window's minimum must fit the work area at 200% scaling,
    * which is the tightest case a common display produces: a 1920x1080 panel at
    * 200% leaves 960x516 *logical* pixels once the taskbar is accounted for.
    *
-   * §8.6 specifies a 560 px minimum height. Measured against that work area it is
+   * The redesign brief specified a 560 px minimum height. Measured against that
+   * work area it is
    * 44 px too tall, and because it is the *minimum* the user cannot shrink out of
    * it — the window simply cannot sit fully on screen. 500 fits, and the content
    * column already scrolls, so nothing is lost by it.
@@ -1299,7 +1308,7 @@ test.skip("a dictation that hits the duration ceiling delivers instead of vanish
   const backend = "";
   const capture = "";
 
-  // §8.8: hitting the ceiling must stop exactly as a user stop does — it must
+  // Hitting the ceiling must stop exactly as a user stop does — it must
   // not discard. Both paths reach the same function.
   assert.match(backend, /fn watch_for_unattended_capture_end\(/);
   assert.match(backend, /fn transcribe_and_deliver\(/);
@@ -1323,7 +1332,7 @@ test.skip("a dictation that hits the duration ceiling delivers instead of vanish
 test("colour and type go through the design tokens, not through literals", async () => {
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
 
-  // §11: every colour is a token. Literals are allowed only where tokens are
+  // Every colour is a token. Literals are allowed only where tokens are
   // *defined* — the `:root` block and the dark-scheme override.
   const rootBlock = /^:root \{[\s\S]*?^\}/m.exec(styles)?.[0] ?? "";
   const darkBlock = /@media \(prefers-color-scheme: dark\) \{[\s\S]*?\n\}/.exec(styles)?.[0] ?? "";
@@ -1334,7 +1343,7 @@ test("colour and type go through the design tokens, not through literals", async
   assert.deepEqual(literals, [], "colour literals belong in the token blocks only");
 
   // The old identity's interface font is gone. One sans-serif for the interface,
-  // and serif only where transcript text earns it (§11).
+  // and serif only where transcript text earns it.
   // The declaration, not the word: a comment explaining why it went is welcome.
   assert.doesNotMatch(styles, /font-family:[^;]*Trebuchet/);
   assert.match(rootBlock, /font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif/);
@@ -1389,7 +1398,7 @@ test("colour and type go through the design tokens, not through literals", async
   assert.match(darkBlock, /--border-strong:/);
   assert.match(styles, /^button \{[\s\S]{0,200}?var\(--border-strong\)/m);
 
-  // All three media blocks stay (§11, §13).
+  // All three media blocks stay.
   assert.match(styles, /prefers-color-scheme: dark/);
   assert.match(styles, /forced-colors: active/);
   assert.match(styles, /prefers-reduced-motion: reduce/);
@@ -1429,7 +1438,8 @@ test("desktop exposes connected activation settings and friendly catalog errors"
   assert.match(app, /invoke\("hotkey_configure"/);
   assert.match(app, /invoke<HotkeyStatus>\("hotkey_status"\)/);
 
-  // Registration is reported in plain language, not as a contract term (§12).
+  // Registration is reported in plain language, not as a contract term
+  // (UI-GUIDE "Two vocabulary registers").
   assert.match(app, /formatShortcutState\(/);
 
   // Every backend error code reaches the user through the catalog. A raw code

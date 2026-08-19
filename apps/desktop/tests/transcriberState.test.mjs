@@ -142,7 +142,7 @@ test("a stale sequence and an unexpected schema version are both dropped", () =>
   assert.equal(wrongSchema, advanced, "an unexpected schema_version is rejected, not coerced");
 });
 
-test("the §8.3 fields alone still advance the sequence and reach the model", () => {
+test("the extended view's fields alone still advance the sequence and reach the model", () => {
   // Only the new fields change: same session, same text, higher sequence.
   const updated = transcriberReducer(ready, {
     type: "status",
@@ -343,7 +343,7 @@ test("incomplete setup outranks every session state and names the requirement", 
     status: status({ sequence: 3, setup_complete: false, setup_reason: "not_a_reason" }),
     now: 0,
   });
-  assert.equal(unknownReason.state.reason, "onboarding_incomplete");
+  assert.equal(unknownReason.state.reason, "setup_incomplete");
 });
 
 test("Done clears a finished outcome and never touches an active session", () => {
