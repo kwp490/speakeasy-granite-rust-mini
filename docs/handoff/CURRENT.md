@@ -1,4 +1,4 @@
-# Handoff — SpeakEasy Mini, as of 2026-08-20
+# Handoff — SpeakEasy Mini, as of 2026-08-20 (second session)
 
 The state of the fork, what is finished, what is not, and the things that will
 cost you an afternoon if you rediscover them yourself.
@@ -61,6 +61,102 @@ about what setup *says*, since its copy is reviewable by rule.
 **Before running the installer lifecycle test**, kill any `ai-speakeasy-mini`.
 An aborted run leaves the app it launched for the running-app check alive, and
 the pre-flight guard then refuses every retry.
+
+## What happened on 2026-08-20 (second session)
+
+The brief came from a support log: `engine=cpu_gpu_runtime_missing device=cpu
+installed=cuda`. Three correct fields, an impossible combination, and nothing
+anywhere that compared them.
+
+### Where the claim came from
+
+The install marker was written from the wizard's provider radio button, three
+pages before anything ran. `UI-GUIDE.md` had said since the page was designed
+that an option which cannot be installed is shown **disabled** with the reason;
+nothing ever disabled it. So a user on a CUDA-capable machine selected "Use the
+graphics card", setup installed the only configuration it carries, and wrote
+`cuda`. The app then correctly found no GPU path, ran on the processor, and
+reported the installation it had been told about.
+
+The check that gated the option was wrong in a second, independent way: it asked
+the manifest for a CUDA `final-asr` **pack**. That answers nothing about whether
+a GPU path exists — there is one GGUF and a CUDA worker offloads that same file,
+so a CUDA pack entry would be a duplicate of the CPU one.
+
+### Three facts, one reader
+
+`crates/speakeasy-models/src/granite_gpu.rs` is now the only place the question
+is answered, and it keeps the three apart because they are genuinely
+independent:
+
+- **Published** — a `native-runtime` artifact `granite-worker-cuda-windows-x64`
+  in the trusted manifest. Its *absence* is the declaration, which is why the
+  constant and the manifest's own limitation both name the id.
+- **Present** — that worker plus every library the catalog's `proof_files` pin,
+  in the worker's own directory, because that is where Windows resolves a
+  dynamically loaded DLL's dependencies. The file names come from the manifest
+  rather than a second hand-written list; this workspace had `cudart64_13.dll` in
+  a script and `cudart64_12.dll` pinned in the catalog.
+- **Operational** — NVML lists the worker's **own process id** as holding a
+  compute context. Not the executable's name: a second copy started by something
+  else would satisfy that and say nothing about this process.
+
+Compiled-in is not running-on, and that is the gate no static check can replace.
+`compiled_accelerators` at `Hello` says what the binary could do; a refusing
+driver, a claimed card or exhausted VRAM runs the same binary on the processor
+and llama.cpp reports the fallback in its own stderr.
+
+### What changed, layer by layer
+
+- **Manifest** — the GPU limitation now names the artifact id whose absence is
+  the declaration, and says why a pack would not have meant anything.
+- **Wizard** — the graphics-card option is disabled when the configuration is not
+  installable, and the status line names which of the three refusals applies (the
+  missing-libraries one names the files).
+- **Packaging** — `scripts/GraniteWorkerProvider.ps1` reads the built worker for
+  `ggml-cuda` and refuses to assemble a payload carrying a CUDA worker without
+  the libraries it loads. Both packagers go through it, and it reads the required
+  file names out of the same manifest the Rust does.
+- **Install marker** — written by `seed::record_installed_provider`, from the
+  engine check's verdict, on the last page. Not with the seeds and not from a
+  choice. A check that never ran writes nothing, which the app reads as
+  `unrecorded`.
+- **Engine check** — `smoke::ProviderEvidence` carries the three facts
+  separately and `proven()` requires all of them. Its `code()` names which gate
+  closed, and it is what the last page and the log report.
+- **Runtime** — `ProviderIntegrity` compares the marker against what the worker
+  turned out to be, at every warm: `ok`, `unrecorded`,
+  `gpu_install_not_operational` (the actionable fault) or `running_beyond_record`
+  (`Enable-GraniteCuda.ps1`'s own outcome, disclosed rather than treated as a
+  failure). In `granite_warm` as `provider=`.
+- **UI** — the disclosure reads the **device**, not the pack: `cpu`, `cuda`,
+  `cuda_unverified`, `unknown`. The integrity line appears only when it says
+  something, and whether an outcome is a fault is decided in Rust and sent as a
+  boolean.
+
+### What was deliberately not done
+
+**Dictation is not refused** when the marker and the device disagree. The same
+GGUF produces the same transcript on the processor, so refusing would cost the
+user their dictation to make a point about provisioning. What was wrong was the
+*label*, and the label is now checked, named and surfaced. The failure is loud;
+the fallback it describes is not silent any more.
+
+### Tests
+
+Every combination is reachable without a graphics card, which was the point of
+factoring the decisions out of the I/O: `WorkerProvider` and
+`assess_provider_integrity` take their facts as arguments, and
+`verify_engine_with` takes the NVML probe. The regression set covers GPU hardware
+with a CPU payload, a published worker that was not installed, a present worker
+with no runtime libraries (each missing file named), a CUDA build that never got
+a context, a driver that would not answer, and a silent handshake. The two
+requirement lists — PowerShell's and Rust's — are pinned against each other.
+
+`Test-SetupWizard.ps1` additionally asserts, against the running window, that the
+graphics-card option is shown and disabled, that `install-provider.txt` does not
+exist before the engine check has run, and that the app's own `granite_warm` line
+reads `installed=cpu device=cpu provider=ok`.
 
 ## What happened on 2026-08-20
 

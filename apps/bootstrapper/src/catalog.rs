@@ -14,6 +14,8 @@
 //! have would be scope this feature did not ask for. The shape here — codes to
 //! strings, one module — is what makes adding one later mechanical.
 
+use speakeasy_models::GpuPayloadRejection;
+
 /// The wizard's window title. Not the product tagline: this is what appears in
 /// the taskbar while setup runs.
 pub const WINDOW_TITLE: &str = "SpeakEasy Mini setup";
@@ -146,9 +148,39 @@ pub const STEPS: &[Step] = &[
     },
 ];
 
-/// The check passed.
-pub const SMOKE_VERIFIED: &str =
-    "Dictation works. The model transcribed the recording word for word.";
+/// The check passed, and which provider it proved.
+///
+/// Says the provider because this is the moment setup writes it down, and the
+/// claim being recorded about someone's machine should be visible to them. Never
+/// "ready on the graphics card" for a run that happened on the processor: that
+/// sentence, generated from an intention rather than a result, is the whole
+/// defect this reporting exists to close.
+///
+/// The processor line is deliberately not an apology. A processor installation
+/// running on the processor is a complete installation working exactly as
+/// installed, and the only machine that needs more than one sentence about it is
+/// one whose card *could* have been used — which is the provider page's job to
+/// have said, before anything was installed.
+///
+/// `evidence` is a stable code, and it is shown rather than translated. It only
+/// appears where the answer is "processor", it names which of the three gates
+/// closed, and it is the one thing a support reader needs that no prose here can
+/// carry — the alternative is seven sentences for six conditions no user of a
+/// CPU-only release will ever see.
+pub fn smoke_verified(graphics_card: bool, evidence: &str) -> String {
+    if graphics_card {
+        "Dictation works, on the graphics card. The model transcribed the recording word for \
+         word, and setup confirmed the engine is holding the card."
+            .to_owned()
+    } else {
+        format!(
+            "Dictation works, on the processor. The model transcribed the recording word for \
+             word.\n\n\
+             Recorded as a processor installation ({evidence}), which is what SpeakEasy Mini \
+             will report from now on."
+        )
+    }
+}
 
 /// Shown while the engine is loading and transcribing.
 ///
@@ -206,20 +238,30 @@ pub const PROVIDER_PROCESSOR: &str = "Use the processor";
 /// where the reader is being told they cannot have the faster option.
 pub fn describe_provider_options(
     card_is_capable: bool,
-    configuration_published: bool,
+    // `None` means the graphics-card configuration is installable. An `Option`
+    // rather than a `Result`, because a caller holding a `Result<(), _>` has to
+    // map the unit away to borrow the error and the map reads as though it did
+    // something.
+    rejection: Option<&GpuPayloadRejection>,
 ) -> (String, Tone) {
-    match (card_is_capable, configuration_published) {
-        (true, true) => (
+    match (card_is_capable, rejection) {
+        (true, None) => (
             "This graphics card can run SpeakEasy Mini, and the graphics-card \
              configuration is available. It is faster; the processor uses no graphics memory."
                 .to_owned(),
             Tone::Good,
         ),
-        (true, false) => (
-            "This graphics card meets the requirements, but the graphics-card engine has not \
-             been published yet, so there is nothing to install for it. SpeakEasy Mini will \
-             run on the processor and will say so rather than appear to use the card."
-                .to_owned(),
+        // The case that matters, and the one the option is disabled for. Names
+        // *which* half is missing, because the three are different things to do
+        // about — and because saying only "not available" is what let this page
+        // look like setup had not examined the card.
+        (true, Some(rejection)) => (
+            format!(
+                "This graphics card meets the requirements, and {} So the graphics-card option \
+                 is unavailable: SpeakEasy Mini will run on the processor, and will say so \
+                 rather than appear to use the card.",
+                describe_gpu_rejection(rejection)
+            ),
             Tone::Warning,
         ),
         (false, _) => (
@@ -227,6 +269,28 @@ pub fn describe_provider_options(
              The processor configuration is a complete install, not a reduced one."
                 .to_owned(),
             Tone::Plain,
+        ),
+    }
+}
+
+/// Why the graphics-card configuration cannot be installed, as half a sentence.
+///
+/// Three conditions, three instructions. The runtime-files case names the files:
+/// a CUDA build whose libraries are not beside it does not run slower, it fails
+/// to start, and the error Windows gives for that names nothing anyone can act
+/// on.
+fn describe_gpu_rejection(rejection: &GpuPayloadRejection) -> String {
+    match rejection {
+        GpuPayloadRejection::WorkerNotPublished => {
+            "this version of SpeakEasy Mini does not include a graphics-card engine to install."
+                .to_owned()
+        }
+        GpuPayloadRejection::WorkerNotInstalled => {
+            "the graphics-card engine is published but is not part of this installation.".to_owned()
+        }
+        GpuPayloadRejection::RuntimeFilesMissing(files) => format!(
+            "the graphics-card engine is here but the libraries it loads are not: {}.",
+            files.join(", ")
         ),
     }
 }
@@ -298,6 +362,16 @@ pub fn seeds_not_recorded(failed: &[&str]) -> String {
         failed.len()
     )
 }
+
+/// The installed-configuration record could not be written.
+///
+/// Not fatal, and its own message rather than folded into
+/// [`seeds_not_recorded`]: what is lost is not a setting the user can redo in
+/// Settings, it is the app's ability to tell an expected processor run from a
+/// broken graphics-card one. Saying "an answer was not saved" would understate
+/// that and point at the wrong place to look.
+pub const PROVIDER_NOT_RECORDED: &str = "Dictation works, but setup could not record which configuration it installed. \
+     SpeakEasy Mini will report its provider as unrecorded; nothing else is affected.";
 
 /// Setup finished and there is no app where it recorded one.
 pub const APP_NOT_FOUND: &str = "SpeakEasy Mini was not started: its program file is not where setup recorded it. \

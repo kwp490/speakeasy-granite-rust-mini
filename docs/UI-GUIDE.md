@@ -110,6 +110,25 @@ Home / End** — the vertical tab pattern, declared with `aria-orientation`. A
 keyboard user can move through the entire window in visual order without a
 pointer. No feature creates a seventh top-level group.
 
+### The active provider is the device, never the pack
+
+Settings → Transcription discloses what dictation runs on. It reads the **device
+the worker is on**, not the provider of the selected pack: there is one Granite
+GGUF and a graphics-card worker offloads that same file, so the pack reads `cpu`
+on a machine holding the card — and the disclosure was rendering the pack. The
+four values are `cpu`, `cuda`, `cuda_unverified` (a graphics-card engine whose
+context could not be confirmed — neither of the other two would be true) and
+`unknown` (a worker that never answered its handshake).
+
+Beneath it, and **only when it says something**, sits the provider-integrity
+line: shown for `gpu_install_not_operational`, which is the actionable fault and
+carries what to do about it, and for `running_beyond_record`, which is not a
+fault and says so. `ok` and `unrecorded` have no copy at all — a line that
+appears on every launch to confirm nothing is wrong is a line people stop
+reading, and the requirement is to never *hide* the provider, not to narrate it.
+Whether an outcome is a fault is decided in Rust and sent as a boolean, so the
+page cannot classify it differently from the enum that defines it.
+
 Settings never starts, stops or cancels a dictation. There is one dictation
 controller — the dock and the global shortcut, which share a single
 implementation — and no second path that could deliver differently.
@@ -265,8 +284,29 @@ version could not:
   rather than loaded beside it and no such worker has been published. Hiding the
   option would read as setup not having looked at the card; enabling it would be
   a control that silently installs something else. The step says which half is
-  missing, and the answer is derived from the manifest, so it becomes `true` on
-  the day the worker is pinned there rather than needing a second edit.
+  missing, and the answer is derived from the manifest, so it becomes available
+  on the day the worker is pinned there rather than needing a second edit.
+
+  **The disabling was specified here and not implemented until 2026-08-20**, and
+  the cost was the whole class of defect this page exists to prevent: the option
+  was selectable, selecting it wrote `installed=cuda`, and the app then ran on
+  the processor and reported the installation it had been told about. The rule
+  is now pinned against source by `apps/desktop/tests/scaffold.test.mjs` and
+  against the running window by `Test-SetupWizard.ps1`, which asserts the
+  graphics-card option is present **and** disabled before it clicks Next.
+
+  Three refusals, three sentences, because they are three different things to
+  do: the release has no graphics-card engine; it has one and this installation
+  does not carry it; or it is here and the libraries it loads are not — that
+  last one names the files, because a CUDA build whose imports Windows cannot
+  resolve does not start, and the error for that names nothing anyone can act on.
+- **The installed configuration is recorded from proof, on the last page.** Not
+  from this page's radio button, and not with the seeds. It takes a published
+  and complete payload, a worker that reported a CUDA backend at its startup
+  handshake, and NVML placing that worker's own process on a device. A check
+  that never ran records nothing, which the app reads as `unrecorded` — a third
+  state, deliberately, because guessing `cpu` would be a claim about a
+  configuration nobody verified.
 - **A shortcut is verified by taking it, not by looking at it.** Windows will
   not say who owns a global hotkey, so setup registers the chosen combination
   and releases it again; if the registration fails, Next is disabled and the
@@ -334,6 +374,13 @@ names a likely cause and an action, and states what continuing costs — a skipp
 check must never read as a passed one. The two failures get different advice
 because they have different causes: a mismatch means the engine ran and cannot
 hear, which implicates the model files; an engine that never ran does not.
+
+**The last step also says which provider it proved**, because that is the moment
+the record is written and the claim being made about someone's machine should be
+visible to them. "Dictation works, on the processor" is not an apology — a
+processor installation running on the processor is complete and working exactly
+as installed — and the graphics-card line is never shown for a run that happened
+on the processor.
 
 **The wizard must never hold the foreground while the engine check runs.**
 Anything SpeakEasy Mini puts in the foreground becomes the delivery target, and the

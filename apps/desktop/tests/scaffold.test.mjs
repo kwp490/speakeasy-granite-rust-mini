@@ -1512,6 +1512,77 @@ test("every status read that can lose the startup race retries and reports", asy
   assert.match(helper, /throw lastError;/);
 });
 
+test("the provider a machine is recorded as running on is proved, never chosen", async () => {
+  // The reported failure: `engine=cpu_gpu_runtime_missing device=cpu
+  // installed=cuda`. Setup wrote a graphics-card installation down from a radio
+  // button it had never disabled, the app correctly ran on the processor, and the
+  // disagreement lived only as three fields of one log line nothing compared.
+  //
+  // Pinned against source because every part of this is a *structural* rule --
+  // where a value may come from, and what has to be true before it is written --
+  // and a structural rule is exactly what review keeps missing.
+  const bootstrapper = new URL("../../../apps/bootstrapper/src/", import.meta.url);
+  const wizard = await readFile(new URL("wizard.rs", bootstrapper), "utf8");
+  const seed = await readFile(new URL("seed.rs", bootstrapper), "utf8");
+  const build = await readFile(
+    new URL("../../../scripts/Build-LocalInstaller.ps1", import.meta.url),
+    "utf8",
+  );
+
+  // The option that cannot be installed is shown and *disabled*. Hiding it reads
+  // as setup not having looked at the card; leaving it enabled is a control that
+  // installs something else and says nothing.
+  assert.match(wizard, /GRAPHICS_CARD_OPTION/);
+  assert.match(wizard, /EnableWindow\(download::graphics_card_configuration_available\(\)\.is_ok\(\)\)/);
+
+  // The marker is written from the engine check's verdict, and nowhere else.
+  assert.match(wizard, /seed::record_installed_provider/);
+  assert.doesNotMatch(
+    wizard,
+    /provider: if self\.provider\.selected_index/,
+    "the installed-configuration record must not come from the radio group again",
+  );
+  // And it is not one of the seeds, which are written three pages earlier from
+  // what the user chose.
+  assert.doesNotMatch(seed, /\(PROVIDER, answers\./);
+
+  // Packaging refuses to assemble a graphics-card worker with no libraries
+  // beside it -- the failure that does not degrade, because Windows cannot
+  // resolve the imports and the engine never starts.
+  assert.match(build, /Assert-GraniteWorkerPayloadIsCoherent/);
+});
+
+test("the active provider is reported as the device, never as the pack", async () => {
+  // There is one Granite GGUF and a graphics-card worker offloads that same
+  // file, so the selected pack reads `cpu` on a machine holding the card.
+  // "Dictation runs on: Processor (CPU)" was rendered from the pack.
+  const page = await readFile(
+    new URL("../src/settings/Transcription.tsx", import.meta.url),
+    "utf8",
+  );
+  const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
+
+  assert.match(page, /formatState\(gpu\.active_device\)/);
+  assert.doesNotMatch(
+    page,
+    /messages\.engineDisclosure[\s\S]{0,200}formatState\(gpu\.active_provider\)/,
+    "the disclosure must read the device, not the pack's provider",
+  );
+  // A graphics-card engine whose context could not be confirmed gets its own
+  // label. Calling it `cuda` is the unverified claim; calling it `cpu` reports a
+  // fault on a machine that is probably using its card.
+  assert.match(catalog, /cuda_unverified:/);
+  // The disagreement has copy, and it is only shown when it says something.
+  assert.match(catalog, /gpu_install_not_operational:/);
+  assert.match(page, /formatProviderIntegrity\(gpu\.provider_integrity\)/);
+
+  // And it is re-read while the worker warms. Both the device and the integrity
+  // line are `not_configured` until the launch warm has spoken, seconds after
+  // this page mounts -- read once, the fault disclosure is never rendered at all.
+  assert.match(page, /ENGINE_WARM_READS/);
+  assert.match(page, /active_device !== "not_configured"/);
+});
+
 test("desktop exposes connected activation settings and friendly catalog errors", async () => {
   const app = await readAllSources();
   const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");

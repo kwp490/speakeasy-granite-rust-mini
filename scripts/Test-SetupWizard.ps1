@@ -243,7 +243,27 @@ try {
     if ($providerStatus -notmatch 'processor') {
         throw "The provider page said nothing about the processor configuration: $providerStatus"
     }
-    Write-Host "  provider: $($providerStatus.Split([Environment]::NewLine)[0])"
+    # The option that cannot be installed is shown and **disabled**, which is
+    # `UI-GUIDE`'s rule for this page and was not implemented until 2026-08-20.
+    # Selecting it is what wrote `installed=cuda` onto an installation carrying no
+    # CUDA worker: the app then correctly ran on the processor and the support log
+    # read `engine=cpu_gpu_runtime_missing device=cpu installed=cuda`.
+    #
+    # Asserted by *name*, because "the first radio button" is the kind of index
+    # that keeps pointing at the right control while meaning the wrong one.
+    $providerOptions = @(Get-Controls -Window $window |
+        Where-Object { $_.Class -eq 'Button' -and $_.Visible -and $_.Text -like 'Use the *' })
+    if ($providerOptions.Count -ne 2) {
+        throw "Expected two provider options and found $($providerOptions.Count)."
+    }
+    $graphicsCard = @($providerOptions | Where-Object { $_.Text -eq 'Use the graphics card' })[0]
+    if (-not $graphicsCard) { throw 'The provider page does not offer the graphics-card option at all.' }
+    # Hidden would be wrong too: it reads as setup not having examined the card.
+    if ($graphicsCard.Enabled) {
+        throw ('The graphics-card option is selectable on a payload that carries no CUDA ' +
+            'worker. Selecting it is what records a graphics-card installation that does not exist.')
+    }
+    Write-Host "  provider: graphics-card option shown and disabled; $($providerStatus.Split([Environment]::NewLine)[0])"
     Invoke-Next -Window $window
 
     Assert-Page -Window $window -Heading 'Download the models' -Number 3
@@ -303,6 +323,16 @@ try {
     Invoke-Next -Window $window
 
     Assert-Page -Window $window -Heading 'Does dictation actually work?' -Number 8
+    # Nothing may have been recorded yet. The installed-configuration marker is
+    # written from this page's verdict and from nowhere else, so its *absence*
+    # here is the assertion that it is no longer derived from the provider radio
+    # three pages back. Checked before the verdict lands, because after it the
+    # file is expected to exist.
+    $providerRecord = Join-Path $configRoot 'install-provider.txt'
+    if (Test-Path -LiteralPath $providerRecord) {
+        throw ('install-provider.txt exists before the engine check has run, so it was not ' +
+            'written from what setup proved.')
+    }
     # A cold model load plus a transcription. Measured at about five seconds on
     # the machine this was written on; bounded well above that so a slow disk is
     # not read as a hang.
@@ -330,6 +360,10 @@ try {
         'install-hotkey.txt'     = 'Ctrl+Alt+P'
         'install-logging.txt'    = '1'
         'install-retention.txt'  = '0'
+        # `cpu`, and it has to be: this payload carries no CUDA worker, so the
+        # engine check cannot prove a graphics-card installation however capable
+        # the card in this machine is. A `cuda` here would mean the marker had
+        # gone back to describing an intention.
         'install-provider.txt'   = 'cpu'
         'install-vocabulary.txt' = 'Kenneth, Anthropic, Granite'
     }
@@ -344,6 +378,16 @@ try {
         }
     }
     Write-Host '  seeds: all five recorded with the answers given'
+
+    # How much of the diagnostic log already existed. Everything after this is
+    # what *this* launch wrote, and nothing before it may be read as evidence:
+    # the log survives an uninstall by design, so a previous install's
+    # `granite_warm` line is sitting in it and matches every pattern below.
+    # Measured 2026-08-20 -- this assertion passed against a line written before
+    # the binary under test was even built, and then failed against a stale line
+    # from the format that predated the field it was checking.
+    $logPath = Join-Path $dataRoot 'logs\speakeasy.log'
+    $logBytesBefore = if (Test-Path -LiteralPath $logPath) { (Get-Item -LiteralPath $logPath).Length } else { 0 }
 
     $finish = Get-Button -Window $window -Text 'Finish'
     Invoke-Click -Handle $finish.Handle
@@ -380,6 +424,43 @@ try {
     if ($settings.privacy.persisted_history_enabled -ne $false) {
         throw 'The retention answer did not reach the profile.'
     }
+    # The app's own reading of the marker, in its log, beside what it actually
+    # ran on. `provider=ok` is the comparison being made rather than left for a
+    # reader; the combination this replaced was three correct fields whose
+    # disagreement nothing looked at.
+    $warmDeadline = [DateTime]::UtcNow.AddSeconds(180)
+    $warmLine = $null
+    while ([DateTime]::UtcNow -lt $warmDeadline) {
+        if (Test-Path -LiteralPath $logPath) {
+            # Only the bytes this launch appended. Reading the whole file finds a
+            # previous install's line and reports it as this one's.
+            $stream = [IO.File]::Open($logPath, 'Open', 'Read', 'ReadWrite')
+            try {
+                if ($stream.Length -gt $logBytesBefore) {
+                    [void]$stream.Seek($logBytesBefore, 'Begin')
+                    $reader = New-Object IO.StreamReader($stream)
+                    $fresh = $reader.ReadToEnd()
+                    $warmLine = @($fresh -split "`r?`n" | Where-Object { $_ -match 'event=granite_warm' }) |
+                        Select-Object -Last 1
+                }
+            } finally {
+                $stream.Dispose()
+            }
+            if ($warmLine) { break }
+        }
+        Start-Sleep -Seconds 2
+    }
+    if (-not $warmLine) { throw 'This launch never logged granite_warm, so its provider report cannot be read.' }
+    if ($warmLine -notmatch 'installed=cpu') {
+        throw "The app read a different installed configuration than setup recorded: $warmLine"
+    }
+    if ($warmLine -notmatch 'device=cpu') {
+        throw "This payload has no CUDA worker, so the device cannot be anything but cpu: $warmLine"
+    }
+    if ($warmLine -notmatch 'provider=ok') {
+        throw "The provider record and the running device disagree: $warmLine"
+    }
+    Write-Host "  warm: $($warmLine -replace '^\d+ ', '')"
     # Waited for by *content*, not by existence. The vocabulary is applied while
     # the app is still building its coordinators, a little after the seeds are
     # consumed, so reading it the instant the last seed disappeared found no

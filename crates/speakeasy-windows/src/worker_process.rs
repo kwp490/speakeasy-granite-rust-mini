@@ -120,6 +120,20 @@ impl<K: Clock + 'static> ProcessWorkerClient<K> {
         Ok(client)
     }
 
+    /// The child's operating-system process id.
+    ///
+    /// Exposed for the CUDA proof, which is a question only NVML can answer and
+    /// only about a *process*: NVML lists the pids holding a compute context on
+    /// each device, and matching on the executable's name instead would be
+    /// satisfied by a second copy of the same worker started by something else.
+    ///
+    /// Not an identity for anything else. A pid is reused by Windows after the
+    /// process exits, so this is only meaningful while this client is alive —
+    /// which it is, by construction, for as long as the caller holds `self`.
+    pub fn process_id(&self) -> u32 {
+        self.process.child().id()
+    }
+
     /// Requests protocol shutdown and enforces the supervisor stop deadline.
     ///
     /// # Errors

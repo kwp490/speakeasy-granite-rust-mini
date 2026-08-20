@@ -26,8 +26,9 @@ use std::sync::{Arc, Mutex};
 
 use speakeasy_domain::CancelToken;
 use speakeasy_models::{
-    DownloadPolicy, DownloadRequest, ExecutionProvider, InstallManager, InstallSpec,
-    LooseInstallFile, Pack, PackRole, bundled_manifest, download_to_file,
+    DownloadPolicy, DownloadRequest, ExecutionProvider, GpuPayloadRejection, InstallManager,
+    InstallSpec, LooseInstallFile, Pack, PackRole, bundled_manifest, download_to_file,
+    inspect_gpu_payload,
 };
 
 use crate::{catalog, uninstall};
@@ -166,27 +167,39 @@ pub fn plan(provider: ExecutionProvider) -> Result<Plan, Failure> {
     })
 }
 
-/// Whether a graphics-card configuration is a thing setup could install.
+/// Whether a graphics-card configuration is a thing setup could install, and
+/// why not when it is not.
 ///
-/// Asked before the choice is offered, not after it is made. Granite's GPU
-/// support is compiled into the worker rather than loaded beside it, so a
-/// machine with a perfectly good card still cannot run on it unless a
-/// CUDA-built worker has been published and pinned by digest — and none has.
-/// The user-visible consequence of getting this wrong is the worst kind: a
-/// selectable option that installs the CPU configuration anyway and says
-/// nothing.
+/// Asked before the choice is offered, not after it is made — and the
+/// consequence of getting it wrong is the worst kind: a selectable option that
+/// installs the CPU configuration anyway and says nothing. That is not
+/// hypothetical. Until 2026-08-20 this asked the manifest for a CUDA `final-asr`
+/// **pack**, which answers a different question: there is one GGUF and a CUDA
+/// worker offloads that same file, so a pack entry would be a duplicate of the
+/// CPU one and its presence says nothing about whether a GPU path exists. The
+/// option was also never disabled, so selecting it wrote `installed=cuda` onto
+/// an installation with no CUDA worker in it.
 ///
-/// Derived from the manifest rather than a constant, so it answers `true` on
-/// the day the worker is published and the manifest gains its entry, with no
-/// second place to remember to change. That entry is also what gives
-/// [`plan`] its second item.
-#[must_use]
-pub fn graphics_card_configuration_published() -> bool {
-    bundled_manifest().is_ok_and(|manifest| {
-        manifest
-            .select_sole_install_eligible(PackRole::FinalAsr, ExecutionProvider::Cuda)
-            .is_ok()
-    })
+/// It asks `speakeasy_models::inspect_gpu_payload` now, which is the one place
+/// the three independent facts live — published, present, and (separately)
+/// proven operational. Answers `Ok(())` on the day a CUDA worker is pinned in
+/// the manifest and staged with its runtime libraries, with no second place to
+/// remember to change.
+///
+/// # Errors
+///
+/// Returns the rejection, which the provider page turns into the sentence
+/// naming which half is missing.
+pub fn graphics_card_configuration_available() -> Result<(), GpuPayloadRejection> {
+    let manifest = bundled_manifest().map_err(|_| GpuPayloadRejection::WorkerNotPublished)?;
+    // The directory the payload will place the worker in, on this machine.
+    // Checked rather than assumed: "published" alone would re-offer the option
+    // on a machine where the runtime libraries never arrived, which is the
+    // failure that does not error but fails to start.
+    let Some(root) = crate::probe::install_root() else {
+        return Err(GpuPayloadRejection::WorkerNotInstalled);
+    };
+    inspect_gpu_payload(&manifest, &root.join("proof"), "granite-worker.exe")
 }
 
 /// Turn one pack into a fetchable item.

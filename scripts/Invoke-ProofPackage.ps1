@@ -49,6 +49,18 @@ try {
     New-Item -ItemType Directory -Path $stage -Force | Out-Null
     Copy-Item -LiteralPath $bootstrapper -Destination (Join-Path $stage 'speakeasy-bootstrapper.exe')
     Copy-Item -LiteralPath $graniteWorker -Destination (Join-Path $stage 'granite-worker.exe')
+    # Refuse to stage a graphics-card worker with no libraries beside it. A CUDA
+    # build whose imports Windows cannot resolve does not run slower, it does not
+    # start -- and the error for that names no file anyone can act on. `cargo
+    # build` above requests default features, so this normally reports `cpu`; the
+    # check is for the run where somebody left a `--features cuda` binary in the
+    # target directory.
+    . (Join-Path $repositoryRoot 'scripts\GraniteWorkerProvider.ps1')
+    $stagedWorkerProvider = Assert-GraniteWorkerPayloadIsCoherent `
+        -WorkerPath $graniteWorker `
+        -RepositoryRoot $repositoryRoot `
+        -StagedDirectory $stage
+    Write-Host "  granite worker provider: $stagedWorkerProvider"
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'packaging\THIRD-PARTY-NOTICES.txt') $stage
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'packaging\MODEL-NOTICES.md') $stage
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'packaging\SOURCE-NOTICE.md') $stage

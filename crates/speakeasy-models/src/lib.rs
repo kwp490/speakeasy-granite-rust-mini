@@ -9,6 +9,7 @@ mod archive;
 mod compatibility;
 mod download;
 mod gpu;
+mod granite_gpu;
 mod hardware;
 mod lifecycle;
 mod manager;
@@ -25,6 +26,10 @@ pub use download::{DownloadError, DownloadRequest, DownloadResult, download_to_f
 pub use gpu::{
     ComputeCapability, CudaDevice, ExecutionEvidence, GpuProbe, GpuProbeFailure, GpuQualification,
     GpuRejection, GpuSnapshot, MINIMUM_COMPUTE_CAPABILITY, NvmlGpuProbe, admit, admit_engine,
+};
+pub use granite_gpu::{
+    CudaContextProbe, CudaContextProof, GRANITE_CUDA_WORKER_ARTIFACT_ID, GpuPayloadRejection,
+    NvmlCudaContextProbe, inspect_gpu_payload, prove_cuda_context, required_cuda_runtime_files,
 };
 pub use hardware::{DetectedAdapter, HardwareProbe, HardwareSnapshot, SafeStandardHardwareProbe};
 pub use lifecycle::{

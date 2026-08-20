@@ -27,8 +27,9 @@ use speakeasy_domain::{
     UtteranceAudio,
 };
 use speakeasy_models::{
-    ExecutionProvider, GpuProbe, InstallSpec, NvmlGpuProbe, Pack, PackRole, TrustedManifest, admit,
-    bundled_manifest, verify_pack_files,
+    CudaContextProof, ExecutionProvider, GpuProbe, InstallSpec, NvmlCudaContextProbe, NvmlGpuProbe,
+    Pack, PackRole, TrustedManifest, admit, bundled_manifest, prove_cuda_context,
+    verify_pack_files,
 };
 use speakeasy_windows::{CrashThrottle, ProcessDeadlines, ProcessSupervisor};
 use speakeasy_worker::{WorkerClient, WorkerCommand, WorkerEvent, WorkerFinalAdapter};
@@ -68,6 +69,138 @@ impl EngineChoiceReason {
             Self::CpuGpuPackNotInstalled => "cpu_gpu_pack_not_installed",
             Self::CpuGpuRuntimeMissing => "cpu_gpu_runtime_missing",
         }
+    }
+}
+
+/// What the resident worker turned out to be, as two separate facts.
+///
+/// Separate because they answer different questions and only one of them is
+/// about this run. `compiled_cuda` is a property of the binary, from the startup
+/// handshake, and is what pack selection needs: a CUDA-capable binary can take
+/// a CUDA pack. `context` is a property of the *process*, from NVML, and is the
+/// only thing that says the card is actually being used.
+///
+/// Collapsing the two is how `device=cuda` came to mean "this binary was built
+/// with CUDA" — which is not a device, and is true of a worker that failed to
+/// initialize CUDA and ran the whole dictation on the processor. llama.cpp
+/// reports that fallback in its own stderr and nowhere a caller can see.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct WorkerProvider {
+    /// Whether a CUDA backend is compiled into this worker, per `Hello`.
+    ///
+    /// `None` means the handshake did not answer — a pre-v2 binary, or one that
+    /// failed before it spoke. Never folded into `false`: "it said no" and "it
+    /// did not say" are different, and only the first is a statement about the
+    /// binary.
+    compiled_cuda: Option<bool>,
+    /// Whether NVML places this worker's own process on a device.
+    ///
+    /// `None` when it was not asked, which is every CPU build: a worker with no
+    /// CUDA backend has no context to hold, and asking would turn "there is
+    /// nothing to prove" into a driver query on every processor install.
+    context: Option<CudaContextProof>,
+}
+
+impl WorkerProvider {
+    /// The device this worker is **running on**, as a stable code.
+    ///
+    /// Four values, and the fourth is the one that keeps this honest.
+    /// `cuda_unverified` is a CUDA-capable worker whose context could not be
+    /// checked, and it is deliberately neither `cuda` nor `cpu`: calling it
+    /// `cuda` is the unverified claim this whole path exists to remove, and
+    /// calling it `cpu` would report a fault on a machine that is probably
+    /// using its card perfectly well behind a driver that would not answer.
+    const fn device(self) -> &'static str {
+        match (self.compiled_cuda, self.context) {
+            (None, _) => "unknown",
+            (Some(true), Some(CudaContextProof::Holding)) => "cuda",
+            // A binary with no CUDA backend, and a CUDA binary NVML says is not
+            // on a device: one arm, because the answer is the same fact -- this
+            // run is on the processor -- and the two reasons for it are carried
+            // by `WorkerProvider`'s own fields rather than by this string.
+            (Some(false), _) | (Some(true), Some(CudaContextProof::NotHolding)) => "cpu",
+            (Some(true), Some(CudaContextProof::ProbeUnavailable(_)) | None) => "cuda_unverified",
+        }
+    }
+
+    /// Whether this run is provably on the graphics card.
+    const fn proved_graphics_card(self) -> bool {
+        matches!(
+            (self.compiled_cuda, self.context),
+            (Some(true), Some(CudaContextProof::Holding))
+        )
+    }
+}
+
+/// Whether what setup recorded still describes what is running.
+///
+/// The field that made the original defect visible and did nothing about it. A
+/// support log read `engine=cpu_gpu_runtime_missing device=cpu installed=cuda`:
+/// every value correct, the combination impossible, and no code anywhere looked
+/// at the three together.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderIntegrity {
+    /// Setup recorded no configuration, so there is nothing to check. An
+    /// installation placed by hand, or one whose engine check never ran.
+    Unrecorded,
+    /// What is running is what was recorded. The quiet, normal case.
+    Matches,
+    /// **The actionable failure.** Setup recorded a graphics-card installation
+    /// and this run is not on the graphics card.
+    ///
+    /// Reported rather than absorbed. Dictation still works — the same GGUF runs
+    /// on the processor and produces the same transcript — so refusing to
+    /// transcribe would cost the user their dictation to make a point about
+    /// provisioning. What must never happen is the *label* being wrong, and
+    /// before this it was: the app reported the installation it was told about
+    /// and ran something else.
+    GpuInstallNotOperational,
+    /// Setup recorded a processor installation and this run is on the graphics
+    /// card.
+    ///
+    /// Not a fault. It is what `scripts/Enable-GraniteCuda.ps1` produces on
+    /// purpose — a CUDA worker staged over a CPU install — and the honest thing
+    /// is to say so rather than report the record as though it were the truth.
+    RunningBeyondRecord,
+}
+
+impl ProviderIntegrity {
+    /// A stable code for the log and the UI catalog.
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Unrecorded => "unrecorded",
+            Self::Matches => "ok",
+            Self::GpuInstallNotOperational => "gpu_install_not_operational",
+            Self::RunningBeyondRecord => "running_beyond_record",
+        }
+    }
+
+    /// Whether this is a condition someone has to do something about.
+    pub const fn is_fault(self) -> bool {
+        matches!(self, Self::GpuInstallNotOperational)
+    }
+}
+
+/// Compare what setup recorded against what the worker turned out to be.
+///
+/// `recorded` is the token `install-provider.txt` carries, as
+/// `installed_configuration` reads it: `"cpu"`, `"cuda"`, or `"unrecorded"`.
+///
+/// A free function taking both facts, rather than a method reaching for either,
+/// so the combination that produced the original defect is reachable in a test
+/// on a machine that cannot produce it.
+fn assess_provider_integrity(recorded: &str, worker: WorkerProvider) -> ProviderIntegrity {
+    let on_card = worker.proved_graphics_card();
+    match recorded {
+        // An empty marker file and an absent one are the same statement. The app
+        // substitutes `unrecorded` for absent; the empty string is what a
+        // half-written file leaves, and guessing either way about it would be a
+        // claim about a configuration nobody verified.
+        "" | "unrecorded" => ProviderIntegrity::Unrecorded,
+        "cuda" if on_card => ProviderIntegrity::Matches,
+        "cuda" => ProviderIntegrity::GpuInstallNotOperational,
+        _ if on_card => ProviderIntegrity::RunningBeyondRecord,
+        _ => ProviderIntegrity::Matches,
     }
 }
 
@@ -187,6 +320,16 @@ pub struct GraniteEnvironment<'a> {
     pub total_memory_bytes: Option<u64>,
     /// Where the worker's protocol frames go, when disk logging is on.
     pub diagnostic_log: Option<PathBuf>,
+    /// Which configuration setup recorded having *proved* it installed, as the
+    /// token `install-provider.txt` carries: `"cpu"`, `"cuda"`, or
+    /// `"unrecorded"`.
+    ///
+    /// Here because it is the only thing that makes a processor run legible: on
+    /// a processor installation it is the expected outcome, and on a
+    /// graphics-card installation it is a fault, and nothing else in this
+    /// environment can tell those apart. Read by `assess_provider_integrity`
+    /// once the worker has come up.
+    pub recorded_provider: &'a str,
 }
 
 /// Bounds the `FinishStream` call, where Granite's ~2 GB load and inference
@@ -269,6 +412,13 @@ pub struct GraniteEngineCoordinator {
     /// than sitting beside it, so the first selection of a process cannot do
     /// better than assume the conservative answer.
     cuda_worker: Mutex<Option<bool>>,
+    /// Whether what setup recorded still describes what is running.
+    ///
+    /// Recorded at warm and read by the log and the settings page. `Unrecorded`
+    /// until a warm happens, which is the same thing an installation with no
+    /// marker reports — both mean "nothing has been checked", and inventing a
+    /// distinction between them would be a claim about a check that has not run.
+    integrity: Mutex<ProviderIntegrity>,
 }
 
 impl Default for GraniteEngineCoordinator {
@@ -283,6 +433,7 @@ impl Default for GraniteEngineCoordinator {
             reason: Mutex::new("not_configured"),
             device: Mutex::new("not_configured"),
             cuda_worker: Mutex::new(None),
+            integrity: Mutex::new(ProviderIntegrity::Unrecorded),
         }
     }
 }
@@ -332,18 +483,31 @@ impl GraniteEngineCoordinator {
             .map_or("granite_state_unavailable", |device| *device)
     }
 
-    fn record_device(&self, device: &'static str) {
+    /// What setup recorded versus what is running, as a stable code.
+    ///
+    /// `ok` and `unrecorded` are the quiet answers; the other two say something
+    /// happened that the user or an operator is entitled to know.
+    pub fn provider_integrity(&self) -> ProviderIntegrity {
+        self.integrity
+            .lock()
+            .map_or(ProviderIntegrity::Unrecorded, |integrity| *integrity)
+    }
+
+    fn record_worker_provider(&self, worker: WorkerProvider, recorded_provider: &str) {
         if let Ok(mut slot) = self.device.lock() {
-            *slot = device;
+            *slot = worker.device();
         }
-        // Only a definite answer is remembered. `unknown` means a pre-v2
-        // worker, and recording `false` for it would turn "we did not ask
-        // successfully" into "there is no GPU worker" — the same overreach
-        // this whole change exists to remove.
-        if device != "unknown"
-            && let Ok(mut slot) = self.cuda_worker.lock()
-        {
-            *slot = Some(device == "cuda");
+        // Only a definite answer is remembered, and it is the *compiled*
+        // capability rather than the device: pack selection asks "can this
+        // binary take a CUDA pack", which a worker running on the processor
+        // behind an unanswerable driver can still do. `None` means the handshake
+        // did not answer, and recording `false` for that would turn "we did not
+        // ask successfully" into "there is no GPU worker".
+        if let (Some(compiled), Ok(mut slot)) = (worker.compiled_cuda, self.cuda_worker.lock()) {
+            *slot = Some(compiled);
+        }
+        if let Ok(mut slot) = self.integrity.lock() {
+            *slot = assess_provider_integrity(recorded_provider, worker);
         }
     }
 
@@ -403,11 +567,17 @@ impl GraniteEngineCoordinator {
     /// `a_hash_mismatch_fails_verification_without_quarantining` in this
     /// module's tests for why a static install defect must not count as a
     /// crash.
+    /// `recorded_provider` is the token `install-provider.txt` carries, so the
+    /// warm can compare what setup proved against what actually came up. Passed
+    /// in rather than read here: the coordinator has no profile root, and the
+    /// marker is a fact about the *installation* that the composition root
+    /// already holds.
     pub fn ensure_ready(
         &self,
         granite_worker_exe: &Path,
         choice: &GranitePackChoice<'_>,
         diagnostic_log: Option<PathBuf>,
+        recorded_provider: &str,
     ) -> Result<Arc<ResidentGraniteAdapter>, DomainError> {
         let mut slot = self
             .adapter
@@ -419,14 +589,14 @@ impl GraniteEngineCoordinator {
         self.record_engine_reason(choice.reason.code());
         verify_pack_files(choice.pack, &choice.model_root)
             .map_err(|_| domain_error(ErrorCode::AdapterFailed))?;
-        let (adapter, device) = match warm(granite_worker_exe, choice, diagnostic_log) {
-            Ok((adapter, device)) => (Arc::new(adapter), device),
+        let (adapter, worker) = match warm(granite_worker_exe, choice, diagnostic_log) {
+            Ok((adapter, worker)) => (Arc::new(adapter), worker),
             Err(error) => {
                 self.record_worker_failure();
                 return Err(error);
             }
         };
-        self.record_device(device);
+        self.record_worker_provider(worker, recorded_provider);
         *slot = Some(Arc::clone(&adapter));
         Ok(adapter)
     }
@@ -437,15 +607,16 @@ impl GraniteEngineCoordinator {
 /// `LoadModel` `WorkerFinalAdapter::run_locked` sends a no-op fast path in
 /// the worker.
 ///
-/// Also returns the device the worker reported it can use, which is the only
-/// point in the process where that is knowable: the pack is chosen before any
-/// worker exists, and CUDA is compiled into the binary rather than sitting
-/// beside it as a file to stat.
+/// Also returns what the worker turned out to be, which is the only point in
+/// the process where that is knowable: the pack is chosen before any worker
+/// exists, CUDA is compiled into the binary rather than sitting beside it as a
+/// file to stat, and whether a context was actually created is a property of the
+/// running process that only NVML can see.
 fn warm(
     granite_worker_exe: &Path,
     choice: &GranitePackChoice<'_>,
     diagnostic_log: Option<PathBuf>,
-) -> Result<(ResidentGraniteAdapter, &'static str), DomainError> {
+) -> Result<(ResidentGraniteAdapter, WorkerProvider), DomainError> {
     let process_deadlines = ProcessDeadlines::new(Duration::from_secs(10), Duration::from_secs(5))
         .map_err(|_| domain_error(ErrorCode::InvalidData))?;
     let crashes = CrashThrottle::new(3, Duration::from_mins(1))
@@ -472,7 +643,7 @@ fn warm(
     // A failure here must not fail the warm: the device is a diagnostic, and
     // refusing to run Granite because it could not be named would trade a
     // working final pass for a log field.
-    let device = client
+    let compiled_cuda = client
         .request(
             WorkerCommand::Hello,
             &CancelToken::default(),
@@ -484,15 +655,10 @@ fn warm(
                 WorkerEvent::Ready {
                     compiled_accelerators,
                     ..
-                } => Some(if compiled_accelerators.iter().any(|name| name == "cuda") {
-                    "cuda"
-                } else {
-                    "cpu"
-                }),
+                } => Some(compiled_accelerators.iter().any(|name| name == "cuda")),
                 _ => None,
             })
-        })
-        .unwrap_or("unknown");
+        });
     let model_root = choice.model_root.to_string_lossy().into_owned();
     client.request(
         WorkerCommand::LoadModel {
@@ -502,6 +668,15 @@ fn warm(
         &CancelToken::default(),
         Deadline::after(clock.as_ref(), GRANITE_WARM_TIMEOUT),
     )?;
+    // After `LoadModel`, because llama.cpp creates its CUDA context and
+    // allocates its buffers there — asking earlier reports `NotHolding` about a
+    // worker that goes on to use the card for the whole session.
+    //
+    // Only for a binary that said it could. A CPU worker has no context to hold,
+    // and querying NVML about one would make a driver question part of every
+    // processor install's warm path.
+    let context = (compiled_cuda == Some(true))
+        .then(|| prove_cuda_context(&NvmlCudaContextProbe, client.process_id()));
     Ok((
         WorkerFinalAdapter::new(
             client,
@@ -510,7 +685,10 @@ fn warm(
             GRANITE_WORKER_ARTIFACT_ID.to_owned(),
             choice.capabilities,
         ),
-        device,
+        WorkerProvider {
+            compiled_cuda,
+            context,
+        },
     ))
 }
 
@@ -577,6 +755,7 @@ pub fn warm_granite_if_configured(
             granite_worker_exe,
             &choice,
             environment.diagnostic_log.clone(),
+            environment.recorded_provider,
         )
         .map(|_adapter| ())?;
 
@@ -783,8 +962,12 @@ pub async fn run_granite_final_pass(
         return Ok(None);
     };
 
-    let adapter =
-        coordinator.ensure_ready(granite_worker_exe, &choice, environment.diagnostic_log)?;
+    let adapter = coordinator.ensure_ready(
+        granite_worker_exe,
+        &choice,
+        environment.diagnostic_log,
+        environment.recorded_provider,
+    )?;
 
     // Built from the resident adapter's own clock, not a fresh one -- see
     // `WorkerFinalAdapter::clock`'s doc comment for the shipped bug this caused.
@@ -857,6 +1040,175 @@ pub fn granite_selection(
 mod tests {
     use super::*;
 
+    /// The reported failure, reproduced exactly.
+    ///
+    /// `engine=cpu_gpu_runtime_missing device=cpu installed=cuda` — three
+    /// correct fields whose combination cannot happen, sitting in a support log
+    /// on 2026-08-20 with nothing anywhere comparing them. The install marker
+    /// said graphics card, the runtime said processor, and the disagreement had
+    /// no name, no code and no surface.
+    ///
+    /// This is the test that could not be written before, because
+    /// `assess_provider_integrity` did not exist: there was no function that saw
+    /// both facts.
+    #[test]
+    fn a_graphics_card_record_running_on_the_processor_is_a_named_fault() {
+        // A CPU worker: the handshake said it has no CUDA backend, so there was
+        // nothing to ask NVML about. This is every machine running the shipped
+        // payload.
+        let cpu_worker = WorkerProvider {
+            compiled_cuda: Some(false),
+            context: None,
+        };
+        let integrity = assess_provider_integrity("cuda", cpu_worker);
+
+        assert_eq!(integrity, ProviderIntegrity::GpuInstallNotOperational);
+        assert!(integrity.is_fault());
+        assert_eq!(integrity.code(), "gpu_install_not_operational");
+        // And the device it reports is the truth about the run, not the record.
+        assert_eq!(cpu_worker.device(), "cpu");
+    }
+
+    /// GPU hardware, CPU payload: quiet, because the marker is truthful.
+    ///
+    /// The same machine as the test above — capable card, worker with no CUDA in
+    /// it — differing only in what setup wrote down. That is the whole point of
+    /// deriving the marker from proof: the *machine* was never the problem.
+    #[test]
+    fn a_processor_record_running_on_the_processor_says_nothing() {
+        let integrity = assess_provider_integrity(
+            "cpu",
+            WorkerProvider {
+                compiled_cuda: Some(false),
+                context: None,
+            },
+        );
+        assert_eq!(integrity, ProviderIntegrity::Matches);
+        assert!(!integrity.is_fault());
+        assert_eq!(integrity.code(), "ok");
+    }
+
+    /// A CUDA worker staged over a processor install — what
+    /// `scripts/Enable-GraniteCuda.ps1` produces on purpose.
+    ///
+    /// Not a fault, and not hidden either. Reporting the record as though it
+    /// were the truth would mislabel the provider in the other direction, which
+    /// the requirement forbids just as flatly.
+    #[test]
+    fn running_past_the_record_is_disclosed_rather_than_treated_as_a_fault() {
+        let integrity = assess_provider_integrity(
+            "cpu",
+            WorkerProvider {
+                compiled_cuda: Some(true),
+                context: Some(CudaContextProof::Holding),
+            },
+        );
+        assert_eq!(integrity, ProviderIntegrity::RunningBeyondRecord);
+        assert!(!integrity.is_fault());
+    }
+
+    /// A CUDA build that ran on the processor anyway.
+    ///
+    /// The case no static check can see and the reason the NVML gate exists:
+    /// `compiled_cuda` is `true`, the binary is exactly right, and the card is
+    /// not being used. A machine with a refusing driver, a claimed card, or
+    /// exhausted VRAM produces this, and llama.cpp reports it in its own stderr
+    /// rather than as an error.
+    #[test]
+    fn a_cuda_build_that_never_got_a_context_is_reported_as_the_processor() {
+        let fell_back = WorkerProvider {
+            compiled_cuda: Some(true),
+            context: Some(CudaContextProof::NotHolding),
+        };
+        assert_eq!(fell_back.device(), "cpu");
+        assert!(!fell_back.proved_graphics_card());
+        assert_eq!(
+            assess_provider_integrity("cuda", fell_back),
+            ProviderIntegrity::GpuInstallNotOperational
+        );
+    }
+
+    /// A CUDA build whose context could not be checked is neither answer.
+    ///
+    /// `cuda_unverified`, deliberately its own device value. Calling it `cuda`
+    /// is the unverified claim this whole path removes; calling it `cpu` reports
+    /// a fault on a machine that is very likely using its card behind a driver
+    /// that would not answer a query.
+    #[test]
+    fn an_unprovable_context_is_labelled_as_unverified_rather_than_guessed() {
+        let unprovable = WorkerProvider {
+            compiled_cuda: Some(true),
+            context: Some(CudaContextProof::ProbeUnavailable(
+                speakeasy_models::GpuProbeFailure::LibraryMissing,
+            )),
+        };
+        assert_eq!(unprovable.device(), "cuda_unverified");
+        // Still not proof, so a graphics-card record over it is still the fault:
+        // setup wrote `cuda` only where it had proof, so an installation that
+        // now cannot prove it is one whose card stopped being used.
+        assert_eq!(
+            assess_provider_integrity("cuda", unprovable),
+            ProviderIntegrity::GpuInstallNotOperational
+        );
+    }
+
+    /// A worker that never answered the handshake reports `unknown`, not `cpu`.
+    ///
+    /// "It said it has no CUDA backend" and "it did not say" are different
+    /// facts. Folding the second into the first is the overreach that had the
+    /// host asserting there was no GPU worker while one ran the dictation.
+    #[test]
+    fn a_silent_handshake_is_unknown_rather_than_the_processor() {
+        let silent = WorkerProvider {
+            compiled_cuda: None,
+            context: None,
+        };
+        assert_eq!(silent.device(), "unknown");
+        // A record of `cuda` over an unknown worker is still the fault: nothing
+        // proves the card is in use, and the record claims it is.
+        assert_eq!(
+            assess_provider_integrity("cuda", silent),
+            ProviderIntegrity::GpuInstallNotOperational
+        );
+    }
+
+    /// An installation with no marker is checked against nothing.
+    ///
+    /// Reachable on purpose — setup writes the marker only once its engine check
+    /// has proved something, so an install whose check never ran has none. Both
+    /// the empty string and the token the app substitutes read the same way.
+    #[test]
+    fn an_installation_that_recorded_nothing_reports_nothing() {
+        for recorded in ["unrecorded", ""] {
+            assert_eq!(
+                assess_provider_integrity(
+                    recorded,
+                    WorkerProvider {
+                        compiled_cuda: Some(false),
+                        context: None,
+                    },
+                ),
+                ProviderIntegrity::Unrecorded,
+                "{recorded:?} must not be compared against anything"
+            );
+        }
+    }
+
+    /// The one combination that is a match on the graphics card.
+    #[test]
+    fn a_graphics_card_record_holding_a_context_is_the_quiet_answer() {
+        let on_card = WorkerProvider {
+            compiled_cuda: Some(true),
+            context: Some(CudaContextProof::Holding),
+        };
+        assert_eq!(on_card.device(), "cuda");
+        assert!(on_card.proved_graphics_card());
+        assert_eq!(
+            assess_provider_integrity("cuda", on_card),
+            ProviderIntegrity::Matches
+        );
+    }
+
     /// A machine comfortably over the Granite floor, so tests about
     /// everything *else* are not silently short-circuited by the memory gate.
     /// The one test that is about the gate names its own numbers.
@@ -901,6 +1253,7 @@ mod tests {
                 install_root: Path::new("unused"),
                 total_memory_bytes: AMPLE_MEMORY,
                 diagnostic_log: None,
+                recorded_provider: "unrecorded",
             },
             &coordinator,
             audio,
@@ -940,6 +1293,7 @@ mod tests {
                 install_root: Path::new("definitely-does-not-exist-root"),
                 total_memory_bytes: AMPLE_MEMORY,
                 diagnostic_log: None,
+                recorded_provider: "unrecorded",
             },
             &coordinator,
             audio,
@@ -1112,6 +1466,7 @@ mod tests {
                 install_root: Path::new("definitely-does-not-exist-root"),
                 total_memory_bytes: Some(GRANITE_MINIMUM_TOTAL_MEMORY_BYTES - 1),
                 diagnostic_log: None,
+                recorded_provider: "unrecorded",
             },
             &coordinator,
             audio,
@@ -1197,6 +1552,7 @@ mod tests {
                 install_root: install_root.path(),
                 total_memory_bytes: AMPLE_MEMORY,
                 diagnostic_log: None,
+                recorded_provider: "unrecorded",
             },
             &coordinator,
             audio,
@@ -1321,6 +1677,7 @@ mod tests {
                 install_root: &install_root,
                 total_memory_bytes: AMPLE_MEMORY,
                 diagnostic_log: None,
+                recorded_provider: "unrecorded",
             },
             &coordinator,
             audio,
@@ -1394,6 +1751,7 @@ mod tests {
                     install_root: &install_root,
                     total_memory_bytes: AMPLE_MEMORY,
                     diagnostic_log: None,
+                    recorded_provider: "unrecorded",
                 },
                 &coordinator,
                 audio,
@@ -1412,7 +1770,7 @@ mod tests {
         let pack = granite_pack(&manifest);
         let choice = cpu_choice(pack, &install_root);
         let first_adapter = coordinator
-            .ensure_ready(&worker_exe, &choice, None)
+            .ensure_ready(&worker_exe, &choice, None, "unrecorded")
             .expect("the first dictation must have warmed the engine");
 
         let started = std::time::Instant::now();
@@ -1420,7 +1778,7 @@ mod tests {
         let second_elapsed = started.elapsed();
 
         let second_adapter = coordinator
-            .ensure_ready(&worker_exe, &choice, None)
+            .ensure_ready(&worker_exe, &choice, None, "unrecorded")
             .expect("the engine is still warm after the second dictation");
         println!("granite final pass resident: first={first_elapsed:?} second={second_elapsed:?}");
 
@@ -1520,6 +1878,7 @@ mod tests {
                     install_root: &install_root,
                     total_memory_bytes: AMPLE_MEMORY,
                     diagnostic_log: Some(diagnostic_log.clone()),
+                    recorded_provider: "unrecorded",
                 },
                 &coordinator,
                 audio,

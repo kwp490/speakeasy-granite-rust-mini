@@ -541,6 +541,11 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
                     .probe(&models.root)
                     .total_memory_bytes,
                 diagnostic_log: diagnostic_log_path(&app),
+                // What setup *proved*, read from disk. The warm compares it
+                // against what the worker turns out to be, which is the only
+                // place the two are ever seen together -- and they disagreeing
+                // silently is the defect this field exists to make impossible.
+                recorded_provider: installed_configuration(&profile_root),
             },
             &coordinator,
         );
@@ -585,6 +590,13 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
                 // is a fault. The app cannot re-derive which was chosen, so
                 // setup writes it down and this reads it back.
                 ("installed", installed_configuration(&profile_root)),
+                // The comparison of the two, made once rather than left for a
+                // reader to make. Three correct fields whose combination is
+                // impossible is what this log carried on 2026-08-20 --
+                // `engine=cpu_gpu_runtime_missing device=cpu installed=cuda` --
+                // and nothing anywhere looked at them together, so nothing
+                // reported it. `ok` and `unrecorded` are the quiet answers.
+                ("provider", coordinator.provider_integrity().code()),
             ],
         );
     });

@@ -115,6 +115,20 @@ impl TrustedManifest {
         self.schema_version
     }
 
+    /// Every native runtime this catalog pins, as something installable.
+    ///
+    /// Exposed for `granite_gpu`, which decides whether a graphics-card
+    /// configuration exists by looking for the CUDA worker artifact and reading
+    /// the runtime libraries' own pinned file names out of it. The alternative
+    /// was a second hand-written list of DLL names, and this workspace already
+    /// had two of those disagreeing about whether the requirement was CUDA 12
+    /// or CUDA 13.
+    pub fn native_runtimes(&self) -> impl Iterator<Item = NativeRuntimeSource<'_>> {
+        self.artifacts
+            .iter()
+            .filter_map(ProofArtifact::native_runtime_source)
+    }
+
     pub const fn status(&self) -> ManifestStatus {
         self.manifest_status
     }

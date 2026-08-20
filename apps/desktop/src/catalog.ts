@@ -452,6 +452,27 @@ export const messages = {
   packNotDownloadable:
     "This model is not published for download yet, so it cannot be installed from here.",
   engineDisclosure: "Dictation runs on:",
+  /**
+   * Whether what setup recorded still describes what is running.
+   *
+   * `ok` and `unrecorded` have no copy on purpose: they are the quiet answers,
+   * and a line that appears on every launch to say nothing is wrong is a line
+   * people stop reading. Only the two disclosures below are ever shown.
+   *
+   * `gpu_install_not_operational` is the actionable one, and it is the condition
+   * that produced this whole surface: setup used to record a graphics-card
+   * installation from an unchecked radio button, the app then correctly ran on
+   * the processor, and the disagreement existed only as three fields of one log
+   * line that nothing compared. It names what to do — a reinstall is what
+   * re-runs the proof — and it does not claim dictation is broken, because it is
+   * not: the same model produces the same transcript on the processor.
+   */
+  providerIntegrity: {
+    gpu_install_not_operational:
+      "This installation was recorded as using the graphics card, and dictation is running on the processor instead. Transcripts are unaffected; the speed is not. Reinstall SpeakEasy Mini to have setup re-check the graphics-card engine, or keep using the processor.",
+    running_beyond_record:
+      "Dictation is running on the graphics card, which is more than this installation was recorded as providing. Nothing is wrong — the graphics-card engine was staged after setup ran.",
+  },
   engineNone: "Nothing yet",
   engineReasonUnknown: "The reason is unavailable.",
   gpuRetest: "Re-test graphics-card engine",
@@ -645,6 +666,13 @@ export const messages = {
     partial: "Partly installed",
     cpu: "Processor (CPU)",
     cuda: "Graphics card (GPU)",
+    // A graphics-card engine whose context could not be confirmed. Its own
+    // label rather than either of the two above, because it is neither: calling
+    // it "Graphics card" is the unverified claim, and calling it "Processor"
+    // would report a fault on a machine that is very likely using its card.
+    cuda_unverified: "Graphics card (GPU), unconfirmed",
+    not_configured: "Not started yet",
+    unknown: "Not reported",
     empty: "No result",
     finalized_stream: "Finalized streaming output",
     last_valid_draft: "Last valid draft",

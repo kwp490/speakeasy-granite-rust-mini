@@ -112,6 +112,25 @@ $payloadSpecs = @(
     # after install, verified against models/trusted-manifest.json.
     @((Join-Path $installerBuild 'release\speakeasy-granite-worker.exe'), 'proof/granite-worker.exe', 'granite-worker')
 )
+# What the payload actually carries, checked rather than assumed.
+#
+# A payload may not claim a graphics-card worker without the libraries that
+# worker loads: Windows cannot resolve the imports and the engine never starts,
+# which is a failure that names no file the user can act on. `provider` below is
+# read out of the binary, so the description cannot describe a build somebody
+# replaced between two runs.
+#
+# It is still not a claim that the graphics card *works*. Setup's engine check
+# proves that, at install time, by running the worker and asking NVML whether
+# that process is on a device -- and only then does anything write `cuda` into
+# `install-provider.txt`.
+. (Join-Path $PSScriptRoot 'GraniteWorkerProvider.ps1')
+$graniteWorkerSource = Join-Path $installerBuild 'release\speakeasy-granite-worker.exe'
+$graniteWorkerProvider = Assert-GraniteWorkerPayloadIsCoherent `
+    -WorkerPath $graniteWorkerSource `
+    -RepositoryRoot $repositoryRoot `
+    -StagedDirectory (Join-Path $payloadRoot 'proof')
+
 $installedPayload = foreach ($spec in $payloadSpecs) {
     $source = $spec[0]
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
@@ -129,6 +148,9 @@ $installedPayload = foreach ($spec in $payloadSpecs) {
     [ordered]@{
         role = $spec[2]
         installed_relative_path = $spec[1]
+        # Only the Granite worker has a provider to declare. The others run the
+        # same way whatever the machine has.
+        provider = if ($spec[2] -eq 'granite-worker') { $graniteWorkerProvider } else { $null }
         bytes = $item.Length
         # A plain hash for every role now. The desktop executable used to need a
         # rewritten one because the NSIS bundler patched a marker into the copy

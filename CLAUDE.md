@@ -163,7 +163,7 @@ most of what it offers over a silent degradation.
 - **A CPU install running on CPU is normal; a GPU install that cannot load
   CUDA is an error.** Setup records which configuration it installed precisely
   so those two can be told apart — they were previously the same silent
-  outcome.
+  outcome. The record is **proof**, not a preference: see the trap below.
 
 ## Traps that fail silently
 
@@ -360,6 +360,35 @@ Every one of these produced a plausible, wrong result rather than an error.
   and verified by name in the window title, never just a window owned by the
   right process.
 
+- **A claim assembled out of an intention is indistinguishable from a fact, and
+  outlives every layer that would have checked it.** A support log read
+  `engine=cpu_gpu_runtime_missing device=cpu installed=cuda`. Three correct
+  fields; an impossible combination; nothing anywhere compared them. The install
+  marker came from the wizard's provider radio button — which `UI-GUIDE.md` said
+  to disable and nothing ever did — so a user on a CUDA-capable machine selected
+  "Use the graphics card", setup installed the only configuration it carries, and
+  wrote `cuda`. Fixed 2026-08-20, and the shape of the fix is the lesson:
+  - **`speakeasy_models::granite_gpu` is the one place the question is answered**,
+    and it separates *published* (a `native-runtime` artifact
+    `granite-worker-cuda-windows-x64` in the trusted manifest), *present* (that
+    worker plus every library its `proof_files` pin, beside it), and *operational*
+    (NVML lists the worker's **own pid** as holding a compute context).
+  - **The old check asked the manifest for a CUDA `final-asr` pack**, which
+    answers none of the three. There is one GGUF and a CUDA worker offloads that
+    same file, so a pack entry would be a duplicate of the CPU one.
+  - **Compiled-in is not running-on.** `compiled_accelerators` at `Hello` says
+    what the binary could do. A refusing driver, a claimed card or exhausted VRAM
+    runs that same binary on the processor and llama.cpp notes it in *its own
+    stderr*. `device=` reads `cuda` only where NVML confirmed it,
+    `cuda_unverified` where it could not be asked, `cpu` otherwise.
+  - **The marker is written after the engine check, from its verdict, and
+    nowhere else.** A check that never ran writes nothing, which reads as
+    `unrecorded` — guessing `cpu` would be a claim about a configuration nobody
+    verified.
+  - **Both sides are compared, once, by name.** `ProviderIntegrity` at warm:
+    `ok`, `unrecorded`, `gpu_install_not_operational` (the actionable fault), or
+    `running_beyond_record` (what `Enable-GraniteCuda.ps1` produces on purpose).
+    It is in `granite_warm` as `provider=`.
 - **An answer can reach disk and never reach the screen, and the screen is what
   the user judges.** Setup collects a vocabulary; it was in
   `personalization.json`, correct, three words — and Settings showed an empty
@@ -457,7 +486,15 @@ Every one of these produced a plausible, wrong result rather than an error.
 - **Granite's GPU support is a build feature, not a downloadable pack**, so
   there is no provider-override setting: no setting can conjure a CUDA-capable
   worker binary. The installer fetches one when the hardware warrants it;
-  without it the app runs on CPU and says so. Measured on an RTX 5090: Granite
+  without it the app runs on CPU and says so. **The declaration lives in the
+  trusted manifest, by absence**: a published CUDA worker appears as a
+  `native-runtime` artifact `granite-worker-cuda-windows-x64`, and until it does,
+  the wizard's option is disabled, the packager refuses to assemble a CUDA worker
+  without its libraries, and no installation may record `cuda`.
+- **The active provider is reported as the device, never as the pack.** The pack
+  reason (`engine=`) and the device (`device=`) are different facts that disagree
+  on any machine running a CUDA worker against the single CPU-named pack. Settings
+  reads the device; the disclosure used to read the pack. Measured on an RTX 5090: Granite
   Q4 resident run 1,571.9 ms on CPU versus 156.4 ms on CUDA, RTF 0.158 versus
   0.0157, holding ~3.27 GiB of VRAM.
 - **Q4_K_M is the shipped quantization**, chosen on measurement rather than by

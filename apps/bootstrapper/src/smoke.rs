@@ -34,6 +34,32 @@
 //!
 //! Never a substring or a prefix. A `contains` assertion went green in this
 //! repository on a transcript missing a third of its utterance.
+//!
+//! # What it also decides
+//!
+//! **Which provider this installation is recorded as running on.** That used to
+//! come from a radio button on an earlier page, and on 2026-08-20 a support log
+//! read `engine=cpu_gpu_runtime_missing device=cpu installed=cuda` — setup had
+//! written down a graphics-card installation it had never had. Nothing lied;
+//! nothing checked.
+//!
+//! So the marker is derived here, from what actually happened, and it takes
+//! **three** independent facts to say "graphics card":
+//!
+//! 1. the payload is published and complete
+//!    (`speakeasy_models::inspect_gpu_payload`),
+//! 2. the live worker reports a CUDA backend compiled in, at `Hello` — the
+//!    startup handshake, and the only thing that can answer it, because
+//!    llama.cpp's CUDA backend is linked into the binary rather than sitting
+//!    beside it as a file to stat, and
+//!
+//! 3. NVML lists that worker's **process id** as holding a compute context.
+//!
+//! The third is not redundant with the second. A CUDA-built worker on a machine
+//! whose driver refuses, whose card is claimed, or whose VRAM is exhausted runs
+//! the same model on the CPU and reports it in llama.cpp's stderr rather than as
+//! an error. Anything short of all three records the processor, which is the
+//! truthful answer for a run that happened on the processor.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -44,6 +70,10 @@ use std::time::Duration;
 
 use speakeasy_domain::{
     CancelToken, Deadline, SystemClock, WorkerClient, WorkerCommand, WorkerEvent, WorkerSessionId,
+};
+use speakeasy_models::{
+    CudaContextProbe, CudaContextProof, GpuPayloadRejection, NvmlCudaContextProbe,
+    bundled_manifest, inspect_gpu_payload, prove_cuda_context,
 };
 use speakeasy_windows::{CrashThrottle, ProcessDeadlines, ProcessSupervisor, ProcessWorkerClient};
 
@@ -94,10 +124,90 @@ const PUSH_FRAME_SAMPLES: usize = 1_600;
 /// and cannot hear, which is a broken install of files that verified; an
 /// unavailable engine means it never ran, which is usually a missing file or a
 /// machine that cannot host it.
+/// Which provider setup **proved** this installation runs on.
+///
+/// Proved, not chosen and not preferred. This is what goes into
+/// `install-provider.txt`, which the app reads for the life of the installation
+/// to tell "running on the processor because that is what was installed" — which
+/// is normal — from "running on the processor on a graphics-card installation" —
+/// which is a fault. A value that came from anywhere but a run that happened
+/// makes both of those unanswerable.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProvenProvider {
+    Processor,
+    GraphicsCard,
+}
+
+/// The three facts behind [`ProvenProvider`], kept separately.
+///
+/// Reported rather than reduced to the answer, because when the answer is
+/// `Processor` on a machine with a good card the useful question is *which* of
+/// the three failed — and a boolean cannot say. Every field is a stable code, so
+/// this travels into the wizard's copy and the log unchanged.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderEvidence {
+    /// Why the graphics-card payload was refused, if it was.
+    pub payload: Option<GpuPayloadRejection>,
+    /// Whether the worker said it has a CUDA backend compiled in, at `Hello`.
+    ///
+    /// `None` when the handshake did not answer at all — a pre-v2 worker, or a
+    /// worker that failed before it spoke. Deliberately not folded into `false`:
+    /// "it said no" and "it did not say" are different facts, and treating the
+    /// second as the first is the overreach that produced the wrong log line in
+    /// the first place.
+    pub handshake_cuda: Option<bool>,
+    /// Whether NVML places the worker's own process on a device.
+    pub context: Option<CudaContextProof>,
+}
+
+impl ProviderEvidence {
+    /// The provider this evidence proves.
+    ///
+    /// Every gate has to pass. Written as one expression on purpose: three
+    /// separate early returns is how one of them ends up ordered after the
+    /// decision it was supposed to gate.
+    #[must_use]
+    pub fn proven(&self) -> ProvenProvider {
+        if self.payload.is_none()
+            && self.handshake_cuda == Some(true)
+            && self.context.is_some_and(CudaContextProof::is_proven)
+        {
+            ProvenProvider::GraphicsCard
+        } else {
+            ProvenProvider::Processor
+        }
+    }
+
+    /// The single code that best explains a processor result, for the log.
+    ///
+    /// Ordered by what a reader can act on: a payload that was never published
+    /// outranks a handshake that therefore could not say yes.
+    #[must_use]
+    pub fn code(&self) -> &'static str {
+        if let Some(rejection) = &self.payload {
+            return rejection.code();
+        }
+        match self.handshake_cuda {
+            None => "worker_handshake_silent",
+            Some(false) => "worker_not_cuda_capable",
+            Some(true) => self
+                .context
+                .map_or("cuda_context_unprovable", CudaContextProof::code),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
     /// The words came back. The engine can hear.
-    Verified,
+    ///
+    /// Carries the provider it heard them on, and the evidence for it. The
+    /// evidence rather than only the answer, because "processor" on a machine
+    /// with a capable card needs to say which of the three gates closed.
+    Verified {
+        provider: ProvenProvider,
+        evidence: ProviderEvidence,
+    },
     /// The engine produced text, and it is not what the clip says.
     ///
     /// Carries the transcript because the difference is the diagnosis: fluent
@@ -120,20 +230,68 @@ pub enum Verdict {
 /// outcome here than "setup can say what is wrong".
 #[must_use]
 pub fn verify_engine(worker_exe: &Path, model_root: &Path) -> Verdict {
+    verify_engine_with(worker_exe, model_root, &NvmlCudaContextProbe)
+}
+
+/// [`verify_engine`], with the CUDA context probe supplied.
+///
+/// The probe is a parameter for the same reason `choose_granite_pack` takes its
+/// CUDA flag as one: the case this exists to catch — a complete CUDA payload
+/// that runs on the CPU anyway — cannot be produced on demand by any machine
+/// this is developed on, so the decision has to be reachable without a card.
+#[must_use]
+pub fn verify_engine_with(
+    worker_exe: &Path,
+    model_root: &Path,
+    context_probe: &impl CudaContextProbe,
+) -> Verdict {
     let samples = match read_fixture_samples(BUNDLED_CLIP) {
         Ok(samples) => samples,
         Err(reason) => return Verdict::Unavailable { reason },
     };
-    match transcribe(worker_exe, model_root, &samples) {
-        Ok(transcript) => {
-            if words(&transcript) == words(SPOKEN) {
-                Verdict::Verified
+    // Asked before the run, because it is a fact about the files rather than
+    // about this process, and because a refused payload means the handshake
+    // below cannot promote the result however it answers.
+    let payload = gpu_payload_rejection(worker_exe);
+    match transcribe(worker_exe, model_root, &samples, context_probe) {
+        Ok(run) => {
+            let evidence = ProviderEvidence {
+                payload,
+                handshake_cuda: run.handshake_cuda,
+                context: run.context,
+            };
+            if words(&run.transcript) == words(SPOKEN) {
+                Verdict::Verified {
+                    provider: evidence.proven(),
+                    evidence,
+                }
             } else {
-                Verdict::Mismatch { transcript }
+                Verdict::Mismatch {
+                    transcript: run.transcript,
+                }
             }
         }
         Err(reason) => Verdict::Unavailable { reason },
     }
+}
+
+/// Why the graphics-card payload is not usable, if it is not.
+///
+/// `None` means published and complete. A manifest that will not parse reads as
+/// "not published", which is the conservative answer and the same one every
+/// other reader of a broken catalog gives.
+fn gpu_payload_rejection(worker_exe: &Path) -> Option<GpuPayloadRejection> {
+    let manifest = bundled_manifest().ok()?;
+    let directory = worker_exe.parent()?;
+    let file_name = worker_exe.file_name()?.to_string_lossy().into_owned();
+    inspect_gpu_payload(&manifest, directory, &file_name).err()
+}
+
+/// One completed run of the engine, with what it said about itself.
+struct EngineRun {
+    transcript: String,
+    handshake_cuda: Option<bool>,
+    context: Option<CudaContextProof>,
 }
 
 /// Drives one utterance through a freshly spawned worker.
@@ -141,7 +299,8 @@ fn transcribe(
     worker_exe: &Path,
     model_root: &Path,
     samples: &[f32],
-) -> Result<String, &'static str> {
+    context_probe: &impl CudaContextProbe,
+) -> Result<EngineRun, &'static str> {
     let clock = Arc::new(SystemClock::default());
     // Setup runs the engine exactly once, so the throttle's restart-loop job is
     // moot here -- it is constructed because the supervisor requires one, with
@@ -164,6 +323,30 @@ fn transcribe(
     let cancel = CancelToken::default();
     let session = WorkerSessionId(1);
 
+    // The startup handshake. `ProcessWorkerClient::spawn` already sent a `Hello`
+    // and discarded the `Ready`, so this asks again rather than changing that
+    // signature for one caller: `Hello` is stateless and costs one round-trip.
+    //
+    // A handshake that does not answer is `None`, never `false`. "It said it has
+    // no CUDA backend" and "it never said" are different facts, and only the
+    // first is a statement about the binary.
+    let handshake_cuda = client
+        .request(
+            WorkerCommand::Hello,
+            &cancel,
+            Deadline::after(clock.as_ref(), LOAD_DEADLINE),
+        )
+        .ok()
+        .and_then(|events| {
+            events.into_iter().find_map(|event| match event {
+                WorkerEvent::Ready {
+                    compiled_accelerators,
+                    ..
+                } => Some(compiled_accelerators.iter().any(|name| name == "cuda")),
+                _ => None,
+            })
+        });
+
     client
         .request(
             WorkerCommand::LoadModel {
@@ -174,6 +357,16 @@ fn transcribe(
             Deadline::after(clock.as_ref(), LOAD_DEADLINE),
         )
         .map_err(|_| "model_did_not_load")?;
+    // After the model is loaded and before the clip is pushed: llama.cpp creates
+    // its CUDA context and allocates its buffers during `LoadModel`, so this is
+    // the earliest moment a context exists to find -- and asking before it would
+    // report `NotHolding` about a worker that goes on to use the card.
+    //
+    // Only asked when the handshake said the binary could. A CPU worker has no
+    // context to hold, and querying NVML about it would turn "there is nothing
+    // to prove" into a driver question on every processor install.
+    let context = (handshake_cuda == Some(true))
+        .then(|| prove_cuda_context(context_probe, client.process_id()));
     client
         .request(
             WorkerCommand::StartStream {
@@ -226,7 +419,11 @@ fn transcribe(
     if text.trim().is_empty() {
         return Err("engine_returned_nothing");
     }
-    Ok(text)
+    Ok(EngineRun {
+        transcript: text,
+        handshake_cuda,
+        context,
+    })
 }
 
 /// Reads the bundled clip as 16 kHz mono `f32`.
@@ -417,11 +614,104 @@ mod tests {
         );
         let verdict = verify_engine(&worker, &model_root);
 
-        assert_eq!(
-            verdict,
-            Verdict::Verified,
-            "the engine must transcribe the bundled clip"
+        let Verdict::Verified { provider, evidence } = &verdict else {
+            panic!("the engine must transcribe the bundled clip, got {verdict:?}");
+        };
+        // Printed rather than asserted. Which provider a developer's own machine
+        // proves is a property of that machine and of whether the worker under
+        // test was built with `--features cuda`; asserting either would make this
+        // fail on a correct install. The evidence code is the useful output.
+        println!(
+            "proven provider={provider:?} evidence={} ({evidence:?})",
+            evidence.code()
         );
+    }
+
+    /// Every path to a processor result, and the one path to a graphics-card one.
+    ///
+    /// Pure logic, no worker and no card. The condition that produced the
+    /// original defect -- a machine with a perfectly good graphics card and a
+    /// payload that has no CUDA worker in it -- is the first case here, and it is
+    /// unreachable on hardware: this machine cannot be made to have an
+    /// unpublished worker and a held CUDA context at the same time.
+    #[test]
+    fn only_all_three_gates_together_prove_a_graphics_card_installation() {
+        let complete = |handshake, context| ProviderEvidence {
+            payload: None,
+            handshake_cuda: handshake,
+            context,
+        };
+
+        // GPU hardware, CPU payload. The reported failure's own shape.
+        let cpu_payload = ProviderEvidence {
+            payload: Some(GpuPayloadRejection::WorkerNotPublished),
+            // Deliberately the *most* favourable answers for the other two
+            // gates: even a worker claiming CUDA and holding a context must not
+            // promote an installation whose payload was never published, because
+            // the marker describes the installation rather than the run.
+            handshake_cuda: Some(true),
+            context: Some(CudaContextProof::Holding),
+        };
+        assert_eq!(cpu_payload.proven(), ProvenProvider::Processor);
+        assert_eq!(cpu_payload.code(), "gpu_worker_not_published");
+
+        // A CUDA worker with no CUDA libraries beside it.
+        let missing_dlls = ProviderEvidence {
+            payload: Some(GpuPayloadRejection::RuntimeFilesMissing(vec![
+                "cublas64_12.dll".to_owned(),
+            ])),
+            handshake_cuda: Some(true),
+            context: Some(CudaContextProof::Holding),
+        };
+        assert_eq!(missing_dlls.proven(), ProvenProvider::Processor);
+        assert_eq!(missing_dlls.code(), "gpu_runtime_files_missing");
+
+        // A complete payload whose worker is a CPU build.
+        let cpu_worker = complete(Some(false), None);
+        assert_eq!(cpu_worker.proven(), ProvenProvider::Processor);
+        assert_eq!(cpu_worker.code(), "worker_not_cuda_capable");
+
+        // A handshake that never answered. Not the same as answering "no", and
+        // must not be promoted on the strength of the other two gates.
+        let silent = complete(None, None);
+        assert_eq!(silent.proven(), ProvenProvider::Processor);
+        assert_eq!(silent.code(), "worker_handshake_silent");
+
+        // A CUDA build that ran on the CPU anyway -- the case no static check
+        // can see, and the reason the NVML gate exists.
+        let fell_back = complete(Some(true), Some(CudaContextProof::NotHolding));
+        assert_eq!(fell_back.proven(), ProvenProvider::Processor);
+        assert_eq!(fell_back.code(), "cuda_context_absent");
+
+        // A driver that would not answer. Records the processor, because a
+        // marker written on an unanswerable question is the manufactured claim
+        // this whole path exists to remove -- and says which question it was.
+        let unprovable = complete(
+            Some(true),
+            Some(CudaContextProof::ProbeUnavailable(
+                speakeasy_models::GpuProbeFailure::LibraryMissing,
+            )),
+        );
+        assert_eq!(unprovable.proven(), ProvenProvider::Processor);
+        assert_eq!(unprovable.code(), "cuda_context_unprovable");
+
+        // All three, and only then.
+        let proven = complete(Some(true), Some(CudaContextProof::Holding));
+        assert_eq!(proven.proven(), ProvenProvider::GraphicsCard);
+        assert_eq!(proven.code(), "cuda_context_held");
+    }
+
+    /// The shipped payload cannot produce a graphics-card marker.
+    ///
+    /// Against the real bundled manifest and the real worker path, so it fails
+    /// on the day a CUDA worker is pinned without the rest of this path being
+    /// finished -- which is the moment the wizard, the packager and the marker
+    /// all need revisiting together.
+    #[test]
+    fn the_shipped_payload_refuses_the_graphics_card_configuration() {
+        let rejection = gpu_payload_rejection(Path::new("proof/granite-worker.exe"))
+            .expect("no CUDA Granite worker is published, so the payload must be refused");
+        assert_eq!(rejection, GpuPayloadRejection::WorkerNotPublished);
     }
 
     /// An engine that cannot start is `Unavailable`, never a mismatch.

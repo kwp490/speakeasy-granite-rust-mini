@@ -34,14 +34,29 @@
 
 use std::path::{Path, PathBuf};
 
-/// The provider setup installed for.
+/// The provider setup **proved** this installation runs on.
 ///
-/// Recorded because the app cannot work it out afterwards, and the two states
-/// it cannot otherwise tell apart owe the user opposite messages: a CPU install
+/// Recorded because the app cannot work it out afterwards, and the two states it
+/// cannot otherwise tell apart owe the user opposite messages: a CPU install
 /// running on the CPU is working exactly as installed, while a graphics-card
-/// install running on the CPU is a fault. Today only [`Self::Processor`] is
-/// reachable, because no CUDA-built worker has been published; that is a fact
-/// about the release, not about this channel.
+/// install running on the CPU is a fault.
+///
+/// # It is proof, not a preference
+///
+/// This came from the provider page's radio button until 2026-08-20, and the
+/// radio button was never disabled — so a user on a CUDA-capable machine could
+/// select "Use the graphics card", setup would install the only configuration it
+/// has, and this file would say `cuda`. The app then correctly found no GPU path
+/// and logged `engine=cpu_gpu_runtime_missing device=cpu installed=cuda`: three
+/// fields, one of them a claim nothing had ever checked.
+///
+/// It is now written by [`record_installed_provider`] from
+/// `smoke::ProviderEvidence`, after the engine check has actually run — which
+/// means [`Self::GraphicsCard`] requires a published and complete CUDA payload,
+/// a worker that reported a CUDA backend at `Hello`, and NVML placing that
+/// worker's own process on a device. Today no release satisfies the first, so
+/// only [`Self::Processor`] is reachable; that is a fact about the release
+/// rather than about this channel.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Provider {
     Processor,
@@ -78,8 +93,6 @@ pub struct Answers {
     pub keep_transcripts: bool,
     /// Whether the diagnostic log is written to disk.
     pub disk_logging: bool,
-    /// Which configuration was installed.
-    pub provider: Provider,
 }
 
 /// What [`write()`] managed to record.
@@ -118,10 +131,22 @@ const SHORTCUT: &str = "install-hotkey.txt";
 const LOGGING: &str = "install-logging.txt";
 const RETENTION: &str = "install-retention.txt";
 const VOCABULARY: &str = "install-vocabulary.txt";
+
+/// The installed-configuration record.
+///
+/// **Not a seed**, and it is the one file here the app does not consume: a seed
+/// is a starting value the user may then change, and this is a statement about
+/// what is on disk that stays true for the life of the installation.
+///
+/// Written separately from [`write()`], by [`record_installed_provider`], because
+/// the two are answers to different questions asked at different moments. The
+/// seeds record what the user chose, on leaving the last question. This records
+/// what setup *proved*, after the engine check — and it cannot be written before
+/// that check, because before it there is nothing to be right about.
 const PROVIDER: &str = "install-provider.txt";
 
 /// Every seed, for the cases where none of them can be written.
-const ALL: [&str; 5] = [SHORTCUT, LOGGING, RETENTION, VOCABULARY, PROVIDER];
+const ALL: [&str; 4] = [SHORTCUT, LOGGING, RETENTION, VOCABULARY];
 
 /// Record the wizard's answers for the app's first launch.
 ///
@@ -143,7 +168,7 @@ pub fn write(answers: &Answers) -> Written {
     // `0`/`1` for the two booleans, matching what `consume_installer_logging_seed`
     // already parses. Anything else is ignored by the reader rather than
     // guessed at, so a malformed seed leaves the app's own default in place.
-    let items: [(&'static str, String); 5] = [
+    let items: [(&'static str, String); 4] = [
         (SHORTCUT, answers.shortcut.clone()),
         (LOGGING, flag(answers.disk_logging)),
         (RETENTION, flag(answers.keep_transcripts)),
@@ -152,7 +177,6 @@ pub fn write(answers: &Answers) -> Written {
         // typed text, so the file cannot carry a different set of words than
         // the count the user was shown.
         (VOCABULARY, answers.vocabulary.join(", ")),
-        (PROVIDER, answers.provider.code().to_owned()),
     ];
     for (name, contents) in items {
         if !write_one(&directory, name, &contents) {
@@ -208,6 +232,32 @@ pub fn parse_vocabulary(typed: &str) -> Vec<String> {
         }
     }
     words
+}
+
+/// Record which configuration setup proved this installation runs on.
+///
+/// Called once the engine check has settled, and **only** from its verdict.
+/// Never from a choice, a preference or a probe: the app reads this for the life
+/// of the installation to tell an expected processor run from a broken
+/// graphics-card one, and a value that describes an intention makes both of those
+/// unanswerable.
+///
+/// Absent is a meaningful third state and is deliberately reachable: an install
+/// where the check never ran writes nothing, and `apps/desktop` reads that as
+/// `"unrecorded"` rather than guessing `cpu`. Guessing would be a claim about a
+/// configuration nobody verified.
+///
+/// Returns whether it landed. Failure costs a diagnostic field rather than the
+/// install, so the caller reports it and carries on.
+#[must_use]
+pub fn record_installed_provider(provider: Provider) -> bool {
+    let Some(directory) = directory() else {
+        return false;
+    };
+    if std::fs::create_dir_all(&directory).is_err() {
+        return false;
+    }
+    write_one(&directory, PROVIDER, provider.code())
 }
 
 /// `"1"` or `"0"`, the whole vocabulary of the boolean seeds.
@@ -282,10 +332,12 @@ mod tests {
                 })
             })
             .collect::<Vec<_>>();
-        for seed in ALL {
+        // `PROVIDER` alongside `ALL`: it is not a seed, but it is still written
+        // here and read there, and the drift this guards against is the same.
+        for name in ALL.iter().copied().chain(std::iter::once(PROVIDER)) {
             assert!(
-                sources.iter().any(|source| source.contains(seed)),
-                "{seed} is written by setup and read by nothing"
+                sources.iter().any(|source| source.contains(name)),
+                "{name} is written by setup and read by nothing"
             );
         }
     }
@@ -345,9 +397,20 @@ mod tests {
             vocabulary: parse_vocabulary("Kenneth, Anthropic"),
             keep_transcripts: false,
             disk_logging: true,
-            provider: Provider::Processor,
         };
         assert_eq!(answers.vocabulary.join(", "), "Kenneth, Anthropic");
+    }
+
+    #[test]
+    fn the_installed_configuration_is_not_one_of_the_answers() {
+        // The separation, asserted. `write` records what the user chose; the
+        // provider record states what setup proved, and it is written by a
+        // different function at a later moment. Folding it back into `Answers`
+        // is exactly how it came to be derived from a radio button.
+        assert!(
+            !ALL.contains(&PROVIDER),
+            "the provider record is not a seed"
+        );
     }
 
     #[test]

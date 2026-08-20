@@ -6,6 +6,7 @@ import { messages } from "../catalog";
 import {
   formatBytes,
   formatEngineReason,
+  formatProviderIntegrity,
   formatError,
   formatFinalSourceGuidance,
   formatFinalSourceReason,
@@ -36,6 +37,17 @@ import type {
  * authority than anything the app grants today; the values are selectable
  * instead, and Ctrl+C is a native `WebView` operation that needs no permission.
  */
+/**
+ * How long to keep re-reading the engine disclosure while the worker warms.
+ *
+ * 30 x 1 s. A cold Granite load measured 2-5 s on this hardware, and the ceiling
+ * is generous rather than tuned -- the poll stops as soon as the device is
+ * reported, so the only run that reaches the ceiling is one where Granite never
+ * warms, and that is a state to stop asking about rather than one to wait for.
+ */
+const ENGINE_WARM_READS = 30;
+const ENGINE_WARM_READ_INTERVAL_MS = 1_000;
+
 export function Transcription() {
   const [models, setModels] = useState<ModelCatalogItem[]>([]);
   const [hardware, setHardware] = useState<ModelHardware | null>(null);
@@ -56,6 +68,22 @@ export function Transcription() {
    * different facts that looked identical here until 2026-08-20.
    */
   const [personalizationUnavailable, setPersonalizationUnavailable] = useState(false);
+  /**
+   * How many times the engine disclosure has been re-read while the worker was
+   * still coming up.
+   *
+   * The device and the provider-integrity line are both `not_configured` until
+   * the launch warm has spoken, and that happens seconds *after* this page
+   * mounts -- a cold Granite load is 2-5 s on this hardware. Read once on mount,
+   * the page therefore reported "Not started yet" and no integrity line for the
+   * life of the window, which for the fault case means the one disclosure that
+   * exists to be seen is never rendered.
+   *
+   * Bounded, and it stops the moment the device is reported. An unbounded poll
+   * would keep asking forever on a machine where Granite is not configured at
+   * all, which is an ordinary state rather than a wait.
+   */
+  const [warmReads, setWarmReads] = useState(0);
   const [observedTerm, setObservedTerm] = useState("");
   const [correctedTerm, setCorrectedTerm] = useState("");
   const [snippetName, setSnippetName] = useState("");
@@ -125,6 +153,18 @@ export function Transcription() {
       window.clearInterval(timer);
     };
   }, [modelStatus.state]);
+
+  useEffect(() => {
+    if (gpu === null || gpu.active_device !== "not_configured") return;
+    if (warmReads >= ENGINE_WARM_READS) return;
+    const timer = window.setTimeout(() => {
+      setWarmReads((reads) => reads + 1);
+      void refreshCatalog();
+    }, ENGINE_WARM_READ_INTERVAL_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [gpu, warmReads]);
 
   const installing =
     modelStatus.state === "verifying" ||
@@ -307,15 +347,32 @@ export function Transcription() {
             whose pack was never installed. */}
         {gpu !== null && (
           <>
+            {/* The **device**, not the pack. `active_provider` names the
+                selected pack, and there is one Granite GGUF that a graphics-card
+                worker offloads unchanged — so the pack reads `cpu` on a machine
+                holding the card, and showing it here said the wrong thing about
+                every such machine. */}
             <p className="setting-detail" data-testid="engine-disclosure">
               {messages.engineDisclosure}{" "}
               <bdi>
                 {gpu.active_provider === null
                   ? messages.engineNone
-                  : formatState(gpu.active_provider)}
+                  : formatState(gpu.active_device)}
               </bdi>{" "}
               — {formatEngineReason(gpu.engine_reason)}
             </p>
+            {/* Shown only when it says something. `ok` and `unrecorded` are the
+                quiet answers and have no copy, so this renders nothing on a
+                normal launch — which is the requirement: never hide the active
+                provider, and never narrate it either. */}
+            {formatProviderIntegrity(gpu.provider_integrity) !== null && (
+              <p
+                className={gpu.provider_fault ? "warning" : "setting-detail"}
+                data-testid="provider-integrity"
+              >
+                {formatProviderIntegrity(gpu.provider_integrity)}
+              </p>
+            )}
             <article className="model-row" data-testid="gpu-controls">
               <p className="setting-detail">
                 {gpu.qualified ? messages.gpuQualified : messages.gpuNotQualified}

@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use capture_wizard::{CaptureDeviceView, CaptureWizardCoordinator, CaptureWizardView};
 use granite_engine::{
     GraniteEngineCoordinator, GraniteEnvironment, run_granite_final_pass,
-    warm_granite_if_configured, GraniteSelection, granite_selection,
+    warm_granite_if_configured, GraniteSelection, ProviderIntegrity, granite_selection,
 };
 use runtime_wizard::RuntimeWizardCoordinator;
 #[cfg(test)]
@@ -235,16 +235,38 @@ pub struct GpuStatusView {
     free_vram_bytes: Option<u64>,
     driver_version: Option<String>,
     minimum_compute_capability: String,
-    /// The provider the streaming pack actually resolved to, or `None` when no
-    /// pack is installed for any provider.
+    /// The provider the selected **pack** publishes, or `None` when no pack is
+    /// installed for any provider.
     ///
-    /// Deliberately distinct from what the probe prefers. An admissible card
-    /// whose pack was never installed runs on CPU, and a user told only
-    /// "GPU detected" would have no way to find that out.
+    /// Deliberately distinct from what the probe prefers *and* from what is
+    /// actually running. There is one Granite GGUF and a CUDA worker offloads
+    /// that same file, so this reads `cpu` on a machine whose worker is holding
+    /// the card — which is why it is no longer what the settings page shows as
+    /// the active provider. It stays because the pack's identity is a real fact
+    /// and the reason code below is about the pack.
     active_provider: Option<String>,
     /// A stable code for why that engine and not another. See
     /// [`granite_engine::EngineChoiceReason::code`].
     engine_reason: String,
+    /// The device the resident worker is actually running on: `cpu`, `cuda`,
+    /// `cuda_unverified`, `unknown`, or `not_configured` before a warm.
+    ///
+    /// The field the disclosure reads. `active_provider` above named the pack
+    /// and was being displayed under "Dictation runs on", which is a different
+    /// question with a different answer on any machine running a CUDA worker.
+    active_device: String,
+    /// Whether what setup recorded still describes what is running. `ok` and
+    /// `unrecorded` are the quiet answers; see
+    /// [`granite_engine::ProviderIntegrity`].
+    provider_integrity: String,
+    /// Whether that is a condition someone has to act on.
+    ///
+    /// Sent rather than re-derived in the page from the code above, because
+    /// which of these outcomes is a fault is a decision about the *product* and
+    /// belongs beside the enum that defines them — a second copy in TypeScript
+    /// is a second thing to get wrong, and the wrong answer here paints a
+    /// warning over a machine that is working.
+    provider_fault: bool,
 }
 
 impl GpuStatusView {
@@ -252,6 +274,8 @@ impl GpuStatusView {
         snapshot: &speakeasy_models::GpuSnapshot,
         selection: Option<&GraniteSelection>,
         qualification: &GpuQualification,
+        active_device: &str,
+        provider_integrity: ProviderIntegrity,
     ) -> Self {
         let decision = qualification;
         let device = decision.device();
@@ -261,6 +285,9 @@ impl GpuStatusView {
             engine_reason: selection
                 .map_or("no_pack_installed", |selection| selection.reason.code())
                 .to_owned(),
+            active_device: active_device.to_owned(),
+            provider_integrity: provider_integrity.code().to_owned(),
+            provider_fault: provider_integrity.is_fault(),
             status: decision.code(),
             qualified: decision.is_qualified(),
             admissible: device.is_some(),

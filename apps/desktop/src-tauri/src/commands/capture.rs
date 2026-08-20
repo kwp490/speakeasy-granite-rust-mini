@@ -666,6 +666,11 @@ async fn run_retained_transcription(
                 // answering different questions about the same machine.
                 total_memory_bytes: memory,
                 diagnostic_log: diagnostic_log.clone(),
+                // What setup proved it installed. A dictation's own warm can be
+                // the first one of a process -- the launch warm is best-effort --
+                // so the comparison has to be available here too, or a machine
+                // whose startup warm failed would never notice the mismatch.
+                recorded_provider: installed_configuration(&profile.root),
             },
             &app.state::<GraniteEngineCoordinator>(),
             audio.clone(),

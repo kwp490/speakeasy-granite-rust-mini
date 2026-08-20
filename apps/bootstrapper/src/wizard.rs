@@ -336,6 +336,14 @@ fn say(label: &gui::Label, cell: &Cell<catalog::Tone>, text: &str, tone: catalog
     let _ = label.hwnd().InvalidateRect(None, true);
 }
 
+/// Which radio button on the provider page is the graphics-card one.
+///
+/// Named rather than spelled `0` at the point of use: the two places that need
+/// it are the construction of the group and the gate that disables it, and a
+/// bare literal in one of them is how the gate ends up disabling the wrong
+/// button the first time the order changes.
+const GRAPHICS_CARD_OPTION: usize = 0;
+
 /// A hotkey id nothing else in this process uses.
 ///
 /// Registered and immediately released, only to find out whether Windows will
@@ -501,11 +509,10 @@ impl Wizard {
             )
         };
         let wide = gui::dpi(content_width, layout::CONTROL_ROW);
-        // A graphics-card install needs a CUDA-built worker to exist, and
+        // A graphics-card install needs a CUDA-built worker to *exist*, and
         // Granite's GPU support is compiled into the worker rather than loaded
-        // beside it — so no manifest entry means no such install, whatever the
-        // card can do. Offered only when both are true; the step says which half
-        // is missing.
+        // beside it — so no published worker means no such install, whatever the
+        // card can do.
         //
         // `preferred_provider`, not `is_qualified`: qualification means an
         // execution test has passed on this card, and setup has not run one at
@@ -513,9 +520,16 @@ impl Wizard {
         // reading it would disable the option even once a worker exists.
         // `GpuQualification::preferred_provider`'s own doc names this as where
         // a GPU override belongs.
+        //
+        // `graphics_card_configuration_available` replaced a check that asked
+        // the manifest for a CUDA *model pack*. There is one GGUF and the CUDA
+        // worker offloads that same file, so a pack entry never said anything
+        // about whether a GPU path existed — and this button was selectable
+        // regardless, which is how `installed=cuda` came to be written by an
+        // installation that had no CUDA worker in it.
         let graphics_card = machine.admissibility.preferred_provider()
             == speakeasy_models::ExecutionProvider::Cuda
-            && download::graphics_card_configuration_published();
+            && download::graphics_card_configuration_available().is_ok();
         Questions {
             provider: gui::RadioGroup::new(
                 window,
@@ -951,20 +965,56 @@ impl Wizard {
             return;
         }
         self.verify_settled.set(true);
+        // The installed-configuration record, written here and nowhere else.
+        //
+        // Here because this is the first moment there is anything true to write:
+        // it takes a published and complete CUDA payload, a worker that reported
+        // a CUDA backend at `Hello`, and NVML placing that worker's own process
+        // on a device. It used to be written with the seeds, three pages
+        // earlier, from a radio button — which is how an installation with no
+        // CUDA worker in it came to record `cuda`.
+        //
+        // Only on a verdict that ran the engine. A check that never started has
+        // proved nothing, and writing `cpu` for it would be a claim about a
+        // configuration nobody verified; the app reads an absent file as
+        // `unrecorded`, which is the honest third state.
+        if let Some(smoke::Verdict::Verified { provider, evidence }) = run.progress().verdict() {
+            if !seed::record_installed_provider(match provider {
+                smoke::ProvenProvider::GraphicsCard => seed::Provider::GraphicsCard,
+                smoke::ProvenProvider::Processor => seed::Provider::Processor,
+            }) {
+                // Not fatal and not silent. The install is complete; what is
+                // lost is the app's ability to tell an expected processor run
+                // from a broken graphics-card one.
+                self.set_status(catalog::PROVIDER_NOT_RECORDED, catalog::Tone::Warning);
+            }
+            let _ = evidence;
+        }
         // A verdict that settled with nothing in the slot cannot happen --
         // `start` writes it before the flag -- but reporting success for it
         // would be the silent-pass this whole step exists to prevent, so an
         // absent verdict reads as the engine not having run.
         let (message, tone) = match run.progress().verdict() {
-            Some(smoke::Verdict::Verified) => (catalog::SMOKE_VERIFIED, catalog::Tone::Good),
+            // Says which provider it proved, because that is what was just
+            // written down and the user is entitled to see the claim being made
+            // about their machine. Never "graphics card ready" on a run that
+            // happened on the processor.
+            Some(smoke::Verdict::Verified { provider, evidence }) => (
+                catalog::smoke_verified(
+                    provider == smoke::ProvenProvider::GraphicsCard,
+                    evidence.code(),
+                ),
+                catalog::Tone::Good,
+            ),
             Some(smoke::Verdict::Mismatch { .. }) => {
-                (catalog::SMOKE_MISMATCH, catalog::Tone::Warning)
+                (catalog::SMOKE_MISMATCH.to_owned(), catalog::Tone::Warning)
             }
-            Some(smoke::Verdict::Unavailable { .. }) | None => {
-                (catalog::SMOKE_UNAVAILABLE, catalog::Tone::Warning)
-            }
+            Some(smoke::Verdict::Unavailable { .. }) | None => (
+                catalog::SMOKE_UNAVAILABLE.to_owned(),
+                catalog::Tone::Warning,
+            ),
         };
-        self.set_notice(message, tone);
+        self.set_notice(&message, tone);
         self.retry.hwnd().EnableWindow(true);
     }
 
@@ -1159,8 +1209,20 @@ impl Wizard {
         let shortcut = index == STEP_SHORTCUT;
         let privacy = index == STEP_PRIVACY;
 
-        for button in self.provider.iter() {
+        for (index, button) in self.provider.iter().enumerate() {
             button.hwnd().ShowWindow(visible(provider));
+            // Shown and **disabled** when the graphics-card configuration is not
+            // installable, which is `UI-GUIDE`'s own rule for this page and was
+            // never implemented: hiding it would read as setup not having looked
+            // at the card, and leaving it enabled is a control that installs
+            // something else and says nothing. That is not a hypothetical —
+            // selecting it is what wrote `installed=cuda` onto a CPU-only
+            // installation. The status line below says which half is missing.
+            if index == GRAPHICS_CARD_OPTION {
+                button
+                    .hwnd()
+                    .EnableWindow(download::graphics_card_configuration_available().is_ok());
+            }
         }
         for button in self.shortcut.iter() {
             button.hwnd().ShowWindow(visible(shortcut));
@@ -1217,10 +1279,11 @@ impl Wizard {
 
     /// Why the provider step offers what it offers.
     fn describe_provider_choice(&self) -> (String, catalog::Tone) {
+        let availability = download::graphics_card_configuration_available();
         catalog::describe_provider_options(
             self.machine.admissibility.preferred_provider()
                 == speakeasy_models::ExecutionProvider::Cuda,
-            download::graphics_card_configuration_published(),
+            availability.as_ref().err(),
         )
     }
 
@@ -1317,11 +1380,6 @@ impl Wizard {
             vocabulary: seed::parse_vocabulary(&self.words.text().unwrap_or_default()),
             keep_transcripts: self.keep_transcripts.is_checked(),
             disk_logging: self.disk_logging.is_checked(),
-            provider: if self.provider.selected_index() == Some(0) {
-                seed::Provider::GraphicsCard
-            } else {
-                seed::Provider::Processor
-            },
         }
     }
 

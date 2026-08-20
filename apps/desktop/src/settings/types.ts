@@ -50,6 +50,21 @@ export type GpuStatus = {
   minimum_compute_capability: string;
   active_provider: string | null;
   engine_reason: string;
+  /**
+   * The device the worker is actually running on, which is what the disclosure
+   * shows. Distinct from `active_provider`, which names the selected *pack* —
+   * there is one Granite GGUF and a graphics-card worker offloads that same
+   * file, so the pack reads `cpu` on a machine holding the card. Displaying the
+   * pack under "Dictation runs on" was a mislabel of exactly that case.
+   */
+  active_device: string;
+  /**
+   * Whether what setup recorded still describes what is running. `ok` and
+   * `unrecorded` are quiet; anything else is disclosed.
+   */
+  provider_integrity: string;
+  /** Whether that is a condition someone has to act on. Decided in Rust. */
+  provider_fault: boolean;
 };
 
 

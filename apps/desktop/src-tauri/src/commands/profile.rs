@@ -903,6 +903,12 @@ fn gpu_status(
         &snapshot,
         selection.as_ref(),
         &decision,
+        // The device the worker reported and NVML confirmed, not the pack's
+        // provider. The page displays this under "Dictation runs on", and
+        // displaying the pack there was a mislabel on every machine whose worker
+        // holds the card.
+        granite.device(),
+        granite.provider_integrity(),
     ))
 }
 

@@ -22,6 +22,20 @@ export function formatError(code: string): string {
 }
 
 /** Why dictation landed on the engine it did (`GpuStatus.engine_reason`). */
+/**
+ * The disclosure for a provider record that no longer matches what is running.
+ *
+ * `null` for the quiet answers -- `ok`, `unrecorded`, and any code this build
+ * does not know -- so the caller renders nothing. Deliberately not a fallback
+ * to "Unknown": this line only exists to report a specific disagreement, and a
+ * placeholder in its place would be a line saying something is wrong without
+ * saying what.
+ */
+export function formatProviderIntegrity(code: string): string | null {
+  const disclosures: Record<string, string> = messages.providerIntegrity;
+  return disclosures[code] ?? null;
+}
+
 export function formatEngineReason(reason: string): string {
   const reasons = messages.engineReasons;
   return reasons[reason as keyof typeof reasons] ?? messages.engineReasonUnknown;

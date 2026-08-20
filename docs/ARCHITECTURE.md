@@ -144,12 +144,53 @@ Two consequences follow, and both are deliberate:
   load" are the same silent outcome. With it, the first is normal and the second
   is an error with instructions.
 
+#### The record is proof, and it takes three facts
+
+Rewritten 2026-08-20, from a support log that read
+`engine=cpu_gpu_runtime_missing device=cpu installed=cuda`. Every field was
+correct. The combination is impossible, and nothing anywhere compared them.
+
+The record came from the wizard's provider radio button, which was never
+disabled, so a user on a CUDA-capable machine could select "Use the graphics
+card" and setup would write `cuda` while installing the only configuration it
+carries. `speakeasy_models::granite_gpu` is now the one place the question is
+answered, and it separates three genuinely independent facts:
+
+1. **Published** — is a CUDA-capable worker pinned in the trusted manifest, as a
+   `native-runtime` artifact with id `granite-worker-cuda-windows-x64`? A CUDA
+   `final-asr` *pack* answers nothing: there is one GGUF and the CUDA worker
+   offloads that same file, so a pack entry would be a duplicate of the CPU one.
+   Asking the manifest for a pack is exactly what the old check did.
+2. **Present** — is that worker on this disk with every library it loads beside
+   it? `cudart` and `cuBLAS` are pinned in the same catalog and their
+   `proof_files` are the requirement, read from there rather than written down a
+   second time. A CUDA build without them does not run slower; Windows cannot
+   resolve the imports and it does not start.
+3. **Operational** — is a live worker process holding a CUDA context? Nothing
+   static can say. The startup handshake (`Hello` → `compiled_accelerators`)
+   reports what the binary *could* do, and a refusing driver, a claimed card or
+   exhausted VRAM runs that same binary on the processor while llama.cpp notes
+   the fallback in its own stderr. NVML lists the pids holding a compute context
+   per device, so the proof is the worker's **own process id** appearing there —
+   a name match would be satisfied by a second copy started by something else.
+
+Setup's engine check requires all three before `install-provider.txt` says
+`cuda`, and writes nothing at all if the check never ran (the app reads that as
+`unrecorded`). The app re-checks the third at every warm and compares it against
+the record: `ProviderIntegrity` is `ok`, `unrecorded`,
+`gpu_install_not_operational` — the actionable fault — or `running_beyond_record`,
+which is what `scripts/Enable-GraniteCuda.ps1` produces on purpose and is
+disclosed rather than treated as a failure.
+
 `GraniteEngineCoordinator::engine_reason` carries a stable code for why this
 machine is on the provider it is on — `probe_preferred`,
 `cpu_gpu_pack_not_installed`, `cpu_gpu_runtime_missing` — and that code reaches
-the diagnostics view and the log. GPU *admission* (the probe says the card
-qualifies) stays distinct from GPU *qualification* (a model has actually
-executed on it); the app reports the difference rather than conflating them.
+the diagnostics view and the log. It names the **pack**, not the device:
+`device=` is the device, and it reads `cuda` only where NVML confirmed the
+context, `cuda_unverified` for a CUDA build whose context could not be checked,
+and `cpu` otherwise. GPU *admission* (the probe says the card qualifies) stays
+distinct from GPU *qualification* (a model has actually executed on it); the app
+reports the difference rather than conflating them.
 
 Measured on an RTX 5090: Granite Q4_K_M resident run 1,571.9 ms on CPU versus
 156.4 ms on CUDA, RTF 0.158 versus 0.0157, holding ~3.27 GiB of VRAM. Cold load
