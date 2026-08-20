@@ -563,9 +563,13 @@ mod tests {
             std::fs::write(proof.join(ours), b"ours").expect("installed file");
         }
         std::fs::write(proof.join("granite-worker.cpu.exe"), b"orphan").expect("orphan");
-        // Fetched, and expensive: the required runtime, plus the CUDA 13 trio
-        // that no list in this workspace names yet. Sparing by the known-fetched
-        // list rather than by ours would delete the second group.
+        // Fetched, and expensive: the required runtime, plus a CUDA 13 trio.
+        // The catalog pins CUDA **12**, so these three are named by no list this
+        // uninstaller consults -- which is the whole point. Sparing by a
+        // known-fetched list rather than by ours would delete them, and they are
+        // 516 MB that `Enable-GraniteCuda.ps1` staged from a local toolkit.
+        // (The 12-versus-13 split is a real inconsistency, not a fixture quirk;
+        // `docs/handoff/CURRENT.md` item 0 is where it gets resolved.)
         for fetched in [
             "cudnn64_9.dll",
             "onnxruntime_providers_cuda.dll",

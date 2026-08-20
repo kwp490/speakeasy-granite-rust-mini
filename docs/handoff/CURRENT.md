@@ -1,9 +1,15 @@
-# Handoff — SpeakEasy Mini, as of 2026-08-20 (second session)
+# Handoff — SpeakEasy Mini, as of 2026-08-20 (third session)
 
 The state of the fork, what is finished, what is not, and the things that will
 cost you an afternoon if you rediscover them yourself.
 
 Read `CLAUDE.md` first. This file assumes it.
+
+> **Picking this up cold?** The work waiting for you is **"0. Prove the
+> graphics-card path on this machine"** under *What is outstanding*. Its four
+> design decisions were taken by the owner on 2026-08-20, so it is a plan to
+> execute rather than one to make — and its first step, re-pinning the catalog's
+> CUDA redistributables to 13.x, blocks everything after it.
 
 ## Start here
 
@@ -34,6 +40,8 @@ predicted:
 | Setup's engine check | transcribes the bundled clip through the real worker in ~5 s |
 | `speakeasy-granite` | compiles, ~2 min cold |
 | Broken doc links | none, `--document-private-items` and denied, workspace-wide (four were reintroduced on 2026-08-19 and cleared 2026-08-20) |
+| **The provider a machine reports** | proved, never chosen: `installed=cpu device=cpu provider=ok` on this host, and `gpu_install_not_operational` reproduced on demand |
+| Graphics-card path | **never run on hardware.** No release carries a CUDA worker; two of the five provider states are unit-tested only |
 | Branch | `main`, pushed to `kwp490/speakeasy-granite-rust-mini` |
 
 **The installer's copy, its vocabulary box and the words it collects were
@@ -54,9 +62,19 @@ sentence was false in three separate places before this session: there was no
 single file to download, setup discarded every answer it collected, and Finish
 closed the window rather than starting anything.
 
+**Setup can no longer record a configuration it did not prove** (2026-08-20,
+second session). The reported failure was `engine=cpu_gpu_runtime_missing
+device=cpu installed=cuda` — a claim assembled from a radio button nobody had
+disabled. `speakeasy_models::granite_gpu` is now the single reader of the
+question, the marker is written from the engine check's verdict, and the app
+compares the two at every warm and says so when they disagree. What has never
+happened is the *other* side of it: no machine has run this code with a CUDA
+worker present, which is item 0.
+
 **Two things need you rather than an agent**: publishing the CUDA worker
-(item 3, needs the CUDA Toolkit and Hugging Face credentials), and any decision
-about what setup *says*, since its copy is reviewable by rule.
+(item 3, needs Hugging Face credentials and the attribution review — and
+deliberately *not* part of item 0), and any decision about what setup *says*,
+since its copy is reviewable by rule.
 
 **Before running the installer lifecycle test**, kill any `ai-speakeasy-mini`.
 An aborted run leaves the app it launched for the running-app check alive, and
@@ -821,6 +839,120 @@ it cost three runs to notice. Kill `ai-speakeasy-mini` before re-running.
 
 Ordered by what unblocks the most.
 
+### 0. Prove the graphics-card path on this machine — **the next session's job**
+
+Everything in the provider work of 2026-08-20 is built and tested, and two of
+its states have never been produced on hardware, because producing them needs a
+CUDA-built worker and no release carries one. This item closes that, and the
+four decisions below were taken by the owner on 2026-08-20 rather than left to
+whoever picks it up.
+
+**Decided: a local proof, not a publication.** Build a CUDA worker with
+`scripts\Enable-GraniteCuda.ps1`, stage it over an installed processor build, and
+drive the states out on this machine. Do **not** upload anything, do not add the
+worker to `models/trusted-manifest.json` as
+`granite-worker-cuda-windows-x64`, and do not give `download::plan` its second
+item. Publishing is still item 3 and still needs Hugging Face credentials and the
+attribution review the catalog's own limitations say is outstanding — and the
+moment that artifact id appears in the manifest, the wizard offers the option and
+the packager starts demanding libraries, on every machine. Keep the release
+CPU-only until that is deliberate.
+
+**Decided: the whole workspace targets CUDA 13.x.** This is the first thing to
+do and it blocks the rest. The requirement list became *enforced* on 2026-08-20
+— `speakeasy_models::required_cuda_runtime_files` reads it out of the manifest's
+pinned `proof_files` — and the manifest pins **12.9** (`cudart64_12.dll`,
+`cublas64_12.dll`, `cublasLt64_12.dll`) while `Enable-GraniteCuda.ps1` stages
+**13** and the only toolkit on this machine is **13.3**. So a locally built
+worker would be refused as
+`RuntimeFilesMissing(cublas64_12.dll, cublasLt64_12.dll, cudart64_12.dll)` while
+sitting beside three perfectly good CUDA 13 libraries. The mismatch pre-dates
+this work — `CLAUDE.md` already recorded "the CUDA 13 trio that no list in this
+workspace names yet" — it was simply inert until something read the list.
+
+Re-pin, do not pattern-match. Fetch NVIDIA's 13.x `cuda_cudart` and `libcublas`
+Windows redistributable archives, cross-check length and SHA-256 against
+NVIDIA's own `redistrib_13.*.json` the way the 12.9 entries were, and replace
+both artifacts — id, version, url, `archive_prefix`, `extracted_bytes` and every
+`proof_files` entry. Then update `CUDA_RUNTIME_ARTIFACT_IDS` in
+`crates/speakeasy-models/src/granite_gpu.rs` and the same two ids in
+`scripts/GraniteWorkerProvider.ps1`;
+`the_packager_and_the_models_crate_require_the_same_cuda_libraries` fails until
+both are done, which is the point of it. Rewrite the two catalog `limitations`
+sentences that describe the 12.9 provenance, and
+`the_cuda_runtime_requirement_comes_from_the_manifests_own_digests` asserts the
+12 file names by hand — it has to move with them.
+
+Accepting `cudart64_*.dll` by pattern was considered and rejected: presence would
+stop implying provenance, and every required file in this catalog is a file the
+catalog pins.
+
+**Decided: the NVML probe threads through the warm path.** The smoke test already
+takes it (`smoke::verify_engine_with`), so setup's side of `cuda_unverified` is
+reachable; the app's is not, because `granite_engine::warm` names
+`NvmlCudaContextProbe` inline. Thread it through `GraniteEnvironment` exactly the
+way `recorded_provider` was threaded on 2026-08-20 — a field, defaulted at the
+test sites, supplied by `coordinators.rs` — so an integration test can stage a
+probe that fails and assert the app reports `device=cuda_unverified` rather than
+`cuda` or `cpu`. **No environment variable.** A production switch whose only
+purpose is to make the app misreport its provider is the shape this whole fix
+removed.
+
+**Decided: `Enable-GraniteCuda.ps1` updates the install marker.** The owner's
+call, against the recommendation, and the recommendation's concern is worth
+carrying rather than discarding: `install-provider.txt` having exactly one writer
+is what makes the 2026-08-20 defect unrepeatable, and a script that re-implements
+the three-gate proof would be a second implementation to drift.
+
+So implement it as **two callers, one implementation**. Give the bootstrapper a
+verb — `Mode::VerifyProvider { install_root }` beside `Install` and `Uninstall`
+in `apps/bootstrapper/src/main.rs` — that runs `smoke::verify_engine` against the
+installed worker and calls `seed::record_installed_provider` from its verdict,
+printing the evidence code and returning a non-zero exit on anything but
+`Verified`. `Enable-GraniteCuda.ps1` then *calls* that verb after it stages the
+worker and its libraries. The script must not read NVML, must not decide anything
+about providers, and must not write the file. Invoke it with the call operator
+and read `$LASTEXITCODE` — `Start-Process -ArgumentList` quotes nothing and this
+repository's own path has a space in it. Note that this verb makes the marker
+re-provable *without* a reinstall, which is a better answer than the
+`gpu_install_not_operational` copy's current "reinstall to re-check"; update that
+catalog entry in the same change or it will be telling users to do the expensive
+thing.
+
+**What passing looks like.** Four states on this machine, each with the evidence:
+
+| State | How to produce it | What must be true |
+| --- | --- | --- |
+| `provider=ok` on the card | staged CUDA worker, libraries beside it, marker re-proved | `device=cuda`, `provider=ok`, Settings shows "Graphics card (GPU)" and **no** integrity line |
+| `running_beyond_record` | staged CUDA worker, marker left at `cpu` | `device=cuda installed=cpu provider=running_beyond_record`, Settings discloses it as not-a-fault |
+| `gpu_runtime_files_missing` | delete one staged DLL, re-run the verb | refused, and the message names that file |
+| `cuda_unverified` | integration test with a staged failing probe | `device=cuda_unverified`, and the marker is **not** promoted |
+
+`gpu_install_not_operational` is already proved on hardware (2026-08-20: marker
+forced to `cuda` on a CPU build, `provider=gpu_install_not_operational` logged
+and the warning rendered in Settings), and so is `provider=ok` on the processor.
+
+**Traps specific to this item**, beyond everything in `CLAUDE.md`:
+
+- **`Enable-GraniteCuda.ps1` reverts on any reinstall or upgrade**, because the
+  payload copy overwrites the staged worker. Re-run it after every install, and
+  do not read a `device=cpu` after an upgrade as a regression.
+- **`KNOWN_PROOF_ORPHANS` names `granite-worker.cpu.exe`** and
+  `INSTALLED_PROOF_FILES` names only `granite-worker.exe`. Staged CUDA libraries
+  live in `proof/` and an ordinary uninstall **spares** anything it does not
+  recognise there, deliberately — see that comment before adding names.
+- **The card here is an RTX 4070 Laptop GPU** (compute 8.9, driver 596.36). Every
+  GPU timing in `CLAUDE.md` and `ARCHITECTURE.md` is from an RTX 5090. Do not
+  compare new numbers against them; record which card produced which.
+- **`Architectures` must match the card.** `Enable-GraniteCuda.ps1` reads compute
+  capability from `nvidia-smi` and refuses rather than guessing. 8.9 is `89`.
+- **A CUDA build is ~57 MB against ~4 MB.** `Get-StagedFlavour` reads the
+  `ggml-cuda` marker rather than the size, and `GraniteWorkerProvider.ps1` reads
+  the same marker; keep them agreeing.
+- **The build needs `git config --global core.longpaths true`**, CMake and
+  libclang, and takes minutes. `cargo build -p speakeasy-granite-worker
+  --features cuda --release` is the expensive step.
+
 ### 1. Run the app end to end — done 2026-08-18
 See above. It found two blocking defects; both are fixed and the first real
 dictation delivered.
@@ -902,15 +1034,27 @@ moves all of them together.
 Blocked on two things nobody else can supply: the CUDA Toolkit to build it
 (`scripts\Enable-GraniteCuda.ps1` builds one locally) and Hugging Face
 credentials to publish it. Target repo `orangeblue39/speakeasy-mini-runtime`,
-carrying `granite-worker.exe`, `cudart64_12.dll` and `cublas64_12.dll` as **one
-artifact** — a CUDA worker without cudart beside it fails to launch outright,
-so they are physically one unit.
+carrying `granite-worker.exe` and its CUDA redistributables as **one artifact** —
+a CUDA worker without cudart beside it fails to launch outright, so they are
+physically one unit.
 
-Once it exists: add it to `models/trusted-manifest.json` pinned by SHA-256, and
-give `download::plan` its second item. That function already takes `provider`
-and deliberately ignores it, with a comment saying why, for exactly this.
+**Deliberately still not done, and item 0 above is not it.** The owner's decision
+of 2026-08-20 is a local proof only: build and stage a CUDA worker on this
+machine, produce the states, publish nothing. Publishing has a consequence that
+is easy to miss — the artifact id is the *declaration*, so the moment
+`granite-worker-cuda-windows-x64` appears in `models/trusted-manifest.json` the
+wizard offers the graphics-card option and the packager begins refusing payloads
+without the libraries, on every machine and in every build. That is a release
+decision, not a step in a verification.
 
-Until then a GPU machine gets the CPU worker and the app says so honestly.
+When it is taken: pin the worker and its libraries by SHA-256 under that exact
+id, and give `download::plan` its second item. That function already takes
+`provider` and deliberately ignores it, with a comment saying why, for exactly
+this. `speakeasy_models::inspect_gpu_payload` needs no change at all — it starts
+answering `Ok(())` on its own, which is what the id being a named constant buys.
+
+Until then a GPU machine gets the CPU worker, the option is disabled with the
+reason, no installation may record `cuda`, and the app says so honestly.
 
 ### 4. The rebrand tail — done 2026-08-18, and it was not cosmetic
 The remaining "SpeakEasy" strings were filed as naming. Three of them were
