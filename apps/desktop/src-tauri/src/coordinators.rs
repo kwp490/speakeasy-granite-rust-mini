@@ -753,7 +753,16 @@ impl PersonalizationCoordinator {
     /// the origin the v1 import path uses: nobody imported these, someone typed
     /// them into setup. The distinction is visible in the settings list and in
     /// the precedence order, so getting it wrong would be a small lie in two
-    /// places.
+    /// places — and `replace_user_entry_terms` now uses it as the marker for
+    /// which entries this page owns.
+    ///
+    /// Replaces rather than merges, since 2026-08-20. `add_imported_terms` keyed
+    /// its de-duplication on the entry id, and these ids are positional
+    /// (`installer-0`, `installer-1`, …), so a second install left stale entries
+    /// behind — and a stale entry holding a word the new list also held was a
+    /// `ConflictingRule` that rejected every word the user typed, silently. An
+    /// ordinary uninstall keeps `personalization.json` on purpose, so a second
+    /// install is the common case rather than an odd one.
     fn add_protected_terms(&self, terms: &[String]) -> Result<(), &'static str> {
         let entries = terms
             .iter()
@@ -774,7 +783,7 @@ impl PersonalizationCoordinator {
         self.repository
             .lock()
             .map_err(|_| "personalization_state_unavailable")?
-            .add_imported_terms(entries)
+            .replace_user_entry_terms(entries)
             .map_err(|_| "personalization_terms_rejected")
     }
 
@@ -892,17 +901,35 @@ fn log_event_for_session(
     log_event_with_session(app, Some(session_id), event, fields);
 }
 
-fn log_event_with_session(
-    app: &tauri::AppHandle,
-    session_id: Option<SessionId>,
+/// Records a decision made before any coordinator is managed.
+///
+/// `log_event` cannot be used during `setup`: it reaches for
+/// `app.state::<ProfileCoordinator>()`, which **panics** when the state is not
+/// managed yet, inside a path that cannot unwind. Everything it needs is in hand
+/// at that point anyway — the data root and the settings that were just loaded.
+///
+/// It exists because the first thing this logs had no log at all. Setup's
+/// vocabulary was applied through a `let _ =`, so a rejected batch left the user
+/// with none of their words and left no trace of why; the fault was found by
+/// reading `personalization.json`, which is not a diagnostic route anyone has.
+pub(crate) fn log_startup_event(
+    root: &Path,
+    disk_logging_enabled: bool,
     event: &str,
     fields: &[(&str, &str)],
 ) {
-    let profile = app.state::<ProfileCoordinator>();
-    let enabled = profile
-        .settings
-        .lock()
-        .is_ok_and(|settings| settings.privacy.disk_logging_enabled);
+    if !disk_logging_enabled {
+        return;
+    }
+    let _ = append_diagnostics_log(root, &diagnostic_line(None, event, fields));
+}
+
+/// One diagnostic line, in the format the log has always used.
+///
+/// Extracted so the startup path above cannot drift from the running one: two
+/// formatters would eventually disagree about the field order, and the log is
+/// read by eye.
+fn diagnostic_line(session_id: Option<SessionId>, event: &str, fields: &[(&str, &str)]) -> String {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
@@ -921,6 +948,21 @@ fn log_event_with_session(
         let _ = write!(line, " {key}={value}");
     }
     line.push('\n');
+    line
+}
+
+fn log_event_with_session(
+    app: &tauri::AppHandle,
+    session_id: Option<SessionId>,
+    event: &str,
+    fields: &[(&str, &str)],
+) {
+    let profile = app.state::<ProfileCoordinator>();
+    let enabled = profile
+        .settings
+        .lock()
+        .is_ok_and(|settings| settings.privacy.disk_logging_enabled);
+    let line = diagnostic_line(session_id, event, fields);
     if let Some(diagnostics) = app.try_state::<DiagnosticsRuntimeCoordinator>() {
         diagnostics.record_event(&line);
     }

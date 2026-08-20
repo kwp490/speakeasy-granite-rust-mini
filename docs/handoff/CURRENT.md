@@ -1,4 +1,4 @@
-# Handoff — SpeakEasy Mini, as of 2026-08-19 (second session)
+# Handoff — SpeakEasy Mini, as of 2026-08-20
 
 The state of the fork, what is finished, what is not, and the things that will
 cost you an afternoon if you rediscover them yourself.
@@ -33,8 +33,14 @@ predicted:
 | **The wizard, end to end** | `Test-SetupWizard.ps1` passes: eight pages, real install, engine check, launched app |
 | Setup's engine check | transcribes the bundled clip through the real worker in ~5 s |
 | `speakeasy-granite` | compiles, ~2 min cold |
-| Broken doc links | none, `--document-private-items` and denied, workspace-wide |
+| Broken doc links | none, `--document-private-items` and denied, workspace-wide (four were reintroduced on 2026-08-19 and cleared 2026-08-20) |
 | Branch | `main`, pushed to `kwp490/speakeasy-granite-rust-mini` |
+
+**The installer's copy, its vocabulary box and the words it collects were
+reworked on 2026-08-20** — see the section immediately below. The words it
+collected had never reached the app; that was two independent defects, and the
+second one was on the React side of the IPC boundary with the data already
+correct on disk.
 
 **Nothing is left of the four this file used to list.** The last of them — the
 seed channel — landed on 2026-08-19 along with the distribution work around it;
@@ -55,6 +61,108 @@ about what setup *says*, since its copy is reviewable by rule.
 **Before running the installer lifecycle test**, kill any `ai-speakeasy-mini`.
 An aborted run leaves the app it launched for the running-app check alive, and
 the pre-flight guard then refuses every retry.
+
+## What happened on 2026-08-20
+
+The brief came from actually running the installer: the copy is a wall of text
+nobody reads, the vocabulary box wants one word per line, and **the words it
+collects never show up in the app**. The first two are writing and a text box.
+The third was two independent defects with one symptom, and neither was where it
+looked.
+
+### The wizard's copy is now a question, a key line, and two sentences
+
+Every page had three to five careful, correct paragraphs. That is the failure:
+nobody reads an installer, so an honesty obligation discharged in the fourth
+sentence of the third paragraph is discharged on paper and not in fact.
+`catalog::Step` now carries `heading`, `key`, `key_tone` and `body` separately,
+so the shape cannot quietly drift back into prose, and `catalog::Tone` marks
+which line matters — ordinary, accent, warning, good.
+
+**Colour, and no bold.** Emphasising a label's font needs `WM_SETFONT`, `winsafe`
+only sends messages through an `unsafe` call, and the workspace forbids `unsafe`.
+`WM_CTLCOLORSTATIC` is safely wrapped, so the emphasis a reader gets is ink plus
+position plus brevity. Verified on screen at 250% rather than assumed: a
+`WM_CTLCOLORSTATIC` handler that is never reached looks identical in every
+measurement. Accent renders blue, warning red, good green, and
+`Measure-NativeWindow.ps1 -Fit` reports every label on all eight pages fitting
+its box at 240 dpi — the key band holds two lines with room, the body four.
+
+### The vocabulary box takes a comma-separated list
+
+`seed::parse_vocabulary` splits on commas **and** newlines, trims, drops
+case-insensitive duplicates and bounds the list, and the page reports "3 words
+will be added: Kenneth, Anthropic, Granite" from that same function. Echoing the
+words matters as much as the count: a missing comma is invisible in "2 words" and
+obvious in "1 word: Kenneth Perry".
+
+### The words reached the disk and not the screen
+
+Two defects, either of which alone loses the answer, and the second only becomes
+visible once the first is fixed.
+
+**One: a merge keyed on positional ids fails closed on the whole batch.** Setup's
+words become dictionary entries named `installer-0`, `installer-1`, … *by
+position*, and an ordinary uninstall keeps `personalization.json` on purpose. So a
+second install merged a shorter list over the old ids, left one behind, and where
+the survivor held a word the new list also held the two were a `ConflictingRule`
+to the dictionary validator — which rejects **every entry in the merge**. The user
+got none of their words and kept the previous install's. Two words differing only
+in case (`Ken, ken`) did the same on a first install. The apply site was
+`let _ = personalization.add_protected_terms(...)`, so nothing was logged, nothing
+shown, and the state was indistinguishable from having typed nothing.
+
+Fixed three ways, all needed: the parse de-duplicates, `replace_user_entry_terms`
+replaces the entries setup owns instead of merging them, and the outcome is
+written to the log as `installer_vocabulary count=3 result=applied`. The
+regression test in `personalization.rs` asserts the **old** path still rejects the
+same input as a control, so it cannot pass because the collision stopped being
+possible.
+
+**Two: the Settings page read `personalization_status` once, on mount, with no
+rejection handler.** Every window's webview loads while `setup` is still managing
+coordinators, so that read can be refused with "state not managed for field
+`state` on command …" — and the page then shows an **empty dictionary list for the
+life of the process**. An empty list is not a blank page anyone reports; it says
+"you have no protected terms". `useProfile.ts` had carried a retry for exactly
+that race since the day it was found, with a comment naming the error string, and
+nothing else did. Status reads that can lose it now go through
+`readWithRetry`, and one that never succeeds says so beside the list.
+
+This was found with the words already correct on disk and `result=applied` in the
+log — i.e. after the backend was fixed and still looking broken. **When an answer
+"did not arrive", check the disk and the window separately.** They are two
+failures with one symptom.
+
+### Two instruments were wrong in the same place
+
+`Test-SetupWizard.ps1` waited for `personalization.json` to *exist* and then read
+it. An uninstall keeps that file, so on a reinstall the wait returned instantly
+with the previous install's words and reported the new ones lost — against an app
+that had applied them correctly a moment later. It polls for the content it is
+asserting now, with a deadline, so it can still fail. And `WM_SETTEXT` does not
+raise `EN_CHANGE` on a multi-line edit, so setting the box and reading the count
+back got the answer from before: the test presses Back and Next to force the
+recompute, which also proves Back does not lose what was typed.
+
+### Four dead doc links, cleared
+
+`cargo doc --no-deps --document-private-items --workspace` with broken links
+denied exited **101** at `4416b00` — two `[`tests::…`]` links rustdoc cannot
+resolve outside `cfg(test)`, and two `[`write`]` links ambiguous between the
+function and the macro. That is not one broken link, it is the whole check
+unable to run, which hides every future one. `CLAUDE.md` claimed this was clean;
+it was clean on 2026-08-19 and the two commits that day reintroduced it. Now two
+warnings, both pre-existing and named in `CLAUDE.md`, and exit 0.
+
+### Validated on this machine
+
+Uninstalled (keeping the 2.14 GB of weights and the kept configuration),
+re-seeded a colliding stale dictionary, rebuilt the single-file installer and
+drove `Test-SetupWizard.ps1` through all eight pages to a launched app: pass. The
+dictionary afterwards holds exactly `Kenneth, Anthropic, Granite` — no leftovers
+— and `Invoke-WebviewProbe.ps1` reads the same three words out of Settings →
+Transcription. The full gate is green and `cargo doc` exits 0.
 
 ## What happened on 2026-08-19 (second session)
 

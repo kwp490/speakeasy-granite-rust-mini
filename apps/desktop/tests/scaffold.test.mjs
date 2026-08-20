@@ -1475,6 +1475,43 @@ test("personalization stays bounded, inert, and contacts-disabled", async () => 
   assert.doesNotMatch(app, /dangerouslySetInnerHTML|DOMParser|eval\(|new Function/);
 });
 
+test("every status read that can lose the startup race retries and reports", async () => {
+  // The failure this pins cost a user their installer vocabulary. Both windows'
+  // webviews mount while Tauri's `setup` is still managing coordinators, so a
+  // read fired on mount can be refused with "state not managed for field
+  // `state` on command ...". `useProfile.ts` retried that from the day it was
+  // found; `personalization_status` did not, and it was fired once with no
+  // rejection handler at all -- so a lost race left the dictionary list empty
+  // for the life of the process. An empty list is not a blank page anyone
+  // reports: it says "you have no protected terms", which is exactly how three
+  // words sitting correctly in `personalization.json` looked like an installer
+  // that had discarded them (2026-08-20).
+  const page = await readFile(
+    new URL("../src/settings/Transcription.tsx", import.meta.url),
+    "utf8",
+  );
+  const helper = await readFile(
+    new URL("../src/settings/readWithRetry.ts", import.meta.url),
+    "utf8",
+  );
+  const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
+
+  // Read through the retry, and never as a bare mount-time `invoke` again.
+  assert.match(page, /readWithRetry<PersonalizationStatus>\("personalization_status"\)/);
+  assert.doesNotMatch(page, /invoke<PersonalizationStatus>\("personalization_status"\)/);
+
+  // A read that never succeeds says so where the missing list is, rather than
+  // rendering an empty list that means something else.
+  assert.match(page, /setPersonalizationUnavailable\(true\)/);
+  assert.match(page, /messages\.personalizationUnavailable/);
+  assert.match(catalog, /personalizationUnavailable:/);
+
+  // The retry has to be bounded. Retrying forever trades a wrong answer for a
+  // permanent spinner, and the rejection still has to reach the caller.
+  assert.match(helper, /const ATTEMPTS = \d+;/);
+  assert.match(helper, /throw lastError;/);
+});
+
 test("desktop exposes connected activation settings and friendly catalog errors", async () => {
   const app = await readAllSources();
   const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");

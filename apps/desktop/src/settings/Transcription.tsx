@@ -11,6 +11,7 @@ import {
   formatFinalSourceReason,
   formatState,
 } from "./format";
+import { readWithRetry } from "./readWithRetry";
 import type {
   DiagnosticsStatus,
   GpuStatus,
@@ -46,6 +47,15 @@ export function Transcription() {
   });
   const [confirmed, setConfirmed] = useState(false);
   const [personalization, setPersonalization] = useState<PersonalizationStatus | null>(null);
+  /**
+   * Set when the personalization read never succeeded.
+   *
+   * Its own flag rather than folding into `personalizationAction`, because it
+   * belongs beside the list that is missing rather than beside the import
+   * controls — and because "could not be read" and "your list is empty" are
+   * different facts that looked identical here until 2026-08-20.
+   */
+  const [personalizationUnavailable, setPersonalizationUnavailable] = useState(false);
   const [observedTerm, setObservedTerm] = useState("");
   const [correctedTerm, setCorrectedTerm] = useState("");
   const [snippetName, setSnippetName] = useState("");
@@ -57,13 +67,31 @@ export function Transcription() {
 
   useEffect(() => {
     void refreshCatalog();
-    void invoke<ModelHardware>("model_hardware").then(setHardware);
+    void readWithRetry<ModelHardware>("model_hardware").then(setHardware, () => {
+      // Same startup race as the personalization read below. Left unset rather
+      // than defaulted: the hardware panel renders nothing without it, which is
+      // honest, where invented values would not be.
+    });
     void invoke<ModelInstallStatus>("model_install_status")
       .then(setModelStatus)
       .catch(() => {
         setModelStatus({ state: "failed", error: "model_status_unavailable" });
       });
-    void invoke<PersonalizationStatus>("personalization_status").then(setPersonalization);
+    // Retried, because this read used to be fired once with no `catch` and
+    // dropped its rejection. A read that lost the race against `setup` managing
+    // `PersonalizationCoordinator` left this list empty for the life of the
+    // process, which reads as "you have no protected terms" — the exact way
+    // setup's vocabulary appeared to be discarded while sitting correctly on
+    // disk.
+    void readWithRetry<PersonalizationStatus>("personalization_status").then(
+      (status) => {
+        setPersonalization(status);
+        setPersonalizationUnavailable(false);
+      },
+      () => {
+        setPersonalizationUnavailable(true);
+      },
+    );
     // Read once on mount rather than polled. The reason only changes when a
     // dictation finishes, and this page is not open during one — settings never
     // has focus while the user is dictating, because taking focus would change
@@ -475,6 +503,9 @@ export function Transcription() {
           >
             {messages.recordCorrection}
           </button>
+          {personalizationUnavailable && (
+            <p className="warning">{messages.personalizationUnavailable}</p>
+          )}
           <ul className="plain-list">
             {personalization?.dictionary.map((entry) => (
               <li key={entry.id}>

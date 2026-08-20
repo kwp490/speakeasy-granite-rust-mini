@@ -52,10 +52,20 @@ mod layout {
     pub const HEADING_HEIGHT: i32 = 26;
     pub const POSITION_TOP: i32 = 44;
     pub const POSITION_HEIGHT: i32 = 18;
-    pub const BODY_TOP: i32 = 74;
+    /// The one line on the page worth reading first, coloured by its tone.
+    ///
+    /// Its own band above the body rather than the body's first sentence,
+    /// because the point of it is to be readable without reading the body. Two
+    /// lines of room: the longest of them wraps to two at this measure, and a
+    /// key line that clips is worse than no key line at all.
+    pub const KEY_TOP: i32 = 68;
+    pub const KEY_HEIGHT: i32 = 40;
+    pub const BODY_TOP: i32 = 110;
     /// The step's own explanation. Short on purpose — the space below it
-    /// belongs to what the step actually found or is asking for.
-    pub const BODY_HEIGHT: i32 = 110;
+    /// belongs to what the step actually found or is asking for. Shrunk from
+    /// 110 when the key line took its own band; the copy it holds shrank
+    /// further than that, which is what the 2026-08-20 rewrite was for.
+    pub const BODY_HEIGHT: i32 = 78;
     pub const NOTICE_TOP: i32 = 194;
     /// Where a step's findings and controls go. Sized for the longest thing it
     /// currently has to hold: the compatibility report, which runs to about
@@ -75,8 +85,8 @@ mod layout {
     /// 250% a 20 px row clips the descenders on this font.
     pub const CONTROL_ROW: i32 = 24;
     /// The vocabulary box. Four or five lines at the wizard's text size, which
-    /// is enough to see that a list is being built without pretending this is
-    /// the place to type fifty words.
+    /// is enough for a comma-separated list to wrap and still be read back
+    /// without pretending this is the place to type fifty words.
     pub const EDIT_HEIGHT: i32 = 100;
     /// What a question step says back — a shortcut already in use, or why an
     /// option cannot be chosen. Below the controls rather than above them, so
@@ -105,6 +115,8 @@ pub struct Wizard {
     window: gui::WindowMain,
     heading: gui::Label,
     position: gui::Label,
+    /// The step's key line. Coloured from [`catalog::Step::key_tone`].
+    key: gui::Label,
     body: gui::Label,
     notice: gui::Label,
     /// What a question step says back. Shares the notice's band; see
@@ -117,7 +129,12 @@ pub struct Wizard {
     provider: gui::RadioGroup,
     /// The activation shortcut, from [`shortcut_choices`].
     shortcut: gui::RadioGroup,
-    /// Words to protect, one per line.
+    /// Words to protect, comma-separated.
+    ///
+    /// Comma-separated since 2026-08-20, and one per line before that. The line
+    /// form was more typing and one more thing to remember, and a list is what
+    /// people already know how to type — the box still accepts newlines so a
+    /// user who types them anyway loses nothing.
     words: gui::Edit,
     /// Whether transcripts survive closing the app. Unchecked by default.
     keep_transcripts: gui::CheckBox,
@@ -172,6 +189,16 @@ pub struct Wizard {
     /// what gates Next, and `show_step` re-applies that gate on every visit,
     /// including visits from Back after the transfer already succeeded.
     ready: Rc<Cell<bool>>,
+    /// What colour each label that can change tone is currently showing.
+    ///
+    /// Cells rather than an argument to a paint routine, because the colour is
+    /// decided where the text is written and applied much later, in the
+    /// `WM_CTLCOLORSTATIC` the control sends while painting itself. Nothing else
+    /// gets to choose: a label whose text and tone were set from two places
+    /// would eventually show a green failure.
+    key_tone: Rc<Cell<catalog::Tone>>,
+    notice_tone: Rc<Cell<catalog::Tone>>,
+    status_tone: Rc<Cell<catalog::Tone>>,
     /// Whether the shortcut showing on the shortcut step is one Windows will
     /// actually give the app.
     ///
@@ -271,6 +298,44 @@ fn shortcut_choices() -> [ShortcutChoice; 3] {
     ]
 }
 
+/// What a [`catalog::Tone`] paints with.
+///
+/// Colour and nothing else. **Bold is not available here**: emphasising a
+/// label's font means `WM_SETFONT`, `winsafe` only sends messages through an
+/// `unsafe` call, and this workspace sets `unsafe_code = "forbid"`. So the
+/// emphasis a reader gets is a colour plus the fact that the key line is one
+/// short line on its own — and every tone is also carried by the words, per
+/// `UI-GUIDE.md`'s rule that colour is never the only signal.
+///
+/// Fixed values rather than system colours for the three that mean something.
+/// The window is drawn on the dialog face (`COLOR::BTNFACE`), which these are
+/// chosen to sit on; [`catalog::Tone::Plain`] defers to the system so ordinary
+/// text still follows the user's theme.
+fn tone_color(tone: catalog::Tone) -> w::COLORREF {
+    match tone {
+        catalog::Tone::Plain => w::GetSysColor(co::COLOR::WINDOWTEXT),
+        catalog::Tone::Accent => w::COLORREF::from_rgb(0x0a, 0x3d, 0x91),
+        catalog::Tone::Warning => w::COLORREF::from_rgb(0x9b, 0x1c, 0x1c),
+        catalog::Tone::Good => w::COLORREF::from_rgb(0x0b, 0x5a, 0x1e),
+    }
+}
+
+/// Write a label and record the colour it must paint in.
+///
+/// One function for both halves, because they cannot be allowed to disagree: a
+/// static control paints its own text, so the colour is applied much later, in
+/// the `WM_CTLCOLORSTATIC` it sends on the way. Setting the text from one place
+/// and the tone from another is how a failure ends up green.
+///
+/// The explicit invalidate is for the case where only the tone changed —
+/// `SetWindowText` dirties the control by itself, but re-tinting the same words
+/// would otherwise wait for something else to dirty the rectangle.
+fn say(label: &gui::Label, cell: &Cell<catalog::Tone>, text: &str, tone: catalog::Tone) {
+    cell.set(tone);
+    let _ = label.hwnd().SetWindowText(text);
+    let _ = label.hwnd().InvalidateRect(None, true);
+}
+
 /// A hotkey id nothing else in this process uses.
 ///
 /// Registered and immediately released, only to find out whether Windows will
@@ -323,42 +388,7 @@ impl Wizard {
         });
 
         let content_width = layout::WINDOW.0 - (layout::MARGIN * 2);
-        let heading = gui::Label::new(
-            &window,
-            gui::LabelOpts {
-                text: "",
-                position: gui::dpi(layout::MARGIN, layout::HEADING_TOP),
-                size: gui::dpi(content_width, layout::HEADING_HEIGHT),
-                ..Default::default()
-            },
-        );
-        let position = gui::Label::new(
-            &window,
-            gui::LabelOpts {
-                text: "",
-                position: gui::dpi(layout::MARGIN, layout::POSITION_TOP),
-                size: gui::dpi(content_width, layout::POSITION_HEIGHT),
-                ..Default::default()
-            },
-        );
-        let body = gui::Label::new(
-            &window,
-            gui::LabelOpts {
-                text: "",
-                position: gui::dpi(layout::MARGIN, layout::BODY_TOP),
-                size: gui::dpi(content_width, layout::BODY_HEIGHT),
-                ..Default::default()
-            },
-        );
-        let notice = gui::Label::new(
-            &window,
-            gui::LabelOpts {
-                text: catalog::STEP_NOT_BUILT,
-                position: gui::dpi(layout::MARGIN, layout::NOTICE_TOP),
-                size: gui::dpi(content_width, layout::NOTICE_HEIGHT),
-                ..Default::default()
-            },
-        );
+        let [heading, position, key, body, notice] = Self::page_labels(&window, content_width);
         let transfer = gui::ProgressBar::new(
             &window,
             gui::ProgressBarOpts {
@@ -387,6 +417,7 @@ impl Wizard {
             window,
             heading,
             position,
+            key,
             body,
             notice,
             status: questions.status,
@@ -402,6 +433,9 @@ impl Wizard {
             cancel,
             retry,
             step: Rc::new(Cell::new(0)),
+            key_tone: Rc::new(Cell::new(catalog::Tone::Plain)),
+            notice_tone: Rc::new(Cell::new(catalog::Tone::Plain)),
+            status_tone: Rc::new(Cell::new(catalog::Tone::Plain)),
             verify: Rc::new(RefCell::new(None)),
             verify_settled: Rc::new(Cell::new(false)),
             machine: Rc::new(machine),
@@ -416,6 +450,37 @@ impl Wizard {
         };
         wizard.wire_events();
         wizard
+    }
+
+    /// The five stacked labels every step paints into, top to bottom.
+    ///
+    /// Extracted from `new` because it pushed that function past the
+    /// hundred-line lint when the key line was added; the grouping is the right
+    /// one anyway — these are one column of text at one measure, and their tops
+    /// only mean anything relative to each other.
+    fn page_labels(window: &gui::WindowMain, content_width: i32) -> [gui::Label; 5] {
+        let band = |top: i32, height: i32, text: &str| {
+            gui::Label::new(
+                window,
+                gui::LabelOpts {
+                    text,
+                    position: gui::dpi(layout::MARGIN, top),
+                    size: gui::dpi(content_width, height),
+                    ..Default::default()
+                },
+            )
+        };
+        [
+            band(layout::HEADING_TOP, layout::HEADING_HEIGHT, ""),
+            band(layout::POSITION_TOP, layout::POSITION_HEIGHT, ""),
+            band(layout::KEY_TOP, layout::KEY_HEIGHT, ""),
+            band(layout::BODY_TOP, layout::BODY_HEIGHT, ""),
+            band(
+                layout::NOTICE_TOP,
+                layout::NOTICE_HEIGHT,
+                catalog::STEP_NOT_BUILT,
+            ),
+        ]
     }
 
     /// Every control that belongs to a step which asks something.
@@ -588,10 +653,34 @@ impl Wizard {
             Ok(0)
         });
 
+        // The only chance to colour a static control's text: it paints itself,
+        // and asks its parent for the ink on the way. Three labels can change
+        // tone; every other static keeps the system colour, which is what
+        // `Tone::Plain` resolves to.
+        let on_color = self.clone();
+        self.window.on().wm_ctl_color_static(move |p| {
+            let tone = if p.hwnd == *on_color.key.hwnd() {
+                on_color.key_tone.get()
+            } else if p.hwnd == *on_color.notice.hwnd() {
+                on_color.notice_tone.get()
+            } else if p.hwnd == *on_color.status.hwnd() {
+                on_color.status_tone.get()
+            } else {
+                catalog::Tone::Plain
+            };
+            let _ = p.hdc.SetTextColor(tone_color(tone));
+            // Transparent text, and the returned brush still erases the
+            // background — the standard pairing. Leaving the mode opaque paints
+            // each run of text on the device context's own background colour,
+            // which is white, so coloured lines arrive in white boxes.
+            let _ = p.hdc.SetBkMode(co::BKMODE::TRANSPARENT);
+            Ok(w::HBRUSH::GetSysColorBrush(co::COLOR::BTNFACE)?)
+        });
+
         let on_tick = self.clone();
         self.window.on().wm_timer(POLL_ID, move || {
-            on_tick.poll_transfer()?;
-            on_tick.poll_verify()?;
+            on_tick.poll_transfer();
+            on_tick.poll_verify();
             Ok(())
         });
 
@@ -607,8 +696,8 @@ impl Wizard {
         // mind about — and it would be shown right next to the one they picked.
         let on_shortcut = self.clone();
         self.shortcut.on().bn_clicked(move || {
-            let message = on_shortcut.verify_selected_shortcut();
-            on_shortcut.status.hwnd().SetWindowText(&message)?;
+            let (message, tone) = on_shortcut.verify_selected_shortcut();
+            on_shortcut.set_status(&message, tone);
             Ok(())
         });
 
@@ -616,8 +705,22 @@ impl Wizard {
         // selected, so it is rewritten the same way.
         let on_provider = self.clone();
         self.provider.on().bn_clicked(move || {
-            let message = on_provider.describe_provider_choice();
-            on_provider.status.hwnd().SetWindowText(&message)?;
+            let (message, tone) = on_provider.describe_provider_choice();
+            on_provider.set_status(&message, tone);
+            Ok(())
+        });
+
+        // What the box will actually hand over, counted as it is typed.
+        //
+        // The count is the whole reason a comma-separated box is safe to ask
+        // for: a reader who typed "Kenneth Perry, Anthropic" and meant two
+        // words can see that setup read two, and one who forgot the comma can
+        // see that it read one. It is [`seed::parse_vocabulary`]'s own answer
+        // rather than a second count of the same text, so it cannot be right
+        // about a list the seed file disagrees with.
+        let on_words = self.clone();
+        self.words.on().en_change(move || {
+            on_words.show_word_count();
             Ok(())
         });
 
@@ -642,10 +745,7 @@ impl Wizard {
                 && on_next.install.may_proceed()
                 && let Err(reason) = Self::place()
             {
-                on_next
-                    .notice
-                    .hwnd()
-                    .SetWindowText(&catalog::install_failed(&reason))?;
+                on_next.set_notice(&catalog::install_failed(&reason), catalog::Tone::Warning);
                 return Ok(());
             }
             // Leaving the last question is what records the answers. Here
@@ -666,10 +766,10 @@ impl Wizard {
                     // Not fatal, and not silent either. The install is complete
                     // and every one of these has a control in Settings, so the
                     // honest thing is to name what did not stick and carry on.
-                    on_next
-                        .status
-                        .hwnd()
-                        .SetWindowText(&catalog::seeds_not_recorded(&written.failed))?;
+                    on_next.set_status(
+                        &catalog::seeds_not_recorded(&written.failed),
+                        catalog::Tone::Warning,
+                    );
                 }
             }
             if current + 1 < catalog::STEPS.len() {
@@ -682,7 +782,7 @@ impl Wizard {
                 // Before closing rather than after: `close` destroys the window
                 // and ends the message loop, so anything after it is running in
                 // a process on its way out.
-                if on_next.launch_installed_app()? {
+                if on_next.launch_installed_app() {
                     on_next.close()?;
                 }
             }
@@ -704,6 +804,21 @@ impl Wizard {
             on_cancel.close()?;
             Ok(())
         });
+    }
+
+    /// The page's key line.
+    fn set_key(&self, text: &str, tone: catalog::Tone) {
+        say(&self.key, &self.key_tone, text, tone);
+    }
+
+    /// What a reporting step found.
+    fn set_notice(&self, text: &str, tone: catalog::Tone) {
+        say(&self.notice, &self.notice_tone, text, tone);
+    }
+
+    /// What a question step says back.
+    fn set_status(&self, text: &str, tone: catalog::Tone) {
+        say(&self.status, &self.status_tone, text, tone);
     }
 
     /// Start the transfer for this machine, once.
@@ -730,14 +845,18 @@ impl Wizard {
         // offloads that same file. What the provider decides is whether the
         // GPU worker and its two CUDA libraries are fetched alongside it.
         let provider = self.machine.admissibility.preferred_provider();
-        let (message, show_bar) = match download::plan(provider) {
+        let (message, tone, show_bar) = match download::plan(provider) {
             Ok(plan) if plan.already_satisfied() => {
                 // Nothing to transfer, and it must not be reported as a transfer
                 // that finished instantly: what happened is that the files are
                 // present and their digests still match.
                 self.settled.set(true);
                 self.ready.set(true);
-                (catalog::DOWNLOAD_ALREADY_PRESENT.to_owned(), false)
+                (
+                    catalog::DOWNLOAD_ALREADY_PRESENT.to_owned(),
+                    catalog::Tone::Good,
+                    false,
+                )
             }
             Ok(plan) => {
                 let described = catalog::describe_download_plan(
@@ -745,16 +864,16 @@ impl Wizard {
                     plan.total_bytes,
                 );
                 *self.run.borrow_mut() = Some(download::start(plan));
-                (described, true)
+                (described, catalog::Tone::Plain, true)
             }
             Err(failure) => {
                 // No plan means nothing was attempted, which is a different
                 // thing from a transfer that failed, and the copy says which.
                 self.settled.set(true);
-                (failure, false)
+                (failure, catalog::Tone::Warning, false)
             }
         };
-        let _ = self.notice.hwnd().SetWindowText(&message);
+        self.set_notice(&message, tone);
         let _ = self
             .transfer
             .hwnd()
@@ -805,62 +924,59 @@ impl Wizard {
             // The same refusal `place` gives. Reached only if the profile lost
             // LOCALAPPDATA between installing and this step, which is not a
             // condition to guess a path for.
-            let _ = self
-                .notice
-                .hwnd()
-                .SetWindowText(catalog::INSTALL_ROOT_UNLOCATABLE);
+            self.set_notice(catalog::INSTALL_ROOT_UNLOCATABLE, catalog::Tone::Warning);
             return;
         };
         let Some(model_root) = download::installed_model_root() else {
-            let _ = self
-                .notice
-                .hwnd()
-                .SetWindowText(catalog::DATA_ROOT_UNLOCATABLE);
+            self.set_notice(catalog::DATA_ROOT_UNLOCATABLE, catalog::Tone::Warning);
             return;
         };
         *self.verify.borrow_mut() = Some(smoke::start(smoke::staged_worker(&root), model_root));
-        let _ = self.notice.hwnd().SetWindowText(catalog::SMOKE_RUNNING);
+        self.set_notice(catalog::SMOKE_RUNNING, catalog::Tone::Plain);
         let _ = self.retry.hwnd().EnableWindow(false);
     }
 
     /// Writes the engine check's verdict once it settles.
-    fn poll_verify(&self) -> w::AnyResult<()> {
+    fn poll_verify(&self) {
         if self.step.get() != STEP_VERIFY || self.verify_settled.get() {
-            return Ok(());
+            return;
         }
         let Ok(slot) = self.verify.try_borrow() else {
-            return Ok(());
+            return;
         };
         let Some(run) = slot.as_ref() else {
-            return Ok(());
+            return;
         };
         if !run.progress().finished() {
-            return Ok(());
+            return;
         }
         self.verify_settled.set(true);
         // A verdict that settled with nothing in the slot cannot happen --
         // `start` writes it before the flag -- but reporting success for it
         // would be the silent-pass this whole step exists to prevent, so an
         // absent verdict reads as the engine not having run.
-        let message = match run.progress().verdict() {
-            Some(smoke::Verdict::Verified) => catalog::SMOKE_VERIFIED,
-            Some(smoke::Verdict::Mismatch { .. }) => catalog::SMOKE_MISMATCH,
-            Some(smoke::Verdict::Unavailable { .. }) | None => catalog::SMOKE_UNAVAILABLE,
+        let (message, tone) = match run.progress().verdict() {
+            Some(smoke::Verdict::Verified) => (catalog::SMOKE_VERIFIED, catalog::Tone::Good),
+            Some(smoke::Verdict::Mismatch { .. }) => {
+                (catalog::SMOKE_MISMATCH, catalog::Tone::Warning)
+            }
+            Some(smoke::Verdict::Unavailable { .. }) | None => {
+                (catalog::SMOKE_UNAVAILABLE, catalog::Tone::Warning)
+            }
         };
-        self.notice.hwnd().SetWindowText(message)?;
+        self.set_notice(message, tone);
         self.retry.hwnd().EnableWindow(true);
-        Ok(())
     }
 
-    fn poll_transfer(&self) -> w::AnyResult<()> {
+    fn poll_transfer(&self) {
         if self.step.get() != STEP_DOWNLOAD {
-            return Ok(());
+            return;
         }
         let Ok(slot) = self.run.try_borrow() else {
-            return Ok(());
+            return;
         };
         let Some(run) = slot.as_ref() else {
-            return Ok(());
+            return;
         };
         let progress = &run.progress;
         let done = progress.bytes().min(run.total_bytes);
@@ -881,24 +997,22 @@ impl Wizard {
 
         if progress.finished() {
             if self.settled.get() {
-                return Ok(());
+                return;
             }
             self.settled.set(true);
             if let Some(failure) = progress.failure() {
                 self.ready.set(false);
-                self.notice.hwnd().SetWindowText(&failure)?;
+                self.set_notice(&failure, catalog::Tone::Warning);
             } else {
                 self.ready.set(true);
                 self.transfer.set_position(TRANSFER_STEPS);
-                self.notice
-                    .hwnd()
-                    .SetWindowText(&catalog::describe_download_complete(
-                        &run.labels,
-                        run.total_bytes,
-                    ))?;
+                self.set_notice(
+                    &catalog::describe_download_complete(&run.labels, run.total_bytes),
+                    catalog::Tone::Good,
+                );
             }
             self.apply_next_availability(STEP_DOWNLOAD);
-            return Ok(());
+            return;
         }
 
         // Installing wins over verifying if both are somehow set: it is the
@@ -911,16 +1025,16 @@ impl Wizard {
         } else {
             catalog::Phase::Transferring
         };
-        self.notice
-            .hwnd()
-            .SetWindowText(&catalog::describe_download_progress(
+        self.set_notice(
+            &catalog::describe_download_progress(
                 &run.labels,
                 progress.current(),
                 done,
                 run.total_bytes,
                 phase,
-            ))?;
-        Ok(())
+            ),
+            catalog::Tone::Plain,
+        );
     }
 
     /// Place the payload and register the installation.
@@ -963,6 +1077,7 @@ impl Wizard {
         self.position
             .hwnd()
             .SetWindowText(&catalog::step_position(index))?;
+        self.set_key(step.key, step.key_tone);
         self.body.hwnd().SetWindowText(step.body)?;
         // Which controls this step owns, before anything writes text: the
         // notice and the question controls share one band, so showing the wrong
@@ -975,11 +1090,15 @@ impl Wizard {
         // question steps are absent for the same reason one level along —
         // `show_questions` writes their status line.
         if !matches!(index, STEP_DOWNLOAD | STEP_VERIFY) && !asks_a_question(index) {
-            self.notice.hwnd().SetWindowText(&match index {
-                STEP_COMPATIBILITY => catalog::describe_machine(&self.machine),
+            let (message, tone) = match index {
+                STEP_COMPATIBILITY => (
+                    catalog::describe_machine(&self.machine),
+                    catalog::Tone::Plain,
+                ),
                 STEP_INSTALL => catalog::describe_install_decision(&self.install),
-                _ => catalog::STEP_NOT_BUILT.to_owned(),
-            })?;
+                _ => (catalog::STEP_NOT_BUILT.to_owned(), catalog::Tone::Plain),
+            };
+            self.set_notice(&message, tone);
             self.transfer.hwnd().ShowWindow(co::SW::HIDE);
         }
 
@@ -1060,16 +1179,44 @@ impl Wizard {
         // Recomputed on arrival rather than remembered, because the shortcut's
         // answer can change while setup is open: another program can take the
         // combination between one visit to this step and the next.
-        let message = match index {
+        let (message, tone) = match index {
             STEP_PROVIDER => self.describe_provider_choice(),
             STEP_SHORTCUT => self.verify_selected_shortcut(),
-            _ => String::new(),
+            // The words page reports its own count, which is a fact about what
+            // was typed rather than about the page being arrived at.
+            STEP_WORDS => self.word_count_message(),
+            _ => (String::new(), catalog::Tone::Plain),
         };
-        let _ = self.status.hwnd().SetWindowText(&message);
+        self.set_status(&message, tone);
+    }
+
+    /// How many words the box will hand over, and whether that is none.
+    ///
+    /// Counted through [`seed::parse_vocabulary`], the same function that
+    /// produces the seed, so this can never claim a number the file disagrees
+    /// with. Its own message rather than a bare digit: "0 words" beside an empty
+    /// box reads as a failure, and an empty list is a perfectly good answer here.
+    fn word_count_message(&self) -> (String, catalog::Tone) {
+        let typed = self.words.text().unwrap_or_default();
+        let words = seed::parse_vocabulary(&typed);
+        if words.is_empty() {
+            (catalog::WORDS_NONE.to_owned(), catalog::Tone::Plain)
+        } else {
+            (catalog::words_counted(&words), catalog::Tone::Good)
+        }
+    }
+
+    /// Repaint the word count, after the box changed.
+    fn show_word_count(&self) {
+        if self.step.get() != STEP_WORDS {
+            return;
+        }
+        let (message, tone) = self.word_count_message();
+        self.set_status(&message, tone);
     }
 
     /// Why the provider step offers what it offers.
-    fn describe_provider_choice(&self) -> String {
+    fn describe_provider_choice(&self) -> (String, catalog::Tone) {
         catalog::describe_provider_options(
             self.machine.admissibility.preferred_provider()
                 == speakeasy_models::ExecutionProvider::Cuda,
@@ -1087,7 +1234,7 @@ impl Wizard {
     ///
     /// Registered against the wizard's window, which receives the resulting
     /// `WM_HOTKEY` and ignores it; the registration lives for microseconds.
-    fn verify_selected_shortcut(&self) -> String {
+    fn verify_selected_shortcut(&self) -> (String, catalog::Tone) {
         let choices = shortcut_choices();
         let Some(choice) = self
             .shortcut
@@ -1098,7 +1245,7 @@ impl Wizard {
             // selected at construction — but reporting free would be a claim
             // about a combination nobody named.
             self.shortcut_free.set(false);
-            return catalog::SHORTCUT_UNKNOWN.to_owned();
+            return (catalog::SHORTCUT_UNKNOWN.to_owned(), catalog::Tone::Warning);
         };
         let window = self.window.hwnd();
         let free = window
@@ -1114,38 +1261,45 @@ impl Wizard {
         self.shortcut_free.set(free);
         self.apply_next_availability(STEP_SHORTCUT);
         if free {
-            catalog::shortcut_available(choice.binding)
+            (
+                catalog::shortcut_available(choice.binding),
+                catalog::Tone::Good,
+            )
         } else {
-            catalog::shortcut_taken(choice.binding)
+            (
+                catalog::shortcut_taken(choice.binding),
+                catalog::Tone::Warning,
+            )
         }
     }
 
     /// Start the app setup just installed, and say whether it started.
     ///
-    /// `Ok(false)` keeps the wizard open with the reason on screen, which is
-    /// the whole point of returning anything: closing regardless would leave a
-    /// user who watched setup complete looking at an empty desktop, with the
-    /// last thing they saw being a window that said dictation works.
+    /// `false` keeps the wizard open with the reason on screen, which is the
+    /// whole point of returning anything: closing regardless would leave a user
+    /// who watched setup complete looking at an empty desktop, with the last
+    /// thing they saw being a window that said dictation works.
     ///
     /// No `CREATE_NO_WINDOW` and no detaching. The app is a
     /// `windows_subsystem = "windows"` binary, so it allocates no console to
     /// hide, and this process has none to pass on — `relaunch_detached` gave
     /// the wizard null standard handles precisely so that anything it starts
     /// inherits nothing.
-    fn launch_installed_app(&self) -> w::AnyResult<bool> {
+    fn launch_installed_app(&self) -> bool {
         let Some(executable) = install::installed_app_executable() else {
-            self.notice.hwnd().SetWindowText(catalog::APP_NOT_FOUND)?;
+            self.set_notice(catalog::APP_NOT_FOUND, catalog::Tone::Warning);
             self.notice.hwnd().ShowWindow(co::SW::SHOW);
-            return Ok(false);
+            return false;
         };
         match std::process::Command::new(&executable).spawn() {
-            Ok(_) => Ok(true),
+            Ok(_) => true,
             Err(error) => {
-                self.notice
-                    .hwnd()
-                    .SetWindowText(&catalog::app_did_not_start(&error.to_string()))?;
+                self.set_notice(
+                    &catalog::app_did_not_start(&error.to_string()),
+                    catalog::Tone::Warning,
+                );
                 self.notice.hwnd().ShowWindow(co::SW::SHOW);
-                Ok(false)
+                false
             }
         }
     }
@@ -1160,7 +1314,7 @@ impl Wizard {
             .map_or(choices[0].binding, |choice| choice.binding);
         seed::Answers {
             shortcut: shortcut.to_owned(),
-            vocabulary: self.words.text().unwrap_or_default(),
+            vocabulary: seed::parse_vocabulary(&self.words.text().unwrap_or_default()),
             keep_transcripts: self.keep_transcripts.is_checked(),
             disk_logging: self.disk_logging.is_checked(),
             provider: if self.provider.selected_index() == Some(0) {

@@ -360,6 +360,44 @@ Every one of these produced a plausible, wrong result rather than an error.
   and verified by name in the window title, never just a window owned by the
   right process.
 
+- **An answer can reach disk and never reach the screen, and the screen is what
+  the user judges.** Setup collects a vocabulary; it was in
+  `personalization.json`, correct, three words — and Settings showed an empty
+  dictionary list. The read is `personalization_status`, fired **once on mount
+  with no rejection handler**. Every window's webview loads while `setup` is
+  still managing coordinators, so it can be refused with "state not managed for
+  field `state` on command …", and the page then shows an empty list for the life
+  of the process. An empty list is not a blank page anyone reports: it says "you
+  have no protected terms". `useProfile.ts` had carried a retry for that race
+  since the day it was found and **nothing else did**. Status reads that can lose
+  it now go through `readWithRetry` (2026-08-20). When an answer "did not
+  arrive", check the disk *and* the window; they are two different failures with
+  one symptom.
+- **A merge keyed on positional ids fails closed on the whole batch.** Setup's
+  words become dictionary entries named `installer-0`, `installer-1`, … *by
+  position*, and an ordinary uninstall keeps `personalization.json` by design. So
+  a second install merged a shorter list over the old ids, left one behind, and
+  where the survivor held a word the new list also held the two were a
+  `ConflictingRule` — which rejects **every entry in the merge**, not the
+  duplicate. The user got none of their words and kept the previous install's.
+  Two words differing only in case (`Ken, ken`) did it on a first install.
+  Fixed three ways, all of them needed: the parse de-duplicates
+  case-insensitively, `replace_user_entry_terms` replaces setup's entries rather
+  than merging, and the outcome is logged (`installer_vocabulary count= result=`)
+  instead of vanishing into a `let _ =`.
+- **Waiting for a file to exist is not waiting for it to be written.**
+  `Test-SetupWizard.ps1` waited for `personalization.json` to appear and then
+  asserted its contents. An ordinary uninstall keeps that file, so on a reinstall
+  the wait returned instantly and the assertion read the **previous** install's
+  words — reporting the new ones lost against an app that had applied them
+  correctly seconds later. Poll for the content you are asserting, with a
+  deadline, so the instrument can still fail.
+- **`WM_SETTEXT` does not raise `EN_CHANGE` on a multi-line edit**, so a driver
+  that stuffs a box and reads back what the page says about it gets the answer
+  from before the stuffing. Measured 2026-08-20: the vocabulary page reported "No
+  words yet" with three words in the box. `Test-SetupWizard.ps1` presses Back and
+  Next to force the recompute, which also proves Back does not lose what was
+  typed.
 - **The fork updated every path it executed and left every path it did not**,
   and those paths fail fast, so each one hides the next. Six were found this
   way on 2026-08-18 — the dev launcher, the quality gate, the dependency
@@ -432,6 +470,23 @@ Every one of these produced a plausible, wrong result rather than an error.
   `" I mean "`, which is live data loss, and it fires more often on Granite's
   fluent output than on a transducer's. A test pins this precisely because the
   rules are now unreachable from the UI.
+- **The setup wizard has colour and no bold.** Emphasising a label's font means
+  `WM_SETFONT`, `winsafe` sends messages only through an `unsafe` call, and this
+  workspace sets `unsafe_code = "forbid"`. `WM_CTLCOLORSTATIC` is safely wrapped,
+  so emphasis is `catalog::Tone` mapped to ink, plus a one-line key band and
+  short copy. Verified on screen at 250% (accent blue, warning red, good green)
+  rather than assumed — a `WM_CTLCOLORSTATIC` that is never reached looks
+  identical in every measurement.
+- **Every wizard page is a question, one key line, and at most two short
+  sentences.** Rewritten 2026-08-20 from four-sentence paragraphs that were
+  correct and unread. Nobody reads an installer, so an honesty obligation
+  discharged in the third paragraph is discharged on paper only. `catalog::Step`
+  holds the three parts separately so a page cannot drift back into prose.
+- **The vocabulary box takes a comma-separated list**, and reports back how many
+  words it read and which. Newlines still separate — the old one-per-line form
+  means the same thing and losing a word to punctuation would be indefensible —
+  and the count comes from the same parse that writes the seed, so it cannot
+  describe a list the file disagrees with.
 - **Local-only.** No GitHub Actions, no Dependabot, no hosted runners.
   `scripts/Test-LocalOnlyPolicy.ps1` fails if `.github` config reappears. A
   GitHub *Release* is not automation and is how the installer is published; the

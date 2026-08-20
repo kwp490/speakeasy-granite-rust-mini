@@ -156,11 +156,34 @@ is checked before it is written, and that is not about tampering: an installer
 truncated by a dropped download **still runs**, because the missing part is not
 part of the program, and would otherwise install whatever fragment parsed.
 
-Eight steps, in order: check this computer; choose how it runs; download what is
-needed; install; choose your shortcut; add your words; choose what is kept;
-check it works. Back and Next; the last step's Next reads **Finish**. Back is
-disabled on the first step rather than hidden, because a button that disappears
-moves the ones beside it and the target under the cursor changes.
+Eight steps, in order: can this computer run it?; where should it run?; download
+the models; install; pick your shortcut; add your words; what should it keep?;
+does dictation actually work? Back and Next; the last step's Next reads
+**Finish**. Back is disabled on the first step rather than hidden, because a
+button that disappears moves the ones beside it and the target under the cursor
+changes.
+
+**Every page is a question, one key line, and at most two short sentences.**
+The heading asks; a single **key line** directly beneath the step counter carries
+the one thing that must survive being the only thing read; the body adds context
+and nothing else. Rewritten to that shape on 2026-08-20, from pages of correct,
+careful four-sentence paragraphs — which is the failure it fixes: nobody reads an
+installer, so an obligation discharged in the fourth sentence of the third
+paragraph is discharged on paper and not in fact. `catalog::Step` carries the
+three parts separately so a page cannot quietly grow back into prose.
+
+**The key line is coloured, and colour is never the only signal.**
+`catalog::Tone` marks each line as ordinary, accent, warning or good, and
+`wizard.rs` maps that to ink. The tone is a *copy* attribute and lives with the
+copy, because which sentence a reader must not skip is a decision about the
+writing. Every tone is also carried by the words — a reader who cannot see the
+colour loses emphasis, never information.
+
+**Bold is not available on this surface**, and the reason is worth recording so
+it is not attempted again: emphasising a label's font means `WM_SETFONT`,
+`winsafe` sends messages only through an `unsafe` call, and this workspace sets
+`unsafe_code = "forbid"`. Colour goes through `WM_CTLCOLORSTATIC`, which
+`winsafe` wraps safely. So emphasis here is colour plus position plus brevity.
 
 **Finish starts the app**, and says so if it could not. Setup that ends by
 closing its own window leaves a user who watched every step succeed looking at
@@ -196,6 +219,11 @@ is where the claims are easiest to overstate:
 - **Keywords do not improve recognition.** They correct spelling in the finished
   transcript. Copy must not imply a misheard word becomes correctly heard —
   `catalog.ts`'s `hotwordLimitation` records why.
+- **A collected answer that does not arrive is a defect, not a detail.** Every
+  answer setup takes has to be visible in the app afterwards, and the vocabulary
+  page failed this from the fork until 2026-08-20 — see the vocabulary rules
+  below. An answer applied through a `let _ =` is an answer nobody can prove
+  arrived.
 - **This build is never signed.** SmartScreen may warn, that will not change, and
   setup says so plainly rather than implying a missing prerequisite.
 - **Removed means removed, and kept means kept.** An uninstall reports the
@@ -228,7 +256,7 @@ indistinguishable from a step whose controls failed to appear. **Every step is
 built as of 2026-08-19**, so nothing reaches that message today; the rule stays
 because the next step added will pass through the same state.
 
-Three of the eight ask something, and each one carries a rule the placeholder
+Four of the eight ask something, and each one carries a rule the placeholder
 version could not:
 
 - **An option that cannot be installed is shown and disabled, with the reason.**
@@ -246,6 +274,40 @@ version could not:
   alternatives are on screen, so this gate can never trap anyone. Setup must
   release the shortcut immediately — holding it would make setup the owner, and
   the app's own registration would then fail against a conflict setup created.
+- **The vocabulary box takes a comma-separated list, and says back what it
+  read.** Commas since 2026-08-20; one word per line before that, which is more
+  typing and one more convention to remember. Newlines still separate, because a
+  user who types them means the same thing. The page reports "3 words will be
+  added: …" from the *same* parse that writes the seed file, so the count can
+  never describe a list the file disagrees with — and echoing the words is the
+  only form in which a missing comma is visible before it is installed.
+
+  **The words must actually arrive**, and for months they did not. Setup writes
+  them to a one-shot seed; the app applies them as dictionary entries named
+  `installer-0`, `installer-1`, … by position. An ordinary uninstall keeps
+  `personalization.json` by design, so a second install merged a new list over
+  the old ids — and where a stale entry it did not displace held a word the new
+  list also held, the two were a `ConflictingRule` to the dictionary validator,
+  which rejects **the whole batch**. The user got none of their words, kept the
+  previous install's, and nothing reported it: the apply site swallowed the error
+  and nothing logged. Two entries differing only in case ("Ken, ken") did the
+  same thing on a first install. The fix is three-part and all three parts are
+  load-bearing: the parse de-duplicates case-insensitively, the repository
+  *replaces* every entry setup owns instead of merging
+  (`replace_user_entry_terms`), and the outcome is written to the log as
+  `installer_vocabulary count= result=`.
+
+  **And a fourth part, on the other side of the IPC boundary**, found the same
+  day with the words already correct on disk: the Transcription page read
+  `personalization_status` **once, on mount, with no rejection handler**. Every
+  window's webview loads while `setup` is still managing coordinators, so that
+  read can be refused with "state not managed for field `state` on command …" —
+  and the page then showed an empty dictionary list for the life of the process.
+  An empty list is not a blank page anyone reports; it says "you have no
+  protected terms". `useProfile.ts` had carried a retry for this race since it
+  was first observed and nothing else did. Status reads that can lose that race
+  now go through `readWithRetry`, and one that never succeeds says so beside the
+  list rather than rendering an empty one.
 - **The retention default is off, and stated as a promise rather than a
   checkbox.** Unticked means transcripts are never written to disk at all, which
   is a stronger claim than deleting them on exit and is worth making in words: a

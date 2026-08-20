@@ -235,10 +235,10 @@ try {
     Start-Process -FilePath $setup | Out-Null
     $window = Get-WizardWindow
 
-    Assert-Page -Window $window -Heading 'Check this computer' -Number 1
+    Assert-Page -Window $window -Heading 'Can this computer run it?' -Number 1
     Invoke-Next -Window $window
 
-    Assert-Page -Window $window -Heading 'Choose how it runs' -Number 2
+    Assert-Page -Window $window -Heading 'Where should it run?' -Number 2
     $providerStatus = Get-Status -Window $window
     if ($providerStatus -notmatch 'processor') {
         throw "The provider page said nothing about the processor configuration: $providerStatus"
@@ -246,7 +246,7 @@ try {
     Write-Host "  provider: $($providerStatus.Split([Environment]::NewLine)[0])"
     Invoke-Next -Window $window
 
-    Assert-Page -Window $window -Heading 'Download what is needed' -Number 3
+    Assert-Page -Window $window -Heading 'Download the models' -Number 3
     # Generous, because this is the step that fetches ~2.2 GB on a machine that
     # does not already have the weights. Read before the click, not after: the
     # first version reported the *install* page's notice under the heading
@@ -257,7 +257,7 @@ try {
     Assert-Page -Window $window -Heading 'Install' -Number 4
     Invoke-Next -Window $window -TimeoutSeconds 300
 
-    Assert-Page -Window $window -Heading 'Choose your shortcut' -Number 5
+    Assert-Page -Window $window -Heading 'Pick your shortcut' -Number 5
     $shortcutStatus = Get-Status -Window $window
     if ($shortcutStatus -notmatch 'Ctrl \+ Alt \+ P|Ctrl\+Alt\+P') {
         throw "The shortcut page did not report on the default combination: $shortcutStatus"
@@ -271,11 +271,27 @@ try {
     Assert-Page -Window $window -Heading 'Add your words' -Number 6
     $edit = @(Get-Controls -Window $window | Where-Object { $_.Class -eq 'Edit' -and $_.Visible }) | Select-Object -First 1
     if (-not $edit) { throw 'The vocabulary page has no text box.' }
-    $terms = "Granite`r`nSpeakEasy"
+    # A comma-separated list, which is what the page now asks for. Deliberately
+    # spaced unevenly and given a trailing comma: a box that only reads a tidy
+    # list is a box that loses words for real users.
+    $terms = 'Kenneth,Anthropic , Granite,'
     [void][SpeakEasy.Win32]::SendMessageW($edit.Handle, $WM_SETTEXT, [IntPtr]::Zero, $terms)
+    # Back and forward again, rather than reading the status straight away.
+    # `WM_SETTEXT` does not reliably raise `EN_CHANGE` on a multi-line edit, so
+    # the count is recomputed on arrival at the page -- and this additionally
+    # proves that Back does not lose what was typed, which was never checked.
+    Invoke-Click -Handle (Get-Button -Window $window -Text 'Back').Handle
+    Assert-Page -Window $window -Heading 'Pick your shortcut' -Number 5
+    Invoke-Next -Window $window
+    Assert-Page -Window $window -Heading 'Add your words' -Number 6
+    $wordStatus = Get-Status -Window $window
+    if ($wordStatus -ne '3 words will be added: Kenneth, Anthropic, Granite') {
+        throw "The words page read the list as '$wordStatus'."
+    }
+    Write-Host "  words: $wordStatus"
     Invoke-Next -Window $window
 
-    Assert-Page -Window $window -Heading 'Choose what is kept' -Number 7
+    Assert-Page -Window $window -Heading 'What should it keep?' -Number 7
     $boxes = @(Get-Controls -Window $window |
         Where-Object { $_.Class -eq 'Button' -and $_.Visible -and $_.Text -notin @('Back', 'Next', 'Cancel', 'Retry', 'Finish') })
     if ($boxes.Count -ne 2) {
@@ -286,7 +302,7 @@ try {
     # and the seed written below is what proves it travelled.
     Invoke-Next -Window $window
 
-    Assert-Page -Window $window -Heading 'Check that dictation works' -Number 8
+    Assert-Page -Window $window -Heading 'Does dictation actually work?' -Number 8
     # A cold model load plus a transcription. Measured at about five seconds on
     # the machine this was written on; bounded well above that so a slow disk is
     # not read as a hang.
@@ -298,7 +314,7 @@ try {
         Start-Sleep -Seconds 2
     }
     Write-Host "  engine: $($verdict.Split([Environment]::NewLine)[0])"
-    if ($verdict -notmatch 'transcribed the recording correctly') {
+    if ($verdict -notmatch 'transcribed the recording word for word') {
         throw "The engine check did not pass: $verdict"
     }
 
@@ -315,7 +331,7 @@ try {
         'install-logging.txt'    = '1'
         'install-retention.txt'  = '0'
         'install-provider.txt'   = 'cpu'
-        'install-vocabulary.txt' = "Granite`r`nSpeakEasy"
+        'install-vocabulary.txt' = 'Kenneth, Anthropic, Granite'
     }
     foreach ($seed in $expectedSeeds.Keys) {
         $path = Join-Path $configRoot $seed
@@ -364,24 +380,49 @@ try {
     if ($settings.privacy.persisted_history_enabled -ne $false) {
         throw 'The retention answer did not reach the profile.'
     }
-    # Waited for, not assumed present. The vocabulary is applied while the app
-    # is still building its coordinators, a little after the seeds are consumed,
-    # so reading it the instant the last seed disappeared found no file at all
-    # -- and reported the words as lost when they arrived a moment later.
+    # Waited for by *content*, not by existence. The vocabulary is applied while
+    # the app is still building its coordinators, a little after the seeds are
+    # consumed, so reading it the instant the last seed disappeared found no
+    # file at all -- and reported the words as lost when they arrived a moment
+    # later. Waiting for the file to appear fixed that and then broke the same
+    # way for the opposite reason: an ordinary uninstall keeps
+    # `personalization.json`, so on a reinstall the file is already there and the
+    # wait returns instantly with the *previous* install's words. Measured
+    # 2026-08-20 against an app that had applied the new list correctly.
+    #
+    # `user_entry` rather than the `installer-*` id, because the id is what the
+    # bug was about: setup names its entries by position, and matching on the
+    # origin is the only way to see a stale entry a shorter list left behind.
+    #
+    # Exact contents, not a count, and not `-contains`. Until 2026-08-20 a
+    # reinstall over kept state made the dictionary validator reject the user's
+    # entire list as a conflicting rule, leaving the stale words in place and
+    # reporting nothing. "The words that arrived are exactly the words typed" is
+    # the only form of this check that fails on that -- and the deadline below is
+    # what keeps it able to fail at all.
     $personalizationPath = Join-Path $configRoot 'personalization.json'
+    $expectedWords = @('Kenneth', 'Anthropic', 'Granite')
+    $sources = @()
     $personalizationDeadline = [DateTime]::UtcNow.AddSeconds(60)
-    while ([DateTime]::UtcNow -lt $personalizationDeadline -and
-        -not (Test-Path -LiteralPath $personalizationPath -PathType Leaf)) {
+    while ([DateTime]::UtcNow -lt $personalizationDeadline) {
+        if (Test-Path -LiteralPath $personalizationPath -PathType Leaf) {
+            try {
+                $personalization = Get-Content -LiteralPath $personalizationPath -Raw | ConvertFrom-Json
+                $installed = @($personalization.dictionary | Where-Object { $_.origin -eq 'user_entry' })
+                $sources = @($installed | ForEach-Object { $_.source })
+            } catch {
+                # A read that landed mid-replace. The write is atomic, so the
+                # next poll sees one whole file or the other.
+                $sources = @()
+            }
+            if (($sources -join '|') -eq ($expectedWords -join '|')) { break }
+        }
         Start-Sleep -Milliseconds 500
     }
-    if (-not (Test-Path -LiteralPath $personalizationPath -PathType Leaf)) {
-        throw 'The app consumed the vocabulary seed and wrote no dictionary.'
+    if (($sources -join '|') -ne ($expectedWords -join '|')) {
+        throw "The dictionary holds '$($sources -join ', ')' where setup collected '$($expectedWords -join ', ')'."
     }
-    $personalization = Get-Content -LiteralPath $personalizationPath -Raw | ConvertFrom-Json
-    $installed = @($personalization.dictionary | Where-Object { $_.id -like 'installer-*' })
-    if ($installed.Count -ne 2) {
-        throw "Expected the two words setup collected in the dictionary and found $($installed.Count)."
-    }
+    $installed = @($sources)
     Write-Host "  profile: shortcut, retention and $($installed.Count) protected words all arrived"
 
     Write-Host 'SpeakEasy Mini setup wizard: passed'

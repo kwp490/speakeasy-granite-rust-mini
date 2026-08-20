@@ -26,126 +26,136 @@ pub const CANCEL: &str = "Cancel";
 /// Shown in place of `NEXT` on the last page.
 pub const FINISH: &str = "Finish";
 
+/// How much weight a line of copy carries, so the wizard can colour it.
+///
+/// A *copy* attribute rather than a colour, and it lives here for the same
+/// reason every other word does: which sentence on a page is the one a reader
+/// must not skip is a decision about the writing, and it has to be reviewable
+/// beside the writing. `wizard.rs` owns the mapping to actual pixels.
+///
+/// Colour is never the only signal — `UI-GUIDE.md`'s rule, and the reason each
+/// tone below is also carried by the words. A reader who cannot see the colour
+/// loses emphasis, never information.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Tone {
+    /// The window's ordinary text colour.
+    Plain,
+    /// The one line on this page worth reading first.
+    Accent,
+    /// Something the reader has to accept or act on.
+    Warning,
+    /// Something worked, and it was not certain that it would.
+    Good,
+}
+
 /// The steps, in order.
 ///
 /// One entry per page the wizard specifies, so navigation is real before any page
-/// has content. Each carries the heading and the body the page shows; the pages
-/// that need controls grow them in their own stage, and a page whose work is not
-/// built yet says so rather than showing a plausible-looking blank.
+/// has content.
+///
+/// Three fields rather than two, and the split is the whole point of the 2026-08-20
+/// rewrite: nobody reads an installer. `heading` asks the page's question,
+/// `key` is the single line that must survive being the only line read, and
+/// `body` is at most two short sentences of context. The pages used to carry
+/// four-sentence paragraphs of correct, careful prose that a user scrolls past
+/// on the way to Next — which meant the honesty obligations in them were being
+/// met on paper and not in fact.
 pub struct Step {
     pub heading: &'static str,
+    /// The line the page is about. Coloured per [`Self::key_tone`].
+    pub key: &'static str,
+    pub key_tone: Tone,
     pub body: &'static str,
 }
 
 pub const STEPS: &[Step] = &[
     Step {
-        heading: "Check this computer",
-        body: "SpeakEasy Mini looks at the processor, memory, disk space and graphics \
-               card, and reports what it finds. Speech recognition and the \
-               punctuation pass are checked separately: they use different \
-               graphics-card runtimes, so this computer can be suitable for one \
-               and not the other.\n\n\
-               Nothing is installed or downloaded during this step.",
+        heading: "Can this computer run it?",
+        key: "Nothing is installed or downloaded on this page.",
+        key_tone: Tone::Accent,
+        body: "Setup reads the processor, memory, free disk space and graphics card. \
+               What it found is below.",
     },
     Step {
-        heading: "Choose how it runs",
-        // Was "SpeakEasy Mini preselects the fastest option each engine can
-        // actually use ... You can override either one to run on the
-        // processor." Two engines, and an override of each; neither is true.
-        // One engine now, and the honest override is one way — a graphics-card
-        // install can only be offered where the part that runs on the card
-        // exists to install.
-        body: "SpeakEasy Mini preselects the fastest configuration this computer can \
-               actually run. The speech model itself is the same file either way; what \
-               changes is which version of the engine loads it.\n\n\
-               Choosing the processor is always allowed. Choosing the graphics card is \
-               offered only when there is a graphics-card engine to install, because a \
-               setting cannot make one exist.",
+        heading: "Where should it run?",
+        // Was two paragraphs about two engines and an override of each; neither
+        // was true after the fork. One engine now, and one honest override.
+        key: "The speech model is the same file either way. Only the engine changes.",
+        key_tone: Tone::Accent,
+        body: "The processor is always available. The graphics card is offered only when \
+               there is a graphics-card engine to install — a setting cannot make one exist.",
     },
     Step {
-        heading: "Download what is needed",
-        // Names the two models and nothing else, because those are the two
-        // things this step actually fetches today. It read "the app ... and any
-        // graphics-card runtime" while fetching neither, which is the shape of
-        // overstatement this surface is least allowed: the app is placed from
-        // files setup already carries, and the graphics-card runtime is still
-        // downloaded by the app on demand. Both lines come back here when the
-        // step fetches them, and not before.
-        body: "The speech model matching your choice and the punctuation model \
-               are downloaded and checked against a checksum fixed in advance. A \
-               file that does not match is discarded rather than used.\n\n\
-               If the download is interrupted — a closed lid, a dropped \
-               connection, a stopped setup — restarting continues from where it \
-               stopped rather than starting again.",
+        heading: "Download the models",
+        // Names only what this step fetches. It read "the app ... and any
+        // graphics-card runtime" while fetching neither.
+        key: "Every file is checked against a checksum fixed in advance. A file that does \
+              not match is discarded, never used.",
+        key_tone: Tone::Accent,
+        body: "An interrupted download — a closed lid, a dropped connection, a stopped \
+               setup — continues from where it stopped rather than starting again.",
     },
     Step {
         heading: "Install",
-        body: "Files are placed, shortcuts are created, and SpeakEasy Mini is \
-               registered so it can be removed from Settings later.\n\n\
-               This build is not code-signed, so Windows SmartScreen may warn \
-               about it. That is expected and will not change.",
+        key: "This build is not code-signed, so Windows SmartScreen may warn about it. \
+              That is expected and will not change.",
+        key_tone: Tone::Warning,
+        body: "Files are placed, shortcuts created, and SpeakEasy Mini registered so \
+               Windows Settings can remove it later.",
     },
     Step {
-        heading: "Choose your shortcut",
-        body: "Press this key combination anywhere in Windows to start \
-               dictation, then press it again to stop.\n\n\
-               Setup registers the combination you choose before accepting it, \
-               so a shortcut another application already owns is reported here \
-               rather than failing silently the first time you use it.",
+        heading: "Pick your shortcut",
+        key: "Press it anywhere in Windows to start dictation. Press it again to stop.",
+        key_tone: Tone::Accent,
+        body: "Setup registers your choice to check it, so a shortcut another program owns \
+               is reported here instead of doing nothing the first time you press it.",
     },
     Step {
         heading: "Add your words",
-        body: "Names, jargon and spellings you want protected — one per line.\n\n\
-               These are applied when the transcript is finished, correcting the \
-               spelling of words that were recognised. They do not change how \
-               speech is recognised, so a word that is misheard will still be \
-               misheard.\n\n\
-               Leave this empty if you would rather add them later; Settings has \
-               the same list.",
+        // The example is the instruction. A format described in prose gets read
+        // as prose; a format shown gets copied. The box took one word per line
+        // until 2026-08-20, which is more typing and more to remember.
+        key: "Separate them with commas:   Kenneth, Anthropic, Granite",
+        key_tone: Tone::Accent,
+        body: "Names, jargon and spellings to protect. They fix spelling in the finished \
+               transcript and do not change what the model hears, so a misheard word stays \
+               misheard.\n\
+               Optional — Settings has the same list.",
     },
     Step {
-        heading: "Choose what is kept",
+        heading: "What should it keep?",
         // The retention default is a privacy promise, and it is stated as one
-        // rather than as a checkbox nobody reads: unticked means the
-        // transcripts are never written to disk at all, which is a stronger
-        // claim than deleting them on exit and is worth making explicitly.
-        body: "Neither of these leaves the computer. The question is only what \
-               SpeakEasy Mini writes down locally.\n\n\
-               Left unticked, transcripts are held in memory and are gone when you \
-               close the app — they are never written to disk, rather than deleted \
-               afterwards, so a crash cannot leave them behind.\n\n\
-               Both can be changed in Settings at any time.",
+        // rather than as a checkbox nobody reads.
+        key: "Neither of these ever leaves this computer.",
+        key_tone: Tone::Accent,
+        body: "Left unticked, transcripts are never written to disk at all — not written \
+               and then deleted.\n\
+               Both are in Settings at any time.",
     },
     Step {
-        heading: "Check that dictation works",
-        // Was "Setup runs the graphics-card check for each engine that
-        // chose one, then a real dictation you can watch succeed." Two
-        // engines, and a dictation the *user* performs; neither is true. One
-        // engine now, and the check is a bundled recording rather than a live
-        // microphone -- setup cannot ask someone to speak into a machine it
-        // has not finished configuring, and a clip with known words is a
-        // better instrument anyway.
-        body: "Setup dictates a short recording that ships with SpeakEasy Mini \
-               and compares what comes back, word for word, against what the \
-               recording says.\n\n\
-               This is the only check that proves the speech model can \
-               actually hear. A model whose audio component failed to load \
-               does not report an error — it writes fluent text that \
-               has nothing to do with the audio, so a transcript on its own \
-               proves nothing.",
+        heading: "Does dictation actually work?",
+        // Was a paragraph about "the graphics-card check for each engine that
+        // chose one, then a real dictation you can watch succeed". One engine
+        // now, and a bundled clip rather than a live microphone.
+        key: "This is the only check that proves the speech model can hear.",
+        key_tone: Tone::Accent,
+        body: "Setup transcribes a recording that ships with the app and compares it word \
+               for word.\n\
+               A model whose audio component failed to load reports no error — it writes \
+               fluent text with nothing to do with the audio.",
     },
 ];
 
 /// The check passed.
 pub const SMOKE_VERIFIED: &str =
-    "The speech model transcribed the recording correctly. Dictation works on this computer.";
+    "Dictation works. The model transcribed the recording word for word.";
 
 /// Shown while the engine is loading and transcribing.
 ///
 /// Says a wait is expected. A cold model load is seconds at best, and without
 /// this the step reads as stalled.
-pub const SMOKE_RUNNING: &str = "Loading the speech model and transcribing the recording. The first load \
-     takes longer than later ones.";
+pub const SMOKE_RUNNING: &str =
+    "Loading the speech model and transcribing. The first load takes the longest.";
 
 /// The engine ran and did not hear the clip.
 ///
@@ -156,29 +166,22 @@ pub const SMOKE_RUNNING: &str = "Loading the speech model and transcribing the r
 /// The last line is the honest cost of continuing. Setup does not block here --
 /// owner decision, 2026-08-19 -- so it has to say what continuing means rather
 /// than let the user infer that a skipped check is a passed one.
-pub const SMOKE_MISMATCH: &str = "The speech model produced text, but not what the recording says. That \
-     usually means its audio component did not load, which the model does not \
-     report as an error.\n\n\
-     Try Retry first — a first run after a large download sometimes fails on a \
-     file still being written. If it fails again, the model files are likely \
-     damaged despite matching their checksums; remove SpeakEasy Mini and run \
-     setup again to fetch them fresh.\n\n\
-     You can continue without this check. Dictation may produce text unrelated \
-     to what you say.";
+pub const SMOKE_MISMATCH: &str = "The model produced text, but not what the recording says. Its audio component \
+     most likely did not load, which the model does not report as an error.\n\n\
+     Press Retry — a first run after a large download can fail on a file still \
+     being written. If it fails again, remove SpeakEasy Mini and run setup again.\n\n\
+     You can continue. Dictation may then produce text unrelated to what you say.";
 
 /// The engine never produced a transcript to compare.
 ///
 /// Deliberately different advice from [`SMOKE_MISMATCH`]. Nothing ran, so the
 /// model files are not implicated the way they are when text came back wrong,
 /// and telling the user to re-download them would be a guess.
-pub const SMOKE_UNAVAILABLE: &str = "The speech model did not run, so there is nothing to compare. Setup could \
-     not start it, load it, or reach the end of the recording.\n\n\
-     Check that this computer still has the free memory the first step \
-     reported, and close other large applications before Retry. If it keeps \
-     failing, the installed files are incomplete — remove SpeakEasy Mini and \
-     run setup again.\n\n\
-     You can continue without this check. Dictation will fail the same way \
-     until this is resolved.";
+pub const SMOKE_UNAVAILABLE: &str = "The model did not run, so there is nothing to compare. Setup could not start \
+     it, load it, or reach the end of the recording.\n\n\
+     Close other large applications and press Retry. If it keeps failing, the \
+     installed files are incomplete — remove SpeakEasy Mini and run setup again.\n\n\
+     You can continue. Dictation will fail the same way until this is fixed.";
 
 /// Label for the control that runs the check again.
 pub const RETRY: &str = "Retry";
@@ -198,22 +201,33 @@ pub const PROVIDER_PROCESSOR: &str = "Use the processor";
 /// there would read as setup not having looked, and saying "your card is not
 /// supported" would be false. The honest answer is that the part that runs on
 /// the card is not published yet, which is a fact about this release.
-pub fn describe_provider_options(card_is_capable: bool, configuration_published: bool) -> String {
+///
+/// The tone is returned with the words, because the middle case is the only one
+/// where the reader is being told they cannot have the faster option.
+pub fn describe_provider_options(
+    card_is_capable: bool,
+    configuration_published: bool,
+) -> (String, Tone) {
     match (card_is_capable, configuration_published) {
-        (true, true) => "This computer's graphics card can run SpeakEasy Mini, and the \
-             graphics-card configuration is available. It is faster; the processor \
-             configuration works everywhere and uses no graphics memory."
-            .to_owned(),
-        (true, false) => "This computer's graphics card meets the requirements, but the \
-             graphics-card version of the speech engine has not been published yet, so there \
-             is nothing to install for it. SpeakEasy Mini will run on the processor and will \
-             say so rather than appearing to use the card.\n\n\
-             Nothing about this install prevents switching later."
-            .to_owned(),
-        (false, _) => "SpeakEasy Mini will run on the processor. This computer has no graphics \
-             card that clears the requirements — the first step says which requirement — and \
-             the processor configuration is a complete install rather than a reduced one."
-            .to_owned(),
+        (true, true) => (
+            "This graphics card can run SpeakEasy Mini, and the graphics-card \
+             configuration is available. It is faster; the processor uses no graphics memory."
+                .to_owned(),
+            Tone::Good,
+        ),
+        (true, false) => (
+            "This graphics card meets the requirements, but the graphics-card engine has not \
+             been published yet, so there is nothing to install for it. SpeakEasy Mini will \
+             run on the processor and will say so rather than appear to use the card."
+                .to_owned(),
+            Tone::Warning,
+        ),
+        (false, _) => (
+            "No graphics card here clears the requirements — the first page says which one. \
+             The processor configuration is a complete install, not a reduced one."
+                .to_owned(),
+            Tone::Plain,
+        ),
     }
 }
 
@@ -227,10 +241,7 @@ pub const SHORTCUT_CTRL_SHIFT_SPACE: &str = "Ctrl + Shift + Space";
 
 /// The chosen shortcut is free, proved by taking it and letting it go.
 pub fn shortcut_available(binding: &str) -> String {
-    format!(
-        "{binding} is free on this computer. Setup registered it to check, and released it \
-         again — SpeakEasy Mini takes it when it starts."
-    )
+    format!("{binding} is free. Setup registered it to check, then released it.")
 }
 
 /// Another program owns it.
@@ -240,16 +251,35 @@ pub fn shortcut_available(binding: &str) -> String {
 /// the reader looking in the wrong place.
 pub fn shortcut_taken(binding: &str) -> String {
     format!(
-        "{binding} is already in use by another program, so SpeakEasy Mini cannot have it. \
-         Windows does not say which program.\n\n\
-         Choose one of the others above, or close the program you think is holding it and \
-         choose this one again."
+        "{binding} is already in use by another program, and Windows does not say which. \
+         Choose one of the others above."
     )
 }
 
 /// No shortcut is selected, which the control should make impossible.
 pub const SHORTCUT_UNKNOWN: &str =
     "No shortcut is selected, so setup cannot check whether it is free. Choose one above.";
+
+/// What the words page says back about an empty box.
+///
+/// Its own sentence rather than "0 words": an empty list is a perfectly good
+/// answer on this page, and a zero beside an empty box reads as a rejection.
+pub const WORDS_NONE: &str =
+    "No words yet. Settings has the same list if you would rather add them later.";
+
+/// What the words page says back once something is typed.
+///
+/// Echoes the words as well as the count, because the count alone cannot show
+/// that a missing comma joined two of them — "1 word: Kenneth Perry" is the
+/// only form in which that mistake is visible before it is installed.
+pub fn words_counted(words: &[String]) -> String {
+    format!(
+        "{} word{} will be added: {}",
+        words.len(),
+        if words.len() == 1 { "" } else { "s" },
+        words.join(", ")
+    )
+}
 
 /// The two questions about what `SpeakEasy Mini` keeps.
 pub const KEEP_TRANSCRIPTS: &str = "Keep my transcripts after I close SpeakEasy Mini";
@@ -263,22 +293,19 @@ pub const DISK_LOGGING: &str =
 /// particular choices did not stick.
 pub fn seeds_not_recorded(failed: &[&str]) -> String {
     format!(
-        "SpeakEasy Mini is installed, but {} of your answers could not be saved for its first \
-         start, so it will begin with its defaults. Every one of them is in Settings.",
+        "Installed, but {} of your answers could not be saved for the first start, so it \
+         begins with defaults. All of them are in Settings.",
         failed.len()
     )
 }
 
 /// Setup finished and there is no app where it recorded one.
-pub const APP_NOT_FOUND: &str = "SpeakEasy Mini was not started, because its program file is not where setup recorded it. \
-     Nothing else is wrong with this computer. Run setup again.";
+pub const APP_NOT_FOUND: &str = "SpeakEasy Mini was not started: its program file is not where setup recorded it. \
+     Nothing else on this computer is wrong. Run setup again.";
 
 /// Setup finished and Windows refused to start the app.
 pub fn app_did_not_start(detail: &str) -> String {
-    format!(
-        "SpeakEasy Mini is installed, but Windows would not start it just now. Start it from \
-         the Start menu.\n\n{detail}"
-    )
+    format!("Installed, but Windows would not start it. Start it from the Start menu.\n\n{detail}")
 }
 
 /// Shown under the heading as "Step N of M".
@@ -395,47 +422,64 @@ pub fn describe_machine(report: &crate::probe::MachineReport) -> String {
 /// Every refusal names the version involved and what to do instead. NSIS said
 /// "use the Repair shortcut" for both refusals; that shortcut is now this same
 /// binary, so the wording points at what the user actually has.
-pub fn describe_install_decision(decision: &crate::install::Decision) -> String {
+///
+/// Returns the tone with the words: five of these seven outcomes are a refusal,
+/// and a refusal that looks like the paragraph beside it on the previous page is
+/// a refusal the reader walks past.
+pub fn describe_install_decision(decision: &crate::install::Decision) -> (String, Tone) {
     use crate::install::Decision;
 
     match decision {
-        Decision::Fresh => format!(
-            "SpeakEasy Mini is not currently installed. Setup will install it for this user \
-             account only, without asking for administrator rights.\n\n{}{}",
-            destinations(),
-            prerequisites()
+        Decision::Fresh => (
+            format!(
+                "Not currently installed. Setup installs it for this user account only, \
+                 without administrator rights.\n\n{}{}",
+                destinations(),
+                prerequisites()
+            ),
+            Tone::Plain,
         ),
-        Decision::Upgrade { from } => format!(
-            "SpeakEasy Mini {from} is installed and will be upgraded. Your settings, \
-             personalization and any installed models are kept.\n\n{}{}",
-            destinations(),
-            prerequisites()
+        Decision::Upgrade { from } => (
+            format!(
+                "SpeakEasy Mini {from} is installed and will be upgraded. Settings, \
+                 personalization and installed models are kept.\n\n{}{}",
+                destinations(),
+                prerequisites()
+            ),
+            Tone::Plain,
         ),
-        Decision::RefuseRunning => {
-            "SpeakEasy Mini is running, so its files cannot be replaced. Finish or cancel \
-             dictation, then quit SpeakEasy Mini from its tray menu and run setup again."
-                .to_owned()
-        }
-        Decision::RefuseSameVersion { installed } => format!(
-            "SpeakEasy Mini {installed} is already installed — the same version this setup \
-             carries. Installing again is refused, because it is not a fix for a \
-             broken installation. Run this program from a command line with the \
-             repair commands instead."
+        Decision::RefuseRunning => (
+            "SpeakEasy Mini is running, so its files cannot be replaced. Quit it from its \
+             tray menu, then run setup again."
+                .to_owned(),
+            Tone::Warning,
         ),
-        Decision::RefuseDowngrade { installed } => format!(
-            "A newer SpeakEasy Mini ({installed}) is already installed. Going back to an \
-             older version is never done automatically, because it can leave data \
-             written by the newer one behind. Use the repair commands to choose an \
-             earlier version deliberately."
+        Decision::RefuseSameVersion { installed } => (
+            format!(
+                "SpeakEasy Mini {installed} is already installed — the same version this \
+                 setup carries, so installing again is refused. It is not a fix for a broken \
+                 installation; use the repair commands from a command line for that."
+            ),
+            Tone::Warning,
+        ),
+        Decision::RefuseDowngrade { installed } => (
+            format!(
+                "A newer SpeakEasy Mini ({installed}) is already installed. Going back is \
+                 never automatic — it can leave data written by the newer one behind. Use the \
+                 repair commands to choose an earlier version deliberately."
+            ),
+            Tone::Warning,
         ),
         // Says what was found. A user reporting this needs the actual value, and
         // it is the only thing that distinguishes a corrupt stamp from a version
         // this build cannot parse.
-        Decision::RefuseUnreadableStamp { found } => format!(
-            "SpeakEasy Mini appears to be installed, but its recorded version cannot be \
-             read — it says \"{found}\". Setup will not overwrite an installation it \
-             cannot identify. Use the repair commands, or remove SpeakEasy Mini from \
-             Windows Settings first."
+        Decision::RefuseUnreadableStamp { found } => (
+            format!(
+                "SpeakEasy Mini appears to be installed, but its recorded version reads \
+                 \"{found}\". Setup will not overwrite an installation it cannot identify. \
+                 Remove it from Windows Settings first, or use the repair commands."
+            ),
+            Tone::Warning,
         ),
     }
 }
@@ -468,9 +512,8 @@ fn destinations() -> String {
 /// problem into a support conversation.
 pub fn install_failed(reason: &str) -> String {
     format!(
-        "SpeakEasy Mini was not installed.\n\n{reason}\n\n\
-         Nothing was registered, so this computer is in the state it was in \
-         before setup ran."
+        "Not installed.\n\n{reason}\n\n\
+         Nothing was registered, so this computer is as it was before setup ran."
     )
 }
 
@@ -500,19 +543,19 @@ pub fn describe_payload_failure(failure: &crate::payload::ArchiveError) -> Strin
 
     match failure {
         ArchiveError::Damaged => {
-            "This setup file is incomplete or damaged, so the files it should \
-             install cannot be read. Nothing was changed.\n\n\
-             Download it again. An interrupted download produces exactly this: the file still \
-             runs, because the part that is missing sits past the end of the program."
+            "This setup file is incomplete or damaged, so the files it installs cannot be \
+             read. Nothing was changed.\n\n\
+             Download it again. An interrupted download produces exactly this — the file \
+             still runs, because the missing part sits past the end of the program."
                 .to_owned()
         }
         ArchiveError::UnknownFormat { found } => format!(
-            "This setup file was packed by a newer version of SpeakEasy Mini than it carries \
-             (format {found}). Nothing was changed.\n\n\
-             Download the setup file again from the release you meant to install."
+            "This setup file was packed by a newer version than it carries (format \
+             {found}). Nothing was changed.\n\n\
+             Download it again from the release you meant to install."
         ),
         ArchiveError::UnsafePath { path } => format!(
-            "This setup file asks to write a file outside the folder it installs into, so setup \
+            "This setup file asks to write outside the folder it installs into, so setup \
              stopped. Nothing was changed.\n\n\
              The file is: {path}"
         ),
@@ -626,12 +669,12 @@ pub fn describe_uninstall(outcome: &crate::uninstall::Outcome) -> String {
 /// Evergreen Bootstrapper is served from a redirect whose bytes change by
 /// design and therefore cannot be pinned, and this project downloads nothing it
 /// cannot pin. Saying so is better than a download that skips verification.
-pub const WEBVIEW2_MISSING: &str = "Microsoft Edge WebView2 Runtime is not installed on this computer. \
-     SpeakEasy Mini cannot start without it.\n\n\
-     Install it from Microsoft's website (search for \"WebView2 Runtime\"), then \
-     run setup again. SpeakEasy Mini does not download it, because Microsoft's \
-     installer is served from a link whose contents change and cannot be \
-     verified against a fixed checksum the way everything else here is.";
+pub const WEBVIEW2_MISSING: &str = "Microsoft Edge WebView2 Runtime is missing. SpeakEasy Mini cannot start \
+     without it.\n\n\
+     Install it from Microsoft's website (search for \"WebView2 Runtime\"), then run \
+     setup again. Setup does not fetch it: Microsoft serves it from a link whose \
+     contents change, so it cannot be checked against a fixed checksum the way \
+     everything else here is.";
 
 /// Shown in place of a step's controls while its stage is unbuilt.
 ///
@@ -655,7 +698,7 @@ pub const ARTIFACT_GRANITE: &str = "Punctuation model";
 
 /// Shown when the pinned catalog compiled into this binary will not parse.
 pub const CATALOG_UNAVAILABLE: &str = "Setup's list of verified downloads could not be read, so nothing was fetched. \
-     This is a fault in this copy of setup rather than anything on this computer.";
+     That is a fault in this copy of setup, not in this computer.";
 
 /// Shown when the app's own data directory cannot be located.
 /// No `LOCALAPPDATA`, so setup does not know where the per-user program
@@ -663,12 +706,12 @@ pub const CATALOG_UNAVAILABLE: &str = "Setup's list of verified downloads could 
 ///
 /// Named rather than guessed. The guess used to be `C:\`, which would have
 /// unpacked the payload into the drive root and left uninstall walking it.
-pub const INSTALL_ROOT_UNLOCATABLE: &str = "Setup could not work out where to put the program on this computer, because \
-     this account's local application-data folder is not set. Nothing was \
-     installed. Sign in as a normal user and run setup again.";
+pub const INSTALL_ROOT_UNLOCATABLE: &str = "Setup could not work out where to put the program: this account's local \
+     application-data folder is not set. Nothing was installed. Sign in as a \
+     normal user and run setup again.";
 
-pub const DATA_ROOT_UNLOCATABLE: &str = "Setup could not find where SpeakEasy Mini keeps its models on this computer, so \
-     nothing was downloaded. Nothing was changed.";
+pub const DATA_ROOT_UNLOCATABLE: &str =
+    "Setup could not find where SpeakEasy Mini keeps its models. Nothing was changed.";
 
 /// Shown when the catalog has no eligible pack for what this machine chose.
 pub fn pack_unavailable(label: &str, detail: &str) -> String {
@@ -698,8 +741,8 @@ pub fn pack_not_downloadable(id: &str) -> String {
 pub fn download_failed(label: &str, detail: &str) -> String {
     format!(
         "The {label} was not downloaded.\n\n{detail}\n\n\
-         What was already fetched has been kept and verified as far as it went. \
-         Running setup again continues from there rather than starting over."
+         What arrived is kept and verified as far as it went; running setup again \
+         continues from there."
     )
 }
 
@@ -711,8 +754,8 @@ pub fn download_failed(label: &str, detail: &str) -> String {
 /// blamed the download would send someone to check their network.
 pub fn install_of_artifact_failed(label: &str, detail: &str) -> String {
     format!(
-        "The {label} was downloaded and verified, but could not be unpacked.\n\n{detail}\n\n\
-         The downloaded copy has been kept, so this does not need fetching again."
+        "The {label} downloaded and verified, but could not be unpacked.\n\n{detail}\n\n\
+         The downloaded copy is kept, so this does not need fetching again."
     )
 }
 
@@ -741,11 +784,7 @@ pub fn describe_download_plan(labels: &[&str], total_bytes: u64) -> String {
         lines.push(format!("  {label}"));
     }
     lines.push(String::new());
-    lines.push(
-        "Each one is checked against a checksum fixed in advance. A file that does \
-         not match is discarded rather than used."
-            .to_owned(),
-    );
+    lines.push("Each is checked against a checksum fixed in advance.".to_owned());
     lines.join("\n")
 }
 
@@ -754,8 +793,8 @@ pub fn describe_download_plan(labels: &[&str], total_bytes: u64) -> String {
 /// Its own message rather than a progress bar that fills instantly, because
 /// those are not the same claim: nothing was transferred, and the reason is that
 /// the files are present and their digests still match.
-pub const DOWNLOAD_ALREADY_PRESENT: &str = "Everything needed is already on this computer and still matches its checksum, \
-     so there is nothing to download.";
+pub const DOWNLOAD_ALREADY_PRESENT: &str =
+    "Everything needed is already here and still matches its checksum. Nothing to download.";
 
 /// Which of the three things the download step does is happening now.
 ///
@@ -791,9 +830,8 @@ pub fn describe_download_progress(
     if phase == Phase::Installing {
         return format!(
             "Unpacking and checking the {name} ({position}).\n\n\
-             This takes a while and the bar does not move while it happens — the \
-             archive is larger unpacked than it was to download, and every file in \
-             it is checked."
+             The bar does not move while this happens, and it takes a while — the \
+             archive is bigger unpacked than downloaded, and every file is checked."
         );
     }
     if phase == Phase::Verifying {
@@ -803,15 +841,14 @@ pub fn describe_download_progress(
         // exactly what a stalled download looks like.
         return format!(
             "Checking the {name} ({position}) against its checksum.\n\n\
-             It was already downloaded, so nothing is being transferred — this is \
-             re-reading what is on disk to confirm it is intact."
+             It was already downloaded, so nothing is transferring — this re-reads \
+             what is on disk to confirm it is intact."
         );
     }
     format!(
         "Downloading the {name} ({position}).\n\n{} of {} transferred.\n\n\
-         If this is interrupted — a closed lid, a dropped connection, setup \
-         stopped — what has arrived is kept and the next attempt continues from \
-         here.",
+         If this is interrupted, what has arrived is kept and the next attempt \
+         continues from here.",
         transfer_size(done_bytes),
         transfer_size(total_bytes)
     )
@@ -821,8 +858,7 @@ pub fn describe_download_progress(
 pub fn describe_download_complete(labels: &[&str], total_bytes: u64) -> String {
     format!(
         "{} downloaded and verified: {}.\n\n\
-         Nothing here has been proven to work yet — it has been fetched and \
-         checked, which is not the same thing. The last step runs it.",
+         Fetched and checked is not the same as proven to work. The last page runs it.",
         transfer_size(total_bytes),
         labels.join(", ")
     )

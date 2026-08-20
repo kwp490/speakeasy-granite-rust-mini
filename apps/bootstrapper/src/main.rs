@@ -258,11 +258,10 @@ fn relaunch_detached() -> ExitCode {
 fn place(install_root: Option<&std::ffi::OsStr>, destination: console::Destination) -> ExitCode {
     let decision = install::decide_now();
     if !decision.may_proceed() {
-        repair::report(
-            &catalog::describe_install_decision(&decision),
-            destination,
-            repair::Severity::Failure,
-        );
+        // The tone is for the wizard's labels; a console line carries its
+        // severity in the exit code and in `Severity` instead.
+        let (message, _) = catalog::describe_install_decision(&decision);
+        repair::report(&message, destination, repair::Severity::Failure);
         return ExitCode::FAILURE;
     }
     // An explicit `--install-root` wins; without one the profile has to say.

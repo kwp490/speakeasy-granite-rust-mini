@@ -61,14 +61,19 @@ impl Provider {
 /// Everything the wizard collected, in one place.
 ///
 /// A struct rather than five arguments so that adding a sixth question is one
-/// field and one line in [`write`], and so the wizard can hand over exactly
+/// field and one line in [`write()`], and so the wizard can hand over exactly
 /// what it holds without deciding an order.
 pub struct Answers {
     /// The activation shortcut, in the spelling
     /// `speakeasy_storage::Settings::hotkey::activation_binding` uses.
     pub shortcut: String,
-    /// Words to protect, one per line, exactly as typed.
-    pub vocabulary: String,
+    /// Words to protect, already split out of what was typed.
+    ///
+    /// Parsed rather than raw, and that is the contract: the wizard tells the
+    /// user how many words it read, so the same parse has to be what reaches
+    /// disk. A raw string here would let the box say "3 words" and the file
+    /// carry two.
+    pub vocabulary: Vec<String>,
     /// Whether transcripts survive closing the app.
     pub keep_transcripts: bool,
     /// Whether the diagnostic log is written to disk.
@@ -77,7 +82,7 @@ pub struct Answers {
     pub provider: Provider,
 }
 
-/// What [`write`] managed to record.
+/// What [`write()`] managed to record.
 ///
 /// Carries the failures rather than a `bool`, because the honest thing to show
 /// a user is which answer was not kept. A seed channel that reports success
@@ -100,7 +105,7 @@ impl Written {
 ///
 /// `config` under the data root, matching `app_root.join("config/…")` in
 /// `apps/desktop`'s `commands/dictation.rs` exactly. Pinned by
-/// [`tests::the_seed_directory_is_the_one_the_app_reads`], because nothing else
+/// `the_seed_directory_is_the_one_the_app_reads`, because nothing else
 /// would notice the two drifting apart — setup would report every answer
 /// recorded and the app would start with every default.
 #[must_use]
@@ -142,7 +147,11 @@ pub fn write(answers: &Answers) -> Written {
         (SHORTCUT, answers.shortcut.clone()),
         (LOGGING, flag(answers.disk_logging)),
         (RETENTION, flag(answers.keep_transcripts)),
-        (VOCABULARY, answers.vocabulary.clone()),
+        // Comma-separated, which is both what the box now asks for and what the
+        // app parses. Written from the already-parsed list rather than from the
+        // typed text, so the file cannot carry a different set of words than
+        // the count the user was shown.
+        (VOCABULARY, answers.vocabulary.join(", ")),
         (PROVIDER, answers.provider.code().to_owned()),
     ];
     for (name, contents) in items {
@@ -151,6 +160,54 @@ pub fn write(answers: &Answers) -> Written {
         }
     }
     written
+}
+
+/// The longest word the app will accept from the vocabulary seed.
+///
+/// Matched to `consume_installer_vocabulary_seed`, which enforces the same bound
+/// against a file anything with write access to the profile could have replaced.
+/// Applied here too so the count the wizard shows is the count that survives —
+/// a box that reported five words where the app took four would be a small lie
+/// in the one place this feature is judged.
+const MAX_TERM_CHARS: usize = 64;
+
+/// The most words the app will take from the seed.
+const MAX_TERMS: usize = 128;
+
+/// Split what was typed into the words setup will record.
+///
+/// **Commas, since 2026-08-20.** The box asked for one word per line before
+/// that, which is more typing and one more convention to remember; a
+/// comma-separated list is the form people already use. Newlines still separate,
+/// because a user who types them anyway means the same thing and losing their
+/// words to a formatting rule would be indefensible.
+///
+/// Case-insensitively deduplicated, and that is not tidiness. Two entries whose
+/// source differs only in case are a *conflicting rule* to the dictionary
+/// validator, which rejects the whole batch — so a user who typed "Ken, ken"
+/// would have had every one of their words silently dropped. That is exactly the
+/// failure this change was made to fix, one layer up.
+#[must_use]
+pub fn parse_vocabulary(typed: &str) -> Vec<String> {
+    let mut words: Vec<String> = Vec::new();
+    for candidate in typed.split([',', '\n', '\r']) {
+        let word = candidate.trim();
+        if word.is_empty() || word.chars().count() > MAX_TERM_CHARS {
+            continue;
+        }
+        // `to_lowercase`, not `eq_ignore_ascii_case`: the dictionary validator
+        // builds its match key with Unicode lowercasing, so a pair this misses
+        // is a pair it would still call a conflict.
+        let folded = word.to_lowercase();
+        if words.iter().any(|kept| kept.to_lowercase() == folded) {
+            continue;
+        }
+        words.push(word.to_owned());
+        if words.len() == MAX_TERMS {
+            break;
+        }
+    }
+    words
 }
 
 /// `"1"` or `"0"`, the whole vocabulary of the boolean seeds.
@@ -231,6 +288,66 @@ mod tests {
                 "{seed} is written by setup and read by nothing"
             );
         }
+    }
+
+    #[test]
+    fn a_comma_separated_list_becomes_one_word_each() {
+        assert_eq!(
+            parse_vocabulary("Kenneth, Anthropic , Granite"),
+            vec![
+                "Kenneth".to_owned(),
+                "Anthropic".to_owned(),
+                "Granite".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn newlines_still_separate_and_empty_pieces_vanish() {
+        // A user who types the old one-per-line form, or leaves a trailing
+        // comma, means what they wrote. Losing a word to punctuation would be
+        // the least defensible failure this box could have.
+        assert_eq!(
+            parse_vocabulary("Kenneth\r\nAnthropic,,  ,Granite,"),
+            vec![
+                "Kenneth".to_owned(),
+                "Anthropic".to_owned(),
+                "Granite".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_case_only_duplicate_is_dropped_rather_than_taking_the_list_with_it() {
+        // The precise failure that motivated the parse. Two entries differing
+        // only in case are a conflicting rule to the dictionary validator, which
+        // refuses the *whole* batch -- so "Ken, ken" used to cost the user every
+        // word they typed, with nothing reported anywhere.
+        assert_eq!(
+            parse_vocabulary("Ken, ken, KEN, Granite"),
+            vec!["Ken".to_owned(), "Granite".to_owned()]
+        );
+    }
+
+    #[test]
+    fn an_over_long_word_is_skipped_and_the_rest_survive() {
+        let long = "x".repeat(MAX_TERM_CHARS + 1);
+        assert_eq!(
+            parse_vocabulary(&format!("Granite, {long}, Anthropic")),
+            vec!["Granite".to_owned(), "Anthropic".to_owned()]
+        );
+    }
+
+    #[test]
+    fn the_written_seed_is_the_comma_form_the_app_parses() {
+        let answers = Answers {
+            shortcut: "Ctrl+Alt+P".to_owned(),
+            vocabulary: parse_vocabulary("Kenneth, Anthropic"),
+            keep_transcripts: false,
+            disk_logging: true,
+            provider: Provider::Processor,
+        };
+        assert_eq!(answers.vocabulary.join(", "), "Kenneth, Anthropic");
     }
 
     #[test]

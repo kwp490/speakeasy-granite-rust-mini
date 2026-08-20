@@ -343,19 +343,42 @@ fn consume_installer_retention_seed(app_root: &Path, settings: &mut Settings) ->
 /// `extract_v1_protected_terms` accepts from an imported profile. The bound is
 /// not about this text box: it is about the file, which anything with write
 /// access to the profile directory could replace before first launch.
+///
+/// **Commas, and newlines too.** Setup's box became a comma-separated list on
+/// 2026-08-20 and writes the comma form, so commas are what this has to read.
+/// Newlines still separate because this file is untrusted input — an
+/// installation predating the change, or a file written by hand, means the same
+/// thing by a line break, and a word lost to punctuation is the least
+/// defensible failure this path could have.
+///
+/// De-duplicated case-insensitively, and that is load-bearing rather than tidy:
+/// two entries whose sources differ only in case are a conflicting rule to the
+/// dictionary validator, which rejects the **whole** batch. A file containing
+/// "Ken, ken" would otherwise cost the user every word in it.
 fn consume_installer_vocabulary_seed(app_root: &Path) -> Vec<String> {
     let seed = app_root.join("config/install-vocabulary.txt");
     let Ok(contents) = std::fs::read_to_string(&seed) else {
         return Vec::new();
     };
     let _ = std::fs::remove_file(&seed);
-    contents
-        .lines()
-        .map(str::trim)
-        .filter(|term| !term.is_empty() && term.chars().count() <= 64)
-        .map(str::to_owned)
-        .take(128)
-        .collect()
+    let mut terms: Vec<String> = Vec::new();
+    for candidate in contents.split([',', '\n', '\r']) {
+        let term = candidate.trim();
+        if term.is_empty() || term.chars().count() > 64 {
+            continue;
+        }
+        // `to_lowercase`, matching the validator's own match key, rather than
+        // the ASCII fold: a pair this misses is a pair it still refuses.
+        let folded = term.to_lowercase();
+        if terms.iter().any(|kept| kept.to_lowercase() == folded) {
+            continue;
+        }
+        terms.push(term.to_owned());
+        if terms.len() == 128 {
+            break;
+        }
+    }
+    terms
 }
 
 /// Which configuration setup installed, as a stable code for the log.

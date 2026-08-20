@@ -50,7 +50,7 @@ use speakeasy_windows::{CrashThrottle, ProcessDeadlines, ProcessSupervisor, Proc
 /// The sentence `fixtures/smoke.wav` speaks.
 ///
 /// Kept here **and** in `scripts/New-SmokeFixture.ps1`, checked against each
-/// other by [`tests::the_spoken_sentence_matches_the_fixture_generator`]. A
+/// other by `the_spoken_sentence_matches_the_fixture_generator`. A
 /// fixture whose ground truth is written down in one place drifts the first
 /// time either is edited, and the drift is silent: the clip still plays, the
 /// engine still transcribes, and the comparison starts failing for a reason

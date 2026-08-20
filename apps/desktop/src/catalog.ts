@@ -440,6 +440,8 @@ export const messages = {
     `Preview: ${dictionary} dictionary entries; ${snippets} snippets; ${conflicts} conflicts.`,
   exportPersonalization: "Export personalization",
   resetPersonalization: "Reset dictionary and snippets",
+  personalizationUnavailable:
+    "Your dictionary and snippets could not be read, so this list is not showing them. Nothing has been lost — reopen this window to try again.",
   personalizationSaved: "Personalization saved.",
   personalizationRejected: "The change was rejected. Check conflicts, limits, or forbidden action placeholders.",
   confirmInstall: "Confirm download and local installation",

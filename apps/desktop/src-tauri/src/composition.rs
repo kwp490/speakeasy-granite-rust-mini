@@ -107,8 +107,25 @@ pub fn run() {
         // first read already sees them. Failure is deliberately not fatal: the
         // words are a convenience the user can retype, and refusing to start
         // the app over a rejected term would be the wrong trade by a distance.
+        //
+        // Not fatal is not the same as not reported, and this used to be a bare
+        // `let _ =`. A rejected batch is all-or-nothing, so the user's symptom
+        // was an empty word list in Settings with nothing in the log, nothing on
+        // screen, and no way to tell it from having typed nothing — which is how
+        // it survived until 2026-08-20. The count goes in the line too: an
+        // installer that collected five words and applied five is the claim
+        // being made, and a count is what makes it checkable.
         if !installer_vocabulary.is_empty() {
-            let _ = personalization.add_protected_terms(&installer_vocabulary);
+            let outcome = personalization.add_protected_terms(&installer_vocabulary);
+            log_startup_event(
+                &app_root,
+                profile_settings.privacy.disk_logging_enabled,
+                "installer_vocabulary",
+                &[
+                    ("count", &installer_vocabulary.len().to_string()),
+                    ("result", outcome.err().unwrap_or("applied")),
+                ],
+            );
         }
         app.manage(personalization);
         app.manage(profile);

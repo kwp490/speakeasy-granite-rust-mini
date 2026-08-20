@@ -101,11 +101,14 @@ impl PersonalizationRepository {
 
     /// Merges terms the user supplied as a list rather than as a correction.
     ///
-    /// Two callers, and both are the user naming words directly: the explicit
-    /// vocabulary field of an imported v1 profile, and the words typed into
-    /// setup's vocabulary page. Nothing derived from a transcript may come
-    /// through here — that is `record_explicit_correction`, which keeps its own
-    /// origin so the two stay distinguishable in the list and in precedence.
+    /// One caller: the explicit vocabulary field of an imported v1 profile.
+    /// Setup's vocabulary page went through here too until 2026-08-20 and now
+    /// uses [`Self::replace_user_entry_terms`] — the id-keyed de-duplication
+    /// below cannot express "these are all of setup's words now", and failing to
+    /// express it rejected the user's whole list. Nothing derived from a
+    /// transcript may come through either one — that is
+    /// `record_explicit_correction`, which keeps its own origin so the three
+    /// stay distinguishable in the list and in precedence.
     ///
     /// # Errors
     ///
@@ -126,6 +129,42 @@ impl PersonalizationRepository {
             });
             proposed.dictionary.push(entry);
         }
+        validate(&proposed)?;
+        self.replace_state(proposed)
+    }
+
+    /// Replaces every term the installer's vocabulary page owns with a new set.
+    ///
+    /// [`DictionaryOrigin::UserEntry`] is the marker, and in this product it
+    /// belongs to exactly one thing: the words typed into setup's vocabulary
+    /// page. Corrections carry `ExplicitCorrection` and an imported profile
+    /// carries `ImportedProfile`, so neither is touched here.
+    ///
+    /// Replace rather than merge, because [`Self::add_imported_terms`] could not
+    /// do this and failed *closed on the whole batch* when it could not. Its
+    /// de-duplication matches on the entry id, and setup names its entries
+    /// `installer-0`, `installer-1`, … by position — so a second install whose
+    /// list was shorter, or merely ordered differently, left a stale entry
+    /// carrying a word the new list also contained. Two enabled entries with the
+    /// same source, case policy, boundary policy, precedence and origin are a
+    /// `ConflictingRule` to `validate`, which rejects the *entire* merge: the
+    /// user's words silently did not arrive, the stale ones stayed, and nothing
+    /// anywhere reported it. Measured against a real profile on 2026-08-20, with
+    /// an ordinary uninstall keeping `personalization.json` by design — so the
+    /// second install is the ordinary case, not an unusual one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid or cyclic terms, or durable storage failure.
+    pub fn replace_user_entry_terms(
+        &mut self,
+        entries: Vec<DictionaryEntry>,
+    ) -> Result<(), PersonalizationError> {
+        let mut proposed = self.state.clone();
+        proposed
+            .dictionary
+            .retain(|current| current.origin != DictionaryOrigin::UserEntry);
+        proposed.dictionary.extend(entries);
         validate(&proposed)?;
         self.replace_state(proposed)
     }
@@ -464,6 +503,102 @@ mod tests {
         );
         assert_eq!(fs::read(&path).unwrap(), before);
         assert_eq!(repository.state().dictionary[0].id, "old");
+    }
+
+    /// The words setup collects, shaped exactly as `add_protected_terms` shapes
+    /// them: positional id, source and replacement the same word, `UserEntry`.
+    fn installer_terms(words: &[&str]) -> Vec<DictionaryEntry> {
+        words
+            .iter()
+            .enumerate()
+            .map(|(index, word)| DictionaryEntry {
+                id: format!("installer-{index}"),
+                locale: "en-US".to_owned(),
+                source: (*word).to_owned(),
+                replacement: (*word).to_owned(),
+                case_policy: CasePolicy::InsensitiveCanonical,
+                boundary_policy: BoundaryPolicy::UnicodeWord,
+                origin: DictionaryOrigin::UserEntry,
+                precedence: 0,
+                protected: true,
+                enabled: true,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_second_install_replaces_setups_words_rather_than_colliding_with_them() {
+        // The bug this method exists for, reproduced. An ordinary uninstall
+        // keeps `personalization.json` on purpose, so the second install starts
+        // with `installer-0` and `installer-1` already on disk. Through
+        // `add_imported_terms` the shorter new list only displaced
+        // `installer-0`, leaving `installer-1` holding a word the new list also
+        // held -- two enabled entries with the same source, policies, precedence
+        // and origin, which `DictionarySet` calls a conflicting rule and which
+        // rejects the *whole* batch. The user got none of their words, kept the
+        // stale ones, and nothing reported it.
+        let root = tempdir().unwrap();
+        let path = root.path().join("personalization.json");
+        let mut repository = PersonalizationRepository::open(&path).unwrap();
+        repository
+            .add_imported_terms(installer_terms(&["Granite", "SpeakEasy"]))
+            .unwrap();
+
+        // The control: the old path still fails this way, so the test cannot
+        // pass because the collision stopped being possible.
+        assert!(
+            repository
+                .add_imported_terms(installer_terms(&["SpeakEasy"]))
+                .is_err(),
+            "the id-keyed merge must still reject this, or this test proves nothing"
+        );
+
+        repository
+            .replace_user_entry_terms(installer_terms(&["SpeakEasy"]))
+            .unwrap();
+
+        let sources = repository
+            .state()
+            .dictionary
+            .iter()
+            .map(|entry| entry.source.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(sources, vec!["SpeakEasy".to_owned()]);
+    }
+
+    #[test]
+    fn replacing_setups_words_leaves_a_correction_alone() {
+        // `UserEntry` is the marker for "setup typed this", so the replace must
+        // not reach a correction the user recorded in Settings afterwards.
+        let root = tempdir().unwrap();
+        let path = root.path().join("personalization.json");
+        let mut repository = PersonalizationRepository::open(&path).unwrap();
+        repository
+            .record_explicit_correction(
+                "proper-openai".to_owned(),
+                "en-US".to_owned(),
+                "open ai".to_owned(),
+                "OpenAI".to_owned(),
+            )
+            .unwrap();
+        repository
+            .replace_user_entry_terms(installer_terms(&["Granite"]))
+            .unwrap();
+
+        assert!(
+            repository
+                .state()
+                .dictionary
+                .iter()
+                .any(|entry| entry.id == "proper-openai")
+        );
+        assert!(
+            repository
+                .state()
+                .dictionary
+                .iter()
+                .any(|entry| entry.source == "Granite")
+        );
     }
 
     #[test]
