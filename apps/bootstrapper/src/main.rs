@@ -69,7 +69,10 @@ fn main() -> ExitCode {
         Mode::Install { install_root } => {
             place(install_root.as_deref(), console::ensure_attached())
         }
-        Mode::Uninstall { silent, remove_all } => remove(silent, remove_all),
+        Mode::Uninstall {
+            silent,
+            keep_user_data,
+        } => remove(silent, keep_user_data),
         Mode::VerifyProvider { install_root } => {
             verify_provider(install_root.as_deref(), console::ensure_attached())
         }
@@ -106,9 +109,17 @@ enum Mode<'a> {
     /// downgrade refusals by running an install and reading its exit code, and
     /// a refusal that only a human can observe is a refusal nothing verifies.
     Install { install_root: Option<OsString> },
-    /// What the Add/Remove Programs entry invokes. Keeps every optional item by
-    /// default, matching what NSIS's `/SD IDYES` did in its silent path.
-    Uninstall { silent: bool, remove_all: bool },
+    /// What the Add/Remove Programs entry invokes. Removes everything by
+    /// default; `--keep-user-data` is the opt-out.
+    ///
+    /// The default inverted on 2026-08-21 (owner decision). It kept every
+    /// optional item, matching NSIS's `/SD IDYES`, which meant an uninstall left
+    /// 2.14 GB of model weights, a settings tree, the transcript history and the
+    /// diagnostic logs behind — and reported success. Keeping them is a *testing*
+    /// affordance, for rapid install/uninstall cycles that would otherwise
+    /// re-download the weights every time, and `Test-InstallerLifecycle.ps1` and
+    /// `Test-SetupWizard.ps1` are the callers that want it.
+    Uninstall { silent: bool, keep_user_data: bool },
     /// Re-run the engine check against an installed build and re-record what it
     /// proved.
     ///
@@ -186,10 +197,10 @@ impl<'a> Mode<'a> {
                 // drove `uninstall.exe /S`, and keeping the spelling means the
                 // script's silent path is the same instruction it always was.
                 const SILENT: &[&str] = &["--silent", "/S", "/s"];
-                const REMOVE_ALL: &str = "--remove-all";
+                const KEEP_USER_DATA: &str = "--keep-user-data";
 
                 if let Some(unexpected) = rest.iter().position(|argument| {
-                    !SILENT.iter().any(|flag| argument == flag) && argument != REMOVE_ALL
+                    !SILENT.iter().any(|flag| argument == flag) && argument != KEEP_USER_DATA
                 }) {
                     return Self::misuse("--uninstall", &rest[unexpected..]);
                 }
@@ -197,11 +208,14 @@ impl<'a> Mode<'a> {
                     silent: rest
                         .iter()
                         .any(|argument| SILENT.iter().any(|flag| argument == flag)),
-                    // Never implied by `--silent`. An unattended uninstall that
-                    // deletes transcript history because nobody was there to say
-                    // no is the exact failure the keep-by-default rule exists to
-                    // stop.
-                    remove_all: rest.iter().any(|argument| argument == REMOVE_ALL),
+                    // `--remove-all` stood here and meant the opposite. It is
+                    // **not** accepted as an alias: it named the thorough
+                    // behaviour, that behaviour is now the default, and a flag
+                    // that silently means "do what you were going to do anyway"
+                    // is how a caller comes to believe it is still choosing.
+                    // Anyone who passes it gets the misuse refusal and reads
+                    // this change; nothing in the tree passed it.
+                    keep_user_data: rest.iter().any(|argument| argument == KEEP_USER_DATA),
                 }
             }
             // Deliberately the same shape as `--install`, including the
@@ -461,11 +475,56 @@ fn verify_provider(
 /// Refuses while the app is running, for the same reason installing does: files
 /// held open cannot be removed, and a partial uninstall is worse than none.
 ///
-/// Silent keeps every optional item, which is what `/SD IDYES` meant in the NSIS
-/// path this replaces — an unattended uninstall must never be the thing that
-/// deletes a user's transcript history. The interactive path is the wizard's
-/// uninstall page, which is where the five choices are actually offered.
-fn remove(silent: bool, remove_all: bool) -> ExitCode {
+/// Ask, once, whether to remove everything. `true` means go ahead.
+///
+/// A message box rather than a wizard page, and that is a deliberate stopping
+/// point rather than a placeholder pretending to be one: the page would offer
+/// per-item choices, and until it exists the honest thing is one question whose
+/// scope is fully written out. What must not happen is the destructive default
+/// being taken by a dialog nobody read.
+///
+/// **Defaults to No** (`MB::DEFBUTTON2`), which is the one place this disagrees
+/// with the owner's "checkbox defaults to deleting the weights". The checkbox
+/// default is about what is *selected* when the page is read; the focused button
+/// is about what happens when someone hits Enter or Space without reading. Those
+/// are different questions, and this one is irreversible.
+///
+/// A message box is a window, and any window this process puts in the foreground
+/// is a delivery-target candidate — `deliver_final_text` inspects the foreground
+/// window to decide where a transcript goes. Safe here for the same reason
+/// `repair::report`'s dialog is: an uninstall refuses outright while the app is
+/// running, so there is no dictation to hijack.
+fn confirm_uninstall(unrecognised: &[String]) -> bool {
+    use winsafe::co::{DLGID, MB};
+    use winsafe::prelude::*;
+
+    winsafe::HWND::NULL
+        .MessageBox(
+            &catalog::uninstall_confirmation(unrecognised),
+            "SpeakEasy Mini",
+            MB::YESNO | MB::ICONQUESTION | MB::DEFBUTTON2,
+        )
+        // A dialog that could not be shown is not consent. Windows returns an
+        // error here only when it could not create the window at all, and
+        // proceeding on that would be exactly the silent-success shape this
+        // repository keeps finding: nobody was asked, and 2.14 GB goes.
+        .is_ok_and(|answer| answer == DLGID::YES)
+}
+
+/// **Removes everything unless told not to** (owner decision, 2026-08-21). It
+/// kept every optional item, which is what `/SD IDYES` meant in the NSIS path
+/// this replaces, and the result was an uninstall that left 2.14 GB of weights, a
+/// settings tree, the transcript history and the logs behind while reporting
+/// success. `--keep-user-data` is the opt-out and exists for rapid
+/// install/uninstall cycles rather than for users.
+///
+/// The interactive path **asks first**, with the whole scope in the question and
+/// any unrecognised files named. The per-item checkbox page is still not built;
+/// one confirmation carrying everything is the same principle, and it is what
+/// makes inverting the default safe — the destructive answer is only taken where
+/// somebody was there to see it named. A silent run cannot ask, so it proceeds:
+/// `/S` is a caller asserting it already knows.
+fn remove(silent: bool, keep_user_data: bool) -> ExitCode {
     if install::app_is_running() {
         repair::report(
             catalog::UNINSTALL_REFUSED_RUNNING,
@@ -478,20 +537,10 @@ fn remove(silent: bool, remove_all: bool) -> ExitCode {
         );
         return ExitCode::FAILURE;
     }
-    if !silent && !remove_all {
-        // The interactive page is the next increment; until it exists this must
-        // not silently pick the destructive answers, so it picks the safe ones
-        // and says which.
-        repair::report(
-            &catalog::uninstall_keeps_user_data(),
-            console::Destination::None,
-            repair::Severity::Information,
-        );
-    }
-    let removals = if remove_all {
-        uninstall::Removals::everything()
-    } else {
+    let removals = if keep_user_data {
         uninstall::Removals::default()
+    } else {
+        uninstall::Removals::everything()
     };
     // Resolved before `perform`, which is not incidental: `perform` clears the
     // registration first, so reading the recorded location afterwards would find
@@ -509,6 +558,19 @@ fn remove(silent: bool, remove_all: bool) -> ExitCode {
         );
         return ExitCode::FAILURE;
     };
+    // Read before anything is deleted, so the question can name the files rather
+    // than the report having to explain them afterwards.
+    if !silent && !confirm_uninstall(&uninstall::unrecognised_proof_files(&root)) {
+        repair::report(
+            catalog::UNINSTALL_CANCELLED,
+            console::Destination::None,
+            repair::Severity::Information,
+        );
+        // Success: the user asked a question and got the answer they chose. A
+        // failure code here would make a cancelled uninstall look like a broken
+        // one to anything scripting it.
+        return ExitCode::SUCCESS;
+    }
     let outcome = uninstall::perform(&root, removals);
     if outcome.failed.is_empty() {
         repair::report(
@@ -612,28 +674,37 @@ mod tests {
 
     #[test]
     fn uninstall_accepts_its_flags_in_any_order_and_refuses_anything_else() {
-        // `/S` is the spelling `Test-InstallerLifecycle.ps1` has always used.
+        // `/S` is the spelling `Test-InstallerLifecycle.ps1` has always used, and
+        // on its own it now means remove everything -- an unattended uninstall is
+        // a caller asserting it already knows what it asked for.
         assert!(matches!(
             classify(&["--uninstall", "/S"]),
             Mode::Uninstall {
                 silent: true,
-                remove_all: false
+                keep_user_data: false
             }
         ));
         assert!(matches!(
-            classify(&["--uninstall", "--remove-all", "--silent"]),
+            classify(&["--uninstall", "--keep-user-data", "--silent"]),
             Mode::Uninstall {
                 silent: true,
-                remove_all: true
+                keep_user_data: true
             }
         ));
-        // Silence must never imply removing user data, whatever the order.
         assert!(matches!(
             classify(&["--uninstall"]),
             Mode::Uninstall {
                 silent: false,
-                remove_all: false
+                keep_user_data: false
             }
+        ));
+        // `--remove-all` meant the opposite of `--keep-user-data` and is
+        // deliberately **not** an alias for the new default: a flag that means
+        // "do what you were going to do anyway" lets a caller keep believing it
+        // is choosing. Refused, so whoever passes it reads the change.
+        assert!(matches!(
+            classify(&["--uninstall", "--remove-all"]),
+            Mode::Misuse { .. }
         ));
         assert!(matches!(
             classify(&["--uninstall", "--remove-everything"]),

@@ -344,8 +344,24 @@ Every one of these produced a plausible, wrong result rather than an error.
   immediately after an em-dash from some encoding round-trip. They render as
   nothing, `git diff` shows nothing, and no check in the gate looks. They were
   found only because a scripted replacement refused to match a line that was
-  identical on screen. `python -c "..."` scanning for `0x80 <= ord(c) <= 0x9f`
-  is the whole detector; the repo is at zero as of 2026-08-19. Related: the
+  identical on screen. **Scan C0 as well as C1** — the recorded detector
+  looked only at `0x80..=0x9f`, so it could not see the other half of the same
+  problem: a `U+0007` BEL had been sitting in `docs/handoff/CURRENT.md` since
+  2026-08-18 (commit `281ce35`), where a Windows path had lost the letter after
+  its separator and rendered as nothing. Widen the range to reject every C0
+  control except tab, newline and carriage return, plus DEL and C1 — at zero
+  across all 306 tracked files as of 2026-08-21.
+
+  **The cause is a backslash escape interpreted one layer too early**, and it
+  bites whoever is fixing it. Writing that very paragraph reintroduced two fresh
+  BELs, from `\a` in a Windows path inside a shell heredoc: one level of escaping
+  is consumed before the interpreter sees it, so a doubled backslash arrives
+  single and `\a`, `\n`, `\t` become control characters. The same run also put a
+  literal newline and tab inside a Rust string literal, and a ten-space gap into
+  three catalog sentences where a line continuation should have been. **Write
+  content containing backslashes with the file-editing tools rather than through
+  a heredoc**, and re-scan after each such edit rather than once at the end.
+  Related: the
   console here renders U+2014 as `?`, so **check codepoints numerically** rather
   than believing terminal output — a real em-dash and a corrupted one look the
   same in this shell.
@@ -378,6 +394,20 @@ Every one of these produced a plausible, wrong result rather than an error.
   and verified by name in the window title, never just a window owned by the
   right process.
 
+- **A safety rule can outlive the danger it was written for, and then it only
+  does harm.** `proof/` was emptied *selectively* — this installer's own files by
+  name, everything else spared — on the recorded argument that an unrecognised
+  file there was more likely 500 MB of fetched CUDA runtime than anything of ours,
+  and that "leaving a file costs a few megabytes, deleting one costs a 2.97 GB
+  download". Every word of that was true when written and none of it was true by
+  2026-08-21: **this fork has no runtime download at all**. It left with the
+  streaming engine. Nothing in the tree creates `.cuda-runtime-download` or
+  `.cuda-runtime-stage`, the weights live under `%APPDATA%`, and the only thing
+  the rule still spared was `Enable-GraniteCuda.ps1`'s 493 MB of staged libraries
+  — through every uninstall, forever, on a machine the user believed was clean.
+  The rule read as careful right up to the moment somebody checked whether its
+  premise still existed. When a subsystem is deleted, grep the *safety rules* that
+  mention it, not just the code that called it.
 - **A pinned requirement nothing reads is not a fact, it is a plan — and it
   becomes a refusal the day something reads it.** The catalog pinned CUDA
   **12.9** (`cudart64_12.dll`, `cublas64_12.dll`, `cublasLt64_12.dll`) while
@@ -465,7 +495,10 @@ Every one of these produced a plausible, wrong result rather than an error.
   one symptom.
 - **A merge keyed on positional ids fails closed on the whole batch.** Setup's
   words become dictionary entries named `installer-0`, `installer-1`, … *by
-  position*, and an ordinary uninstall keeps `personalization.json` by design. So
+  position*, and an uninstall run with `--keep-user-data` keeps
+  `personalization.json` — which is what both proof scripts pass, so this is
+  still exactly the path they take. (A production uninstall removes it now; the
+  default inverted on 2026-08-21.) So
   a second install merged a shorter list over the old ids, left one behind, and
   where the survivor held a word the new list also held the two were a
   `ConflictingRule` — which rejects **every entry in the merge**, not the
@@ -477,7 +510,8 @@ Every one of these produced a plausible, wrong result rather than an error.
   instead of vanishing into a `let _ =`.
 - **Waiting for a file to exist is not waiting for it to be written.**
   `Test-SetupWizard.ps1` waited for `personalization.json` to appear and then
-  asserted its contents. An ordinary uninstall keeps that file, so on a reinstall
+  asserted its contents. An uninstall run with `--keep-user-data` keeps that
+  file — and that is what the script passes — so on a reinstall
   the wait returned instantly and the assertion read the **previous** install's
   words — reporting the new ones lost against an app that had applied them
   correctly seconds later. Poll for the content you are asserting, with a
@@ -517,7 +551,9 @@ Every one of these produced a plausible, wrong result rather than an error.
   `%LOCALAPPDATA%\<name>`, and the Start Menu folder were each inherited from
   the parent product. The install root was the worst: setup would have written
   over an existing SpeakEasy installation, and because uninstall removes the
-  install directory whole, uninstalling this app would have deleted that one.
+  install directory whole — more completely since 2026-08-21, when the last
+  spared thing in it stopped being spared — uninstalling this app would have
+  deleted that one.
   Reachable only by building an installer and running it.
 - **A window measured during startup is not the window.** `configure_hud` sets
   non-focusable, shows the dock and applies `enforce_declared_size` after the
@@ -609,6 +645,20 @@ Every one of these produced a plausible, wrong result rather than an error.
   means the same thing and losing a word to punctuation would be indefensible —
   and the count comes from the same parse that writes the seed, so it cannot
   describe a list the file disagrees with.
+- **An uninstall leaves nothing, and keeping things is a testing flag.** Owner
+  decision 2026-08-21, inverting the inherited `/SD IDYES` default. `--uninstall`
+  removes the program directory whole *and* the profile — settings, transcript
+  history, the 2.14 GB of weights, recovery backups, logs — and removes the
+  directories themselves, not just their contents. `--keep-user-data` is the
+  opt-out, and exists so an install/uninstall cycle does not re-download the
+  weights; both proof scripts pass it. The interactive path **asks first**, with
+  the whole scope named and any unrecognised files in `proof/` listed, and the
+  dialog's focused button is **No**. `--remove-all` is gone and is deliberately
+  not accepted as an alias: it named the thorough behaviour, that behaviour is now
+  the default, and a flag meaning "do what you were going to do anyway" lets a
+  caller keep believing it is choosing. `Removals::default()` still selects
+  nothing, because a *caller* that forgets to ask must delete nothing; the
+  inversion is at the command line, where somebody has actually been asked.
 - **Local-only.** No GitHub Actions, no Dependabot, no hosted runners.
   `scripts/Test-LocalOnlyPolicy.ps1` fails if `.github` config reappears. A
   GitHub *Release* is not automation and is how the installer is published; the

@@ -2,15 +2,38 @@
 //!
 //! NSIS asked four keep-or-remove questions as separate modal dialogs, plus a
 //! fifth page for the downloaded CUDA runtime. Owner decision (2026-08-15): one
-//! page, all five as checkboxes, every one defaulting to **keep** — which is
-//! what `/SD IDYES` meant in the silent path, so the default behaviour is
-//! unchanged. Seeing the whole scope of a deletion before confirming any of it
-//! is the point; four sequential prompts answered blind is how someone removes
-//! their transcript history without noticing.
+//! page, all of them as checkboxes. Seeing the whole scope of a deletion before
+//! confirming any of it is the point; sequential prompts answered blind is how
+//! someone removes their transcript history without noticing.
+//!
+//! # The user-facing default is a clean machine (2026-08-21)
+//!
+//! It was keep-everything, inherited from `/SD IDYES`. Owner decision: an
+//! uninstall should leave nothing behind, the checkbox that keeps the model
+//! weights defaults to *removing* them, and keeping them is a **testing**
+//! affordance — `--keep-user-data` — rather than the production path. A product
+//! that leaves 2.14 GB of weights and a settings tree behind after the user
+//! asked it to go is not uninstalled, it is hidden.
+//!
+//! [`Removals::default`] still selects **nothing**, and that is not a
+//! contradiction: it is the *API* default, so a caller that forgets to ask
+//! deletes nothing. The inversion is at the command line, where the question has
+//! actually been asked.
+//!
+//! # What stopped being true
+//!
+//! `Removable::GpuRuntime` and the rule that spared `proof/` selectively were
+//! both retired here. They protected an on-demand CUDA runtime download into the
+//! install root that cost ~2.97 GB to repeat — and **this fork has no such
+//! download**. It left with the streaming engine: nothing in the tree creates
+//! `.cuda-runtime-download` or `.cuda-runtime-stage`, and the model weights live
+//! under `%APPDATA%`, not here. So the rule's stated reason had been dead since
+//! the fork, and the only thing it still spared was `scripts/Enable-GraniteCuda.ps1`'s
+//! own leftovers — which that script removes itself with `-Revert`.
 //!
 //! Program files are never optional. Everything below is user data, and the
 //! distinction is the contract: uninstalling removes the program, and removes
-//! user data only where asked.
+//! user data where asked — which is now by default.
 
 use std::path::{Path, PathBuf};
 
@@ -25,13 +48,14 @@ pub enum Removable {
     History,
     Models,
     Recovery,
-    /// The ~2.3 GB of CUDA runtime fetched on demand into `proof/`.
+    /// The diagnostic log and its one rotated generation.
     ///
-    /// Separate from the program files even though it lives among them: it is
-    /// expensive to re-fetch and nothing else replaces it, which is why NSIS
-    /// left it behind by default and why `CLAUDE.md` records that "uninstall,
-    /// install" is not a clean-machine test on any machine that ever fetched it.
-    GpuRuntime,
+    /// Added 2026-08-21, taking the slot `GpuRuntime` gave up. Not for symmetry:
+    /// without it, `everything()` left the profile's own `logs` directory
+    /// behind and therefore left the data root behind too, so an uninstall that
+    /// removed the weights, the history, the settings and the recovery backups
+    /// still could not report a clean machine.
+    Logs,
 }
 
 impl Removable {
@@ -40,7 +64,7 @@ impl Removable {
         Self::History,
         Self::Models,
         Self::Recovery,
-        Self::GpuRuntime,
+        Self::Logs,
     ];
 
     const fn index(self) -> usize {
@@ -49,7 +73,7 @@ impl Removable {
             Self::History => 1,
             Self::Models => 2,
             Self::Recovery => 3,
-            Self::GpuRuntime => 4,
+            Self::Logs => 4,
         }
     }
 
@@ -60,7 +84,7 @@ impl Removable {
             Self::History => "Transcript history",
             Self::Models => "Downloaded speech models",
             Self::Recovery => "Recovery backups",
-            Self::GpuRuntime => "Downloaded graphics-card runtime (about 2.3 GB)",
+            Self::Logs => "Diagnostic logs",
         }
     }
 }
@@ -87,10 +111,11 @@ impl Removals {
 
     /// Select everything.
     ///
-    /// Exists for `--remove-all`, which is what leaves a genuinely clean machine
-    /// — the state `CLAUDE.md` says is required to test first-run honestly,
-    /// since an ordinary uninstall spares ~2.3 GB of runtime and makes the next
-    /// setup look faster and simpler than it is for a real new user.
+    /// What an ordinary uninstall now does, and what leaves a genuinely clean
+    /// machine — the state `CLAUDE.md` says is required to test first-run
+    /// honestly, since sparing the weights makes the next setup look faster and
+    /// simpler than it is for a real new user. `--keep-user-data` is the opt-out,
+    /// and exists for rapid install/uninstall cycles rather than for users.
     pub fn everything() -> Self {
         let mut removals = Self::default();
         for item in Removable::ALL {
@@ -115,6 +140,15 @@ pub struct Outcome {
     /// script proving uninstall works would otherwise fail over a two-megabyte
     /// residue of the uninstaller itself.
     pub left_behind: Vec<String>,
+    /// Files removed from `proof/` that this installer did not put there.
+    ///
+    /// Reported by name rather than counted, because they are the one thing an
+    /// uninstall removes that nobody declared: today that is
+    /// `scripts/Enable-GraniteCuda.ps1`'s staged CUDA libraries, and tomorrow it
+    /// is whatever the next interim script leaves. They used to be spared
+    /// forever and silently. Removing them without saying so would be the same
+    /// silence pointing the other way.
+    pub removed_unrecognised: Vec<String>,
 }
 
 /// Where the app's data lives.
@@ -155,12 +189,7 @@ pub fn perform(install_root: &Path, removals: Removals) -> Outcome {
 
     clear_registration(&mut outcome);
     remove_shortcuts(&mut outcome);
-    remove_program_files(
-        install_root,
-        removals.includes(Removable::GpuRuntime),
-        &vacate(install_root),
-        &mut outcome,
-    );
+    remove_program_files(install_root, &vacate(install_root), &mut outcome);
     remove_user_data(removals, &mut outcome);
     outcome
 }
@@ -246,41 +275,30 @@ fn vacate(install_root: &Path) -> RunningImage {
     }
 }
 
-/// Directories under the install root that an ordinary uninstall spares whole.
-///
-/// The two working directories of the on-demand runtime download. They hold
-/// part-fetched archives and their resume metadata, which is precisely what
-/// makes an interrupted 2.97 GB download resumable rather than repeated.
-///
-/// `proof/` is *not* here, because it cannot be spared whole — see
-/// [`INSTALLED_PROOF_FILES`].
-const SPARED_WHOLE_WHEN_SPARING_RUNTIME: &[&str] =
-    &[".cuda-runtime-download", ".cuda-runtime-stage"];
-
-/// The one directory the install shares with the downloaded runtime.
+/// The one directory the install shares with anything staged by hand.
 const PROOF: &str = "proof";
 
-/// What this installer places inside `proof/`, and therefore what it removes.
+/// What this installer places inside `proof/`.
 ///
-/// **The direction is inverted here, and only here.** Everywhere else an
-/// uninstall removes what it does not recognise, so that a file added later
-/// without updating a list is cleaned up rather than orphaned. Inside `proof/`
-/// that rule is actively dangerous, because this is the one directory where an
-/// unrecognised file is more likely to be 500 MB of fetched CUDA runtime than
-/// anything of ours. The two mistakes are not the same size: leaving an unknown
-/// file behind costs a few megabytes and is corrected by the next install, while
-/// deleting one costs a 2.97 GB download over the user's connection.
+/// **No longer a spare list.** Until 2026-08-21 this was the *only* thing
+/// removed from `proof/`, and everything else was deliberately left, on the
+/// argument that an unrecognised file here was more likely to be 500 MB of
+/// fetched CUDA runtime than anything of ours — a few megabytes orphaned
+/// against a 2.97 GB re-download. That argument was already dead: the fetch it
+/// protected left with the streaming engine, and nothing in this fork writes a
+/// runtime into the install root at all. What the rule actually spared, forever
+/// and silently, was `scripts/Enable-GraniteCuda.ps1`'s staged libraries.
 ///
-/// Measured on this machine 2026-08-17, and the reason the rule is written this
-/// way rather than as "spare `REQUIRED_RUNTIME_FILES`": `proof/` held three CUDA
-/// **13** redistributables — 516 MB, staged by the interim
-/// `scripts/Enable-GraniteCuda.ps1` — which appear in no list in this workspace
-/// yet, because the CUDA Granite worker that needs them is unpublished. Sparing
-/// by the known-fetched list would have deleted all three.
+/// So the list is now a *classification* rather than a filter: these are removed
+/// as "program files", and whatever else is in `proof/` is removed too and
+/// reported by name in [`Outcome::removed_unrecognised`]. Keeping the
+/// distinction is what lets an uninstall say which of the two it did.
 ///
 /// Pinned against `tauri.proof.conf.json`'s `bundle.resources` by
-/// `apps/desktop/tests/scaffold.test.mjs`, so a payload file added without a
-/// line here fails the gate instead of surviving every uninstall.
+/// `apps/desktop/tests/scaffold.test.mjs`. That pin is worth *more* now, not
+/// less: a payload file missing from here is no longer orphaned, it is reported
+/// to the user as a file the installer did not recognise — which is a
+/// confusing thing to say about a file the installer shipped.
 ///
 /// One entry, because this product installs one engine. The streaming
 /// worker and the five native libraries it linked — `inference-worker.exe`,
@@ -339,22 +357,17 @@ fn remove_shortcuts(outcome: &mut Outcome) {
     }
 }
 
-/// Remove the program, optionally sparing the downloaded GPU runtime.
+/// Remove the program, and everything else under the install root.
 ///
-/// Always a selective walk, never a `remove_dir_all` of the whole root, and the
-/// two reasons are unrelated: `proof/` holds both app-owned files and ~2.3 GB of
-/// fetched runtime, and only the fetched ones are expensive to replace; and this
-/// program's own executable may be sitting among them, in which case one
-/// undeletable file would fail the removal of everything else beside it.
+/// Still a walk rather than one `remove_dir_all`, and the reason is now a single
+/// one: this program's own executable may be sitting among them, and one
+/// undeletable file must not fail the removal of everything beside it. The
+/// second reason — sparing a fetched runtime — is gone with the fetch.
 ///
 /// The directory itself goes last and only if it is empty, so it survives
-/// exactly when something in it was deliberately kept.
-fn remove_program_files(
-    install_root: &Path,
-    remove_gpu_runtime: bool,
-    image: &RunningImage,
-    outcome: &mut Outcome,
-) {
+/// exactly when something in it could not be removed, which is the one case
+/// where its survival is information.
+fn remove_program_files(install_root: &Path, image: &RunningImage, outcome: &mut Outcome) {
     if !install_root.exists() {
         return;
     }
@@ -372,20 +385,13 @@ fn remove_program_files(
     let mut removed_anything = false;
     for entry in entries.flatten() {
         let name = entry.file_name();
-        if !remove_gpu_runtime {
-            if name.eq_ignore_ascii_case(PROOF) {
-                // The only directory emptied selectively rather than kept or
-                // removed whole: our workers and the fetched runtime live side
-                // by side in it, and they have opposite costs to get wrong.
-                removed_anything |= remove_installed_files_from_proof(&entry.path(), outcome);
-                continue;
-            }
-            if SPARED_WHOLE_WHEN_SPARING_RUNTIME
-                .iter()
-                .any(|keep| name.eq_ignore_ascii_case(keep))
-            {
-                continue;
-            }
+        if name.eq_ignore_ascii_case(PROOF) {
+            // Still emptied entry by entry rather than removed whole, but no
+            // longer selectively: the point is now to *name* what was in there
+            // that this installer did not put there, which a `remove_dir_all`
+            // cannot do.
+            removed_anything |= empty_proof_directory(&entry.path(), outcome);
+            continue;
         }
         let path = entry.path();
         // By canonical path rather than by name: the running image has already
@@ -415,13 +421,10 @@ fn remove_program_files(
     if removed_anything {
         outcome.removed.push("program files".to_owned());
     }
-    // Only when there is something there to keep. Reported unconditionally, this
-    // claimed to have kept a runtime on machines that never fetched one.
-    if !remove_gpu_runtime && install_root.join("proof").exists() {
-        outcome
-            .kept
-            .push(crate::catalog::KEPT_WITH_GPU_RUNTIME.to_owned());
-    }
+    // `KEPT_WITH_GPU_RUNTIME` was reported here, for a `proof/` that survived
+    // because the fetched runtime inside it was spared. Nothing is spared here
+    // now, so a surviving `proof/` means something could not be removed -- which
+    // is already in `outcome.failed`, said once, by whichever entry failed.
     if let RunningImage::Retained { canonical, reason } = image {
         outcome
             .left_behind
@@ -433,17 +436,20 @@ fn remove_program_files(
     let _ = std::fs::remove_dir(install_root);
 }
 
-/// Take this installer's own files out of `proof/`, and leave everything else.
+/// Empty `proof/` completely, naming what was in there that we did not install.
 ///
 /// Returns whether anything went, so the caller can avoid claiming a removal it
 /// did not perform.
 ///
-/// Removes by name and never by walking, which is the whole point: see
-/// [`INSTALLED_PROOF_FILES`] for why an unrecognised file in this directory is
-/// spared rather than cleaned up. The directory itself is removed when the last
-/// file leaves it, so a machine that never fetched the runtime — the ordinary
-/// case — ends an uninstall with no `proof/` at all rather than an empty one.
-fn remove_installed_files_from_proof(proof: &Path, outcome: &mut Outcome) -> bool {
+/// Two passes, and the order is the whole design. The declared names go first and
+/// count as program files; whatever survives that pass is, by definition, not
+/// ours, and goes second into [`Outcome::removed_unrecognised`] where the caller
+/// can say so. One `remove_dir_all` would leave the same empty directory and be
+/// unable to tell anyone which of the two it had just deleted 493 MB of.
+///
+/// The directory itself is removed when the last file leaves it, so an ordinary
+/// uninstall ends with no `proof/` at all rather than an empty one.
+fn empty_proof_directory(proof: &Path, outcome: &mut Outcome) -> bool {
     if !proof.is_dir() {
         return false;
     }
@@ -458,19 +464,80 @@ fn remove_installed_files_from_proof(proof: &Path, outcome: &mut Outcome) -> boo
             Err(error) => outcome.failed.push(format!("{PROOF}/{name}: {error}")),
         }
     }
+    // Whatever is left. Directories too: nothing this installer ships puts one
+    // here, so a directory in `proof/` is exactly as unrecognised as a file and
+    // leaving it would defeat the point.
+    if let Ok(entries) = std::fs::read_dir(proof) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let result = if path.is_dir() {
+                std::fs::remove_dir_all(&path)
+            } else {
+                std::fs::remove_file(&path)
+            };
+            match result {
+                Ok(()) => {
+                    removed_anything = true;
+                    outcome.removed_unrecognised.push(name);
+                }
+                Err(error) => outcome.failed.push(format!("{PROOF}/{name}: {error}")),
+            }
+        }
+    }
     // Succeeds only when nothing was left, which is exactly the condition for
     // wanting it gone.
     let _ = std::fs::remove_dir(proof);
     removed_anything
 }
 
+/// What is in `proof/` that this installer did not put there, without removing it.
+///
+/// Exists so the confirmation can *name* the files before anything is deleted.
+/// Asking afterwards would be a report; asking first is a prompt, and the owner's
+/// requirement is that unknown files are confirmed rather than announced.
+///
+/// Sorted, because this is read aloud to a person and the order a directory
+/// listing happens to come back in is not a reason to show one file before
+/// another.
+#[must_use]
+pub fn unrecognised_proof_files(install_root: &Path) -> Vec<String> {
+    let proof = install_root.join(PROOF);
+    let Ok(entries) = std::fs::read_dir(&proof) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| {
+            !INSTALLED_PROOF_FILES
+                .iter()
+                .chain(KNOWN_PROOF_ORPHANS)
+                .any(|known| name.eq_ignore_ascii_case(known))
+        })
+        .collect();
+    names.sort();
+    names
+}
+
 fn remove_user_data(removals: Removals, outcome: &mut Outcome) {
     let Some(root) = data_root() else {
         return;
     };
+    remove_user_data_under(&root, removals, outcome);
+}
+
+/// [`remove_user_data`] against a given profile root.
+///
+/// Split out so the "nothing is left" half is testable. It reads `%APPDATA%`,
+/// which a test cannot redirect without changing it for every other test in the
+/// process — and the behaviour worth pinning here is precisely the one that only
+/// shows up on a real tree: that the directories themselves go, not just the
+/// files inside them.
+fn remove_user_data_under(root: &Path, removals: Removals, outcome: &mut Outcome) {
     // Paths mirror what the NSIS uninstall hook removed, so an uninstall after
     // an upgrade from a pre-bootstrapper install still finds everything.
-    let targets: [(Removable, &str, &[&str]); 4] = [
+    let targets: [(Removable, &str, &[&str]); 5] = [
         (Removable::Configuration, "configuration", &["config"]),
         (
             Removable::History,
@@ -483,6 +550,10 @@ fn remove_user_data(removals: Removals, outcome: &mut Outcome) {
         ),
         (Removable::Models, "installed models", &["model-lifecycle"]),
         (Removable::Recovery, "recovery backups", &["recovery"]),
+        // The whole directory, not the two files by name. `speakeasy.log` and
+        // its one rotated generation are what rotation writes today, and a log
+        // name that changes must not start surviving uninstalls silently.
+        (Removable::Logs, "diagnostic logs", &["logs"]),
     ];
     for (item, label, relatives) in targets {
         if !removals.includes(item) {
@@ -509,6 +580,30 @@ fn remove_user_data(removals: Removals, outcome: &mut Outcome) {
             outcome.removed.push(label.to_owned());
         }
     }
+    // Last, and only when empty. This is the difference between "we deleted the
+    // things we know about" and "nothing is left", which is what the user asked
+    // for -- and it fails harmlessly on a keep-user-data run, where the
+    // directory still holds what was kept. `data/` survives on a history
+    // removal too: the database goes and the directory it sat in does not,
+    // because something else may put a file there later and guessing is how a
+    // future subsystem's data gets deleted by an unrelated checkbox.
+    remove_directory_if_empty(&root.join("data"));
+    remove_directory_if_empty(root);
+}
+
+/// Remove a directory only if nothing is in it.
+///
+/// Deliberately silent about failure: a directory that still holds something is
+/// the ordinary outcome of a keep-user-data uninstall, not a fault, and
+/// reporting it would put a scary line in front of a user who asked to keep
+/// exactly that.
+fn remove_directory_if_empty(directory: &Path) {
+    if directory
+        .read_dir()
+        .is_ok_and(|mut entries| entries.next().is_none())
+    {
+        let _ = std::fs::remove_dir(directory);
+    }
 }
 
 #[cfg(test)]
@@ -516,16 +611,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nothing_optional_is_removed_by_default() {
-        // The default has to be keep. An uninstall that deletes user data
-        // because a caller forgot to ask is unrecoverable, and this is the one
-        // place in the product where the wrong default cannot be undone.
+    fn the_api_default_removes_nothing_and_everything_removes_all_of_it() {
+        // The *API* default has to be keep, and still is. A caller that forgot to
+        // ask must delete nothing, because this is the one place in the product
+        // where the wrong default cannot be undone.
+        //
+        // The user-facing default inverted on 2026-08-21 and this test did not,
+        // deliberately: the inversion belongs at the command line, where the
+        // question has actually been put to somebody. `main::remove` builds
+        // `everything()` unless `--keep-user-data` says otherwise, and
+        // `uninstall_removes_everything_unless_told_to_keep_user_data` is what
+        // pins that end.
         let removals = Removals::default();
-
         for item in Removable::ALL {
             assert!(
                 !removals.includes(item),
                 "{} must default to keep",
+                item.label()
+            );
+        }
+
+        // And the other end of it: `everything()` has to actually mean all of
+        // them, or an uninstall promising a clean machine would quietly spare
+        // whichever slot was added last.
+        let all = Removals::everything();
+        for item in Removable::ALL {
+            assert!(
+                all.includes(item),
+                "{} must be removed by everything()",
                 item.label()
             );
         }
@@ -550,11 +663,23 @@ mod tests {
     }
 
     #[test]
-    fn sparing_the_runtime_still_takes_this_installer_s_files_out_of_proof() {
-        // The defect: `proof/` was spared whole, so every worker and speech DLL
+    fn nothing_survives_proof_and_what_we_did_not_place_there_is_named() {
+        // Two defects, in opposite directions, one after the other.
+        //
+        // First `proof/` was spared **whole**, so every worker and speech DLL
         // this installer placed survived an uninstall that reported the program
-        // removed. Nine app-owned files among twenty-six, measured on a real
-        // install 2026-08-15.
+        // removed -- nine app-owned files among twenty-six, measured on a real
+        // install 2026-08-15. That was fixed by removing only our own names.
+        //
+        // Which produced the second: everything else was then spared forever, on
+        // the argument that an unknown file here was a fetched CUDA runtime worth
+        // 2.97 GB. This fork has no such fetch. What the rule actually preserved
+        // was `Enable-GraniteCuda.ps1`'s staged libraries -- 493 MB, measured
+        // 2026-08-21 -- through every uninstall, on a machine the user believed
+        // was clean.
+        //
+        // So: everything goes, and what was not ours is *named* rather than
+        // silently deleted, which is what lets the confirmation ask about it.
         let root = std::env::temp_dir().join("speakeasy-uninstall-proof-split");
         let _ = std::fs::remove_dir_all(&root);
         let proof = root.join("proof");
@@ -563,55 +688,39 @@ mod tests {
             std::fs::write(proof.join(ours), b"ours").expect("installed file");
         }
         std::fs::write(proof.join("granite-worker.cpu.exe"), b"orphan").expect("orphan");
-        // Fetched, and expensive: the required runtime, plus a CUDA 13 trio.
-        // The catalog pins CUDA **12**, so these three are named by no list this
-        // uninstaller consults -- which is the whole point. Sparing by a
-        // known-fetched list rather than by ours would delete them, and they are
-        // 516 MB that `Enable-GraniteCuda.ps1` staged from a local toolkit.
-        // (The 12-versus-13 split is a real inconsistency, not a fixture quirk;
-        // `docs/handoff/CURRENT.md` item 0 is where it gets resolved.)
-        for fetched in [
-            "cudnn64_9.dll",
-            "onnxruntime_providers_cuda.dll",
-            "cublas64_13.dll",
-            "cublasLt64_13.dll",
-            "cudart64_13.dll",
-        ] {
-            std::fs::write(proof.join(fetched), b"fetched").expect("fetched file");
+        let staged = ["cublas64_13.dll", "cublasLt64_13.dll", "cudart64_13.dll"];
+        for name in staged {
+            std::fs::write(proof.join(name), b"staged").expect("staged library");
         }
+        // A directory, too. Nothing this installer ships puts one in `proof/`,
+        // so leaving it would defeat the point just as surely as leaving a file.
+        std::fs::create_dir_all(proof.join("leftover-dir")).expect("leftover directory");
+
+        // Asked before the removal, because that is when the confirmation needs
+        // it. The declared names must not appear; everything else must.
+        let mut unrecognised = unrecognised_proof_files(&root);
+        unrecognised.sort();
+        let mut expected = staged.map(str::to_owned).to_vec();
+        expected.push("leftover-dir".to_owned());
+        expected.sort();
+        assert_eq!(unrecognised, expected);
 
         let mut outcome = Outcome::default();
-        remove_program_files(&root, false, &RunningImage::Elsewhere, &mut outcome);
+        remove_program_files(&root, &RunningImage::Elsewhere, &mut outcome);
 
-        for ours in INSTALLED_PROOF_FILES {
-            assert!(
-                !proof.join(ours).exists(),
-                "{ours} is ours to remove and must not survive an uninstall"
-            );
-        }
-        assert!(
-            !proof.join("granite-worker.cpu.exe").exists(),
-            "named orphan"
+        assert!(!root.exists(), "the install root must not survive");
+        outcome.removed_unrecognised.sort();
+        assert_eq!(
+            outcome.removed_unrecognised, expected,
+            "everything not ours must be removed and reported by name"
         );
-        for fetched in [
-            "cudnn64_9.dll",
-            "onnxruntime_providers_cuda.dll",
-            "cublas64_13.dll",
-            "cublasLt64_13.dll",
-            "cudart64_13.dll",
-        ] {
-            assert!(
-                proof.join(fetched).is_file(),
-                "{fetched} was downloaded; deleting it costs 2.97 GB"
-            );
-        }
         assert!(outcome.failed.is_empty(), "{:?}", outcome.failed);
         assert!(
-            outcome
+            !outcome
                 .kept
                 .iter()
-                .any(|kept| kept == "downloaded graphics-card runtime"),
-            "{:?}",
+                .any(|kept| kept.contains("graphics-card")),
+            "nothing in the install directory is kept any more: {:?}",
             outcome.kept
         );
 
@@ -619,11 +728,10 @@ mod tests {
     }
 
     #[test]
-    fn a_machine_that_never_fetched_the_runtime_keeps_no_proof_directory() {
-        // The ordinary case, and the one a "spare proof/ whole" rule got wrong
-        // in the other direction: a user who never enabled the graphics card had
-        // an empty directory left behind, and an uninstall claiming to have kept
-        // a runtime that was never there.
+    fn an_install_with_nothing_staged_leaves_no_proof_directory_and_names_nothing() {
+        // The ordinary case: only our own files, so `removed_unrecognised` has to
+        // be empty. A list that named something here would put a line in front of
+        // every user asking about files that were always the installer's own.
         let root = std::env::temp_dir().join("speakeasy-uninstall-proof-only-ours");
         let _ = std::fs::remove_dir_all(&root);
         let proof = root.join("proof");
@@ -633,55 +741,17 @@ mod tests {
         }
         std::fs::write(root.join("ai-speakeasy-mini.exe"), b"app").expect("app");
 
+        assert!(unrecognised_proof_files(&root).is_empty());
+
         let mut outcome = Outcome::default();
-        remove_program_files(&root, false, &RunningImage::Elsewhere, &mut outcome);
+        remove_program_files(&root, &RunningImage::Elsewhere, &mut outcome);
 
         assert!(!root.exists(), "nothing was kept, so nothing may be left");
         assert!(
-            !outcome
-                .kept
-                .iter()
-                .any(|kept| kept.contains("graphics-card")),
-            "a runtime never fetched must not be kept: {:?}",
-            outcome.kept
+            outcome.removed_unrecognised.is_empty(),
+            "{:?}",
+            outcome.removed_unrecognised
         );
-    }
-
-    #[test]
-    fn sparing_the_gpu_runtime_keeps_proof_and_removes_the_rest() {
-        let root = std::env::temp_dir().join("speakeasy-uninstall-spare-runtime");
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join("proof")).expect("proof");
-        std::fs::create_dir_all(root.join("notices")).expect("notices");
-        std::fs::write(root.join("proof").join("cudart64_12.dll"), b"big").expect("runtime file");
-        std::fs::write(root.join("ai-speakeasy-mini.exe"), b"app").expect("app");
-
-        let mut outcome = Outcome::default();
-        remove_program_files(&root, false, &RunningImage::Elsewhere, &mut outcome);
-
-        assert!(
-            root.join("proof").join("cudart64_12.dll").is_file(),
-            "the expensive runtime must survive an ordinary uninstall"
-        );
-        assert!(!root.join("ai-speakeasy-mini.exe").exists());
-        assert!(!root.join("notices").exists());
-        assert!(outcome.failed.is_empty(), "{:?}", outcome.failed);
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn removing_the_gpu_runtime_takes_the_whole_directory() {
-        let root = std::env::temp_dir().join("speakeasy-uninstall-full");
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join("proof")).expect("proof");
-        std::fs::write(root.join("proof").join("cudart64_12.dll"), b"big").expect("runtime file");
-
-        let mut outcome = Outcome::default();
-        remove_program_files(&root, true, &RunningImage::Elsewhere, &mut outcome);
-
-        assert!(!root.exists());
-        assert!(outcome.failed.is_empty(), "{:?}", outcome.failed);
     }
 
     #[test]
@@ -698,7 +768,7 @@ mod tests {
         std::fs::write(root.join("speakeasy-bootstrapper.exe"), b"setup").expect("bootstrapper");
 
         let mut outcome = Outcome::default();
-        remove_program_files(&root, true, &RunningImage::Relocated, &mut outcome);
+        remove_program_files(&root, &RunningImage::Relocated, &mut outcome);
 
         assert!(!root.exists(), "the install directory must not survive");
         assert!(outcome.failed.is_empty(), "{:?}", outcome.failed);
@@ -723,7 +793,6 @@ mod tests {
         let mut outcome = Outcome::default();
         remove_program_files(
             &root,
-            true,
             &RunningImage::Retained {
                 canonical,
                 reason: "the file could not be moved".to_owned(),
@@ -747,16 +816,21 @@ mod tests {
     #[test]
     fn removing_nothing_is_never_reported_as_removing_the_program() {
         // The exact shape of the 2026-08-15 defect: an install root that exists
-        // but holds only spared items. It reported "Removed: program files"
-        // having deleted nothing, which is how an uninstall aimed at the wrong
-        // directory read as a complete success with exit code zero.
+        // and yields nothing. It reported "Removed: program files" having deleted
+        // nothing, which is how an uninstall aimed at the wrong directory read as
+        // a complete success with exit code zero.
+        //
+        // The scenario used to be "a root holding only spared items", because a
+        // spared CUDA runtime was the realistic way to reach it. Nothing is
+        // spared any more, so an **empty** root is what is left -- and it is
+        // still the realistic case, since it is exactly what pointing an
+        // uninstall at the wrong directory produces.
         let root = std::env::temp_dir().join("speakeasy-uninstall-nothing-to-do");
         let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join("proof")).expect("proof");
-        std::fs::write(root.join("proof").join("cudart64_12.dll"), b"big").expect("runtime file");
+        std::fs::create_dir_all(&root).expect("install root");
 
         let mut outcome = Outcome::default();
-        remove_program_files(&root, false, &RunningImage::Elsewhere, &mut outcome);
+        remove_program_files(&root, &RunningImage::Elsewhere, &mut outcome);
 
         assert!(
             !outcome.removed.iter().any(|item| item == "program files"),
@@ -774,6 +848,60 @@ mod tests {
     }
 
     #[test]
+    fn removing_user_data_leaves_no_profile_directory_and_keeping_it_leaves_all_of_it() {
+        // The point of the 2026-08-21 inversion, stated as an assertion: after an
+        // ordinary uninstall there is nothing left. Both halves are here because
+        // each is a way to get this wrong -- removing everything but the empty
+        // directories that held it reports a clean machine and leaves a tree, and
+        // a `--keep-user-data` run that removed anything would delete the weights
+        // it exists to preserve.
+        let root = std::env::temp_dir().join("speakeasy-uninstall-profile");
+        let stage = || {
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(root.join("config")).expect("config");
+            std::fs::create_dir_all(root.join("data")).expect("data");
+            std::fs::create_dir_all(root.join("model-lifecycle/models")).expect("models");
+            std::fs::create_dir_all(root.join("recovery")).expect("recovery");
+            std::fs::create_dir_all(root.join("logs")).expect("logs");
+            std::fs::write(root.join("config/install-provider.txt"), b"cpu").expect("marker");
+            std::fs::write(root.join("data/speakeasy.sqlite3"), b"db").expect("database");
+            std::fs::write(root.join("model-lifecycle/models/weights.gguf"), b"w")
+                .expect("weights");
+            std::fs::write(root.join("recovery/backup.json"), b"{}").expect("backup");
+            std::fs::write(root.join("logs/speakeasy.log"), b"line").expect("log");
+        };
+
+        stage();
+        let mut outcome = Outcome::default();
+        remove_user_data_under(&root, Removals::everything(), &mut outcome);
+        assert!(outcome.failed.is_empty(), "{:?}", outcome.failed);
+        // The whole point of the inversion: not "the files are gone" but
+        // "the tree is gone". An empty profile directory left behind is what the
+        // previous behaviour produced and it reads as clean.
+        assert!(!root.exists(), "no profile directory may survive");
+
+        stage();
+        let mut kept = Outcome::default();
+        remove_user_data_under(&root, Removals::default(), &mut kept);
+        assert!(kept.failed.is_empty(), "{:?}", kept.failed);
+        for relative in [
+            "config/install-provider.txt",
+            "data/speakeasy.sqlite3",
+            "model-lifecycle/models/weights.gguf",
+            "recovery/backup.json",
+            "logs/speakeasy.log",
+        ] {
+            assert!(
+                root.join(relative).is_file(),
+                "--keep-user-data must keep {relative}"
+            );
+        }
+        assert!(kept.removed.is_empty(), "{:?}", kept.removed);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn an_absent_installation_is_not_a_failure() {
         // Uninstalling something already gone is the ordinary result of running
         // it twice, and reporting failure there teaches users to ignore output
@@ -782,7 +910,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&absent);
 
         let mut outcome = Outcome::default();
-        remove_program_files(&absent, true, &RunningImage::Elsewhere, &mut outcome);
+        remove_program_files(&absent, &RunningImage::Elsewhere, &mut outcome);
 
         assert!(outcome.failed.is_empty());
         assert!(outcome.removed.is_empty());

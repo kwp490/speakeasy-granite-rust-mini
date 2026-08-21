@@ -352,7 +352,11 @@ Four structural decisions, recorded with their costs:
 - **NSIS is replaced entirely**, so the bootstrapper carries the version stamp
   and its downgrade refusal, refuse-while-running, ARP registration, Start Menu
   shortcuts, WebView2 provisioning, and the uninstaller's data-retention
-  prompts.
+  prompt. What it deliberately did *not* inherit is NSIS's `/SD IDYES`
+  keep-everything default: since 2026-08-21 an uninstall removes the program
+  directory and the profile whole, asks once with the full scope named, and takes
+  `--keep-user-data` for install/uninstall cycles that would otherwise
+  re-download the weights.
 - **The wizard is native**, drawn with `winsafe`'s `gui` and `shell` features,
   because the thing that provisions WebView2 is the thing being replaced and
   repair mode runs on already-broken machines.

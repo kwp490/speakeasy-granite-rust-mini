@@ -185,10 +185,21 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Repair verification failed.' }
 
     # `/S` is still the spelling, so the instruction this script gives is the one
-    # it always gave. `--remove-all` is deliberately NOT passed: the default must
-    # keep user data, and asserting that here is what stops a future change from
-    # making an unattended uninstall destructive.
-    $uninstallOutput = & $installedBootstrapper --uninstall /S 2>&1
+    # it always gave. `--keep-user-data` is new and is passed on purpose.
+    #
+    # This comment said the opposite until 2026-08-21: `--remove-all` was
+    # "deliberately NOT passed", because the default had to keep user data and
+    # asserting that here was what stopped an unattended uninstall from becoming
+    # destructive. The owner inverted that default -- an uninstall that leaves
+    # 2.14 GB of weights behind has not uninstalled anything -- so the flag this
+    # script must pass is the *opposite* one, and for a different reason: not
+    # safety, but cost. Without it every lifecycle run re-downloads the weights.
+    #
+    # The production default is therefore no longer exercised here. It is pinned
+    # in `apps/bootstrapper`'s own tests instead
+    # (`removing_user_data_leaves_no_profile_directory_and_keeping_it_leaves_all_of_it`),
+    # which can stage a profile root rather than deleting this machine's.
+    $uninstallOutput = & $installedBootstrapper --uninstall /S --keep-user-data 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Silent uninstall failed with exit code ${LASTEXITCODE}: $($uninstallOutput -join ' ')"
     }
@@ -202,16 +213,21 @@ try {
     if (Test-Path -LiteralPath $installedBootstrapper -PathType Leaf) {
         throw 'Silent uninstall left its own executable behind; the install root cannot be cleaned.'
     }
-    # What an ordinary uninstall is allowed to spare, and nothing else. `proof\`
-    # survives by design: it holds the on-demand CUDA runtime that costs ~2.97 GB
-    # to fetch again. Pinned as an exact set so that a future change which starts
-    # sparing something else has to say so here.
-    $survivors = @(Get-ChildItem -LiteralPath $installRoot -Force -ErrorAction SilentlyContinue |
-        ForEach-Object { $_.Name } | Sort-Object)
-    $allowedSurvivors = @('proof')
-    $unexpected = @($survivors | Where-Object { $_ -notin $allowedSurvivors })
-    if ($unexpected.Count -gt 0) {
-        throw "Silent uninstall left unexpected files in the install root: $($unexpected -join ', ')"
+    # Nothing at all, and that is the change. `proof\` used to survive by design,
+    # because it held an on-demand CUDA runtime that cost ~2.97 GB to fetch again
+    # -- a download this fork does not have and has not had since the streaming
+    # engine left. So the allowed-survivor set is now empty, and the install root
+    # itself must be gone: `--keep-user-data` keeps the *profile*, never anything
+    # under the program directory.
+    #
+    # Asserted as "the directory does not exist" rather than "it is empty",
+    # because an empty directory left behind is exactly what the previous rule
+    # produced on a machine that never fetched a runtime, and it read as clean.
+    if (Test-Path -LiteralPath $installRoot) {
+        $survivors = @(Get-ChildItem -LiteralPath $installRoot -Force -Recurse -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.FullName.Replace("$installRoot\", '') } | Sort-Object)
+        throw ("Silent uninstall left the install root behind: " +
+            $(if ($survivors.Count -gt 0) { $survivors -join ', ' } else { '(empty directory)' }))
     }
     if (Test-Path -LiteralPath 'HKCU:\Software\SpeakEasy Mini\LocalDevelopment') {
         throw 'Silent uninstall left the version stamp behind; the next install would refuse.'
@@ -270,7 +286,7 @@ try {
                 throw "Single-file install placed a different $relative than the packaged payload."
             }
         }
-        $embeddedUninstall = & (Join-Path $embeddedRoot 'speakeasy-bootstrapper.exe') --uninstall /S 2>&1
+        $embeddedUninstall = & (Join-Path $embeddedRoot 'speakeasy-bootstrapper.exe') --uninstall /S --keep-user-data 2>&1
         if ($LASTEXITCODE -ne 0) {
             throw "Single-file uninstall failed with exit code ${LASTEXITCODE}: $($embeddedUninstall -join ' ')"
         }

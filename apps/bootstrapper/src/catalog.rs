@@ -698,36 +698,66 @@ pub fn arguments_not_understood(detail: &str) -> String {
     )
 }
 
-/// What an ordinary uninstall keeps inside the install directory.
-///
-/// True again as of 2026-08-17, and it was not before. `proof/` used to be
-/// spared whole, so this sentence named about a fifth of what actually survived
-/// — the app's own workers and speech-runtime DLLs stayed too. The uninstall now
-/// takes its own files out of that directory and leaves only what was fetched,
-/// so the claim and the behaviour agree without the wording having to hedge.
-pub const KEPT_WITH_GPU_RUNTIME: &str = "downloaded graphics-card runtime";
+// `KEPT_WITH_GPU_RUNTIME` stood here and said "downloaded graphics-card
+// runtime". Deleted 2026-08-21 with the behaviour it described: an uninstall
+// keeps nothing inside the install directory now, so there is nothing for this
+// sentence to be true about. It had already been wrong once in the other
+// direction — `proof/` used to be spared whole, and the sentence named about a
+// fifth of what actually survived.
 
 /// Shown when an uninstall is refused because the app is running.
 pub const UNINSTALL_REFUSED_RUNNING: &str = "SpeakEasy Mini is running, so its files cannot be removed. Finish or cancel \
      dictation, then quit SpeakEasy Mini from its tray menu and try again. Nothing \
      has been removed.";
 
-/// Shown before an interactive uninstall that keeps everything optional.
-pub fn uninstall_keeps_user_data() -> String {
+/// The confirmation an interactive uninstall asks before removing anything.
+///
+/// Everything is named, and it is named *before* the deletion rather than
+/// reported after it. The per-item checkboxes are still not built; what replaced
+/// "this keeps everything, pass a flag to be thorough" is one question with the
+/// whole scope in front of it, which is the same principle the checkbox page was
+/// for — see `uninstall.rs`'s header for why the default is now a clean machine.
+///
+/// `unrecognised` is listed separately and last because it is the only part the
+/// user might not expect: files in `proof/` that this installer did not put
+/// there, which until 2026-08-21 survived every uninstall silently. Staged CUDA
+/// libraries are what that is today, and half a gigabyte is worth a sentence.
+pub fn uninstall_confirmation(unrecognised: &[String]) -> String {
     // Listed from the same source the checkboxes will render from, so the two
     // cannot end up describing different sets.
-    let kept = crate::uninstall::Removable::ALL
+    let removed = crate::uninstall::Removable::ALL
         .iter()
         .map(|item| format!("  - {}", item.label()))
         .collect::<Vec<_>>()
         .join("\n");
-    format!(
-        "SpeakEasy Mini will be removed.\n\n\
-         These are kept:\n{kept}\n\n\
-         Choosing which of them to remove is not built yet, so this removes only \
-         the program itself. Run with --remove-all to remove everything."
-    )
+    let mut message = format!(
+        "Remove SpeakEasy Mini and everything it stores on this computer?\n\n\
+         The program will be removed, along with:\n{removed}\n"
+    );
+    if !unrecognised.is_empty() {
+        use std::fmt::Write as _;
+
+        // `write!` rather than `push_str(&format!(..))`: clippy's
+        // `format_push_string`, and it is right — the intermediate `String` is
+        // pure waste. Writing into a `String` cannot fail, so the result is
+        // discarded rather than propagated out of a function that returns copy.
+        let _ = write!(
+            message,
+            "\nAlso in the program folder, and not placed there by setup:\n  {}\n",
+            unrecognised.join("\n  ")
+        );
+    }
+    message.push_str("\nThis cannot be undone. Choose No to keep everything and remove nothing.");
+    message
 }
+
+/// Shown when the user declines the confirmation above.
+///
+/// Its own message rather than silence: a dialog that closes on No looks
+/// identical to a dialog that crashed, and the one thing the user needs to know
+/// is that their files are still where they were.
+pub const UNINSTALL_CANCELLED: &str = "Nothing was removed. SpeakEasy Mini and all of its data are still on this \
+     computer.";
 
 /// What an uninstall actually did.
 ///

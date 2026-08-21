@@ -263,12 +263,39 @@ is where the claims are easiest to overstate:
 - **This build is never signed.** SmartScreen may warn, that will not change, and
   setup says so plainly rather than implying a missing prerequisite.
 - **Removed means removed, and kept means kept.** An uninstall reports the
-  things it actually deleted, names everything it spared, and says "SpeakEasy Mini
+  things it actually deleted, names everything it spared, and says "SpeakEasy
   Mini does not appear to be installed" rather than announcing a removal when it
   found nothing to remove. This is not a style point: an uninstall aimed at the
   wrong directory reported "SpeakEasy has been removed. Removed: program files"
   and exited zero, having deleted nothing at all (2026-08-15). A file it could
   not remove is named, with its path, separately from an outright failure.
+- **An uninstall leaves nothing, and asks before it does** (owner decision,
+  2026-08-21). It removes the program directory whole and the profile with it —
+  settings, transcript history, the model weights, recovery backups, logs — and
+  removes the directories themselves rather than leaving an empty tree that reads
+  as clean. The default was keep-everything, inherited from NSIS's `/SD IDYES`,
+  and it meant a user who asked the product to go was left with 2.14 GB of
+  weights and a settings tree, told "SpeakEasy Mini has been removed".
+  `--keep-user-data` is the opt-out and is a **testing** affordance, not a user
+  one: an install/uninstall cycle would otherwise re-download the weights every
+  time, and both proof scripts pass it.
+
+  The interactive path — which is what the Add/Remove Programs entry invokes —
+  **asks once, with the whole scope in the question**. Every category is named
+  before anything is deleted, and files in `proof/` that setup did not put there
+  are named separately and last, because they are the part a user cannot predict:
+  today that is `Enable-GraniteCuda.ps1`'s staged CUDA libraries, and until
+  2026-08-21 they survived every uninstall silently. The focused button is **No**.
+  That is deliberately not the same as the eventual checkbox page's default,
+  which is to remove: what is *selected* when someone reads a page and what
+  happens when someone presses Enter without reading are different questions, and
+  this one cannot be undone. A silent run cannot ask and so proceeds — `/S` is a
+  caller asserting it already knows.
+
+  The per-item checkbox page is still not built. One confirmation carrying the
+  full scope is the same principle it was for, and it is what makes inverting the
+  default safe: the destructive answer is only taken where somebody was there to
+  see it named.
 - **A progress bar that is not moving must say why it is not moving.** The
   download step has three phases and only one of them advances a bar:
   transferring, re-checking a file that was already downloaded, and unpacking.
@@ -341,8 +368,9 @@ version could not:
 
   **The words must actually arrive**, and for months they did not. Setup writes
   them to a one-shot seed; the app applies them as dictionary entries named
-  `installer-0`, `installer-1`, … by position. An ordinary uninstall keeps
-  `personalization.json` by design, so a second install merged a new list over
+  `installer-0`, `installer-1`, … by position. An uninstall run with
+  `--keep-user-data` keeps `personalization.json` — which is what the proof
+  scripts pass — so a second install merged a new list over
   the old ids — and where a stale entry it did not displace held a word the new
   list also held, the two were a `ConflictingRule` to the dictionary validator,
   which rejects **the whole batch**. The user got none of their words, kept the

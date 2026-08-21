@@ -515,7 +515,11 @@ finally {
         Start-Sleep -Seconds 2
         $uninstaller = Join-Path $installRoot 'speakeasy-bootstrapper.exe'
         if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
-            & $uninstaller --uninstall /S | Out-Null
+            # `--keep-user-data` so a wizard run does not delete the 2.14 GB of
+            # weights it just proved the engine against. The production default
+            # removes them (owner decision 2026-08-21); this script exists to be
+            # run repeatedly, which is exactly the case the flag is for.
+            & $uninstaller --uninstall /S --keep-user-data | Out-Null
         }
     }
 }

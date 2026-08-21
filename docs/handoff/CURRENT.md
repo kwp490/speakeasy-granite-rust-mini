@@ -44,6 +44,7 @@ predicted:
 | **The provider a machine reports** | proved, never chosen. All five states now produced on hardware — see item 0 |
 | Graphics-card path | **run on hardware** (2026-08-21, RTX 4070 Laptop): resident pass 361 ms on CUDA against 2,928 ms on the processor, transcript byte-identical. Still nothing published |
 | The CUDA pin | 13.3.1, produced by `scripts/Get-CudaRuntime.ps1` and byte-identical to this workspace's toolkit |
+| Uninstall | **leaves nothing** (2026-08-21). Asks first, interactively; `--keep-user-data` is the testing opt-out both proof scripts pass |
 | Branch | `main`, pushed to `kwp490/speakeasy-granite-rust-mini` |
 
 **The installer's copy, its vocabulary box and the words it collects were
@@ -650,7 +651,7 @@ watching it fail while the other four stayed green.
 
 ### What the first real dictation recorded
 
-Measured 2026-08-18 from `%APPDATA%i.speakeasy.mini\logs\speakeasy.log`,
+Measured 2026-08-18 from `%APPDATA%\ai.speakeasy.mini\logs\speakeasy.log`,
 which is the record to trust:
 
 ```text
@@ -964,6 +965,80 @@ reading `cpu` — so the app reports `device=cuda installed=cpu
 provider=running_beyond_record`, disclosed as not-a-fault. That is the honest
 resting state for a machine carrying a worker no release publishes.
 
+
+### 0b. Uninstall leaves nothing — done 2026-08-21
+
+Owner decision, taken during the graphics-card session and shipped separately
+from it. `--uninstall` removes the program directory *and* the profile — settings,
+transcript history, the 2.14 GB of weights, recovery backups, and now the logs —
+and removes the directories rather than leaving an empty tree that reads as
+clean. The interactive path asks once with the full scope named. Keeping things is
+`--keep-user-data`, a **testing** affordance for install/uninstall cycles, and
+both proof scripts pass it.
+
+**It began as a preference and turned out to be a correction.** The question was
+whether unrecognised files in `proof/` should survive an uninstall. They survived
+because of a rule that emptied that directory selectively, on the recorded
+argument that an unknown file there was probably 500 MB of fetched CUDA runtime,
+and that "leaving a file costs a few megabytes, deleting one costs a 2.97 GB
+download". Every word of that was true when written. **None of it was true any
+more:** this fork has no runtime download. It left with the streaming engine.
+Nothing in the tree creates `.cuda-runtime-download` or `.cuda-runtime-stage`, and
+the weights live under `%APPDATA%`. `Removable::GpuRuntime` — labelled "Downloaded
+graphics-card runtime (about 2.3 GB)" — described a thing that could not exist.
+
+Caught live, and worth keeping as the shape of it. Uninstalling the pre-change
+build printed:
+
+```text
+SpeakEasy Mini has been removed.
+Removed: version record, Add/Remove Programs entry, Start Menu shortcuts, program files
+Kept: downloaded graphics-card runtime, configuration, transcript history, installed models, recovery backups
+```
+
+while leaving 517 MB of `Enable-GraniteCuda.ps1`'s staged libraries behind. Three
+true-sounding lines, one of them naming a runtime this product has never
+downloaded, and a machine the user believed was clean.
+
+**What is where.** `Removable::Logs` took the retired slot, because without it
+`everything()` left the logs directory and therefore the profile root behind.
+`remove_program_files` lost its flag and empties `proof/` in two passes — declared
+names as "program files", everything else reported by name in
+`Outcome::removed_unrecognised` — so the confirmation can list them and the report
+can distinguish them. `unrecognised_proof_files` exists to be asked *before*
+anything is deleted. `Removals::default()` still selects nothing: a caller that
+forgets to ask must still delete nothing, and the inversion belongs at the command
+line where somebody has actually been asked.
+
+**`--remove-all` is gone and is deliberately not an alias.** It named the thorough
+behaviour and that is now the default; a flag meaning "do what you were going to
+do anyway" lets a caller keep believing it is choosing. It is refused with the
+misuse message, so whoever passes it reads the change.
+
+**The dialog's focused button is No**, which is the one place this disagrees with
+the owner's "checkbox defaults to deleting the weights". A checkbox default is
+about what is selected when someone reads a page; a focused button is about what
+happens when someone presses Enter without reading. The per-item checkbox page is
+still not built, and when it is, its boxes should default to removing.
+
+**Proofs.** Gate exit 0. `Test-InstallerLifecycle.ps1` passes, with its
+"unexpected files in the install root" assertion replaced by "the install root
+must not exist" — the comment there previously said the opposite was deliberate,
+so it was rewritten rather than edited. The new Rust test was made to fail by
+deleting the profile-root cleanup, and the lifecycle assertion was made to fail
+for real by holding a handle open on an unrecognised file in `proof/`, which
+produced:
+
+```text
+SpeakEasy Mini was only partly removed.
+Could not be removed:
+  proof/held-open.dll: The process cannot access the file because it is being used by another process. (os error 32)
+```
+
+exit 1, install root surviving. What has **not** been exercised is deleting a real
+2.14 GB of weights: the production default was proved against a staged profile
+root, not against this machine's, because doing it for real means a long
+re-download. Someone should do it once on a machine they do not mind re-seeding.
 
 ### 1. Run the app end to end — done 2026-08-18
 See above. It found two blocking defects; both are fixed and the first real
