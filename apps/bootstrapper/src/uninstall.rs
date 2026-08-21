@@ -340,6 +340,36 @@ fn clear_registration(outcome: &mut Outcome) {
             Err(error) => outcome.failed.push(format!("{label}: {error}")),
         }
     }
+    remove_key_if_empty(&user, crate::install::VERSION_KEY_ROOT);
+}
+
+/// Remove a registry key only if nothing is under it.
+///
+/// The counterpart of [`remove_directory_if_empty`], and it exists for the same
+/// reason: the version stamp lives at `Software\SpeakEasy Mini\LocalDevelopment`,
+/// so deleting it leaves an empty `Software\SpeakEasy Mini` behind with the
+/// product's name on it. Found on 2026-08-21, in the first uninstall ever run
+/// against a real installation rather than a staged root -- everything else was
+/// gone and that was still there.
+///
+/// Silent about failure, again like its filesystem counterpart: a key that still
+/// holds something is not a fault, and a key this cannot open is one it has no
+/// business deleting.
+fn remove_key_if_empty(user: &winreg::RegKey, path: &str) {
+    use winreg::enums::{KEY_READ, KEY_WRITE};
+
+    let Ok(key) = user.open_subkey_with_flags(path, KEY_READ) else {
+        return;
+    };
+    if key.enum_keys().next().is_some() || key.enum_values().next().is_some() {
+        return;
+    }
+    // Dropped before the delete: an open handle on the key is exactly what makes
+    // `delete_subkey` fail, and this function holds one.
+    drop(key);
+    let _ = user
+        .open_subkey_with_flags("", KEY_WRITE)
+        .and_then(|root| root.delete_subkey(path));
 }
 
 fn remove_shortcuts(outcome: &mut Outcome) {
@@ -818,6 +848,42 @@ mod tests {
             "{:?}",
             outcome.removed_unrecognised
         );
+    }
+
+    /// An empty key with the product's name on it is still a residue.
+    ///
+    /// The counterpart of the empty-directory rule, and it exists because the
+    /// first uninstall run against a real installation rather than a staged root
+    /// left exactly this: `Software\SpeakEasy Mini`, no values, no subkeys, after
+    /// everything else on the machine was gone. Deleting `VERSION_KEY` takes
+    /// `LocalDevelopment` and stops there.
+    ///
+    /// Its own key rather than the product's, so a failing test cannot damage a
+    /// real installation, and so this can be run on a machine that has one.
+    #[test]
+    fn an_emptied_product_key_is_removed_and_an_occupied_one_is_not() {
+        use winreg::RegKey;
+        use winreg::enums::HKEY_CURRENT_USER;
+
+        let user = RegKey::predef(HKEY_CURRENT_USER);
+        let path = r"Software\SpeakEasy Mini Uninstall Test";
+
+        user.create_subkey(path).expect("create the empty key");
+        remove_key_if_empty(&user, path);
+        assert!(
+            user.open_subkey(path).is_err(),
+            "an empty key must not survive"
+        );
+
+        // Occupied, and therefore not this uninstaller's to guess about.
+        user.create_subkey(format!(r"{path}\Something"))
+            .expect("create an occupant");
+        remove_key_if_empty(&user, path);
+        assert!(
+            user.open_subkey(path).is_ok(),
+            "a key holding something must survive"
+        );
+        user.delete_subkey_all(path).expect("clean up");
     }
 
     #[test]

@@ -38,6 +38,17 @@ use semver::Version;
 pub const VERSION_KEY: &str = r"Software\SpeakEasy Mini\LocalDevelopment";
 pub const VERSION_VALUE: &str = "Version";
 
+/// The product's own key, which [`VERSION_KEY`] hangs beneath.
+///
+/// Named so an uninstall can clean it up. Deleting `VERSION_KEY` removes the
+/// stamp and leaves this behind, empty and carrying the product's name -- which
+/// is the registry's version of the empty directory tree the 2026-08-21
+/// uninstall work went out of its way to remove, and it was still there after
+/// the first real end-to-end removal on that same day. It is only ever deleted
+/// when empty: something else putting a key here is not this uninstaller's to
+/// guess about.
+pub const VERSION_KEY_ROOT: &str = r"Software\SpeakEasy Mini";
+
 /// What setup is allowed to do.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Decision {

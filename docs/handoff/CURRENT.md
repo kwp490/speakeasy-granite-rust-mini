@@ -834,10 +834,17 @@ untouched throughout.
 - **Nothing asserts the ARP strings.** The proof checks the key is created and
   removed, not what is in it. That is exactly how `DisplayName: SpeakEasy`
   survived.
-- **Uninstall leaves an empty `HKCU:\Software\SpeakEasy Mini`.** It removes the
-  `LocalDevelopment` subkey the test asserts on, not the now-empty parent.
-  Cosmetic, no data, deliberately left alone: deleting a parent key should be a
-  decision rather than a tidy-up.
+- **Uninstall left an empty `HKCU:\Software\SpeakEasy Mini`** — fixed 2026-08-21,
+  which **reverses the decision recorded here**. It was left alone on the
+  argument that deleting a parent key should be a decision rather than a
+  tidy-up, and that was right while an uninstall kept most of what it found. The
+  contract changed on 2026-08-21: an uninstall leaves nothing, and removes the
+  directories themselves rather than an empty tree that reads as clean. Under
+  that contract an empty key carrying the product's name is the same residue one
+  layer over, and the first real end-to-end uninstall left exactly it. The
+  original concern is kept rather than overruled — `remove_key_if_empty` deletes
+  the parent **only when it is empty**, so anything else that put a key there
+  still decides its own fate.
 
 ### A rough edge in the harness
 
@@ -1058,6 +1065,30 @@ Measured at 250% with `Measure-NativeWindow.ps1 -Fit`: client rect 480x398
 logical, every control fitting its box, the unrecognised-files block wrapping to
 four of the roughly five lines it reserves.
 
+#### The real weights were finally deleted, and it found one thing
+
+The production default had only ever been proved against a staged profile root.
+On 2026-08-21 it was run for real, from the page, against this machine's live
+installation: 2.14 GB of weights in the profile and 0.56 GB of program files,
+including the three staged CUDA libraries reported as unrecognised. Both roots
+went, along with the Add/Remove Programs entry and the Start Menu folder.
+
+**What survived was `HKCU:\Software\SpeakEasy Mini`** — empty, no values, no
+subkeys, carrying the product's name. `VERSION_KEY` is
+`Software\SpeakEasy Mini\LocalDevelopment`, so `delete_subkey_all` takes
+`LocalDevelopment` and stops. It is harmless — the version *value* is gone, so
+the next install is not refused — and it is exactly the residue the same day's
+work went out of its way to remove one layer down, where directories stopped
+being left behind empty. `remove_key_if_empty` is now the registry counterpart of
+`remove_directory_if_empty`, with the same rule: only when empty, because
+something else putting a key there is not this uninstaller's to guess about.
+
+Worth knowing before someone repeats this: **the weights survived anyway**, in
+`target/debug/model-lifecycle`, because that tree is hardlinked to the profile's
+copy and a hardlink keeps the data alive until the last link goes. So the
+"long re-download" this exercise was deferred for is avoidable on a machine that
+has the dev tree.
+
 **Proofs.** Gate exit 0. `Test-InstallerLifecycle.ps1` passes, with its
 "unexpected files in the install root" assertion replaced by "the install root
 must not exist" — the comment there previously said the opposite was deliberate,
@@ -1088,6 +1119,73 @@ logged `granite_warm result=ok`. What still has not happened on one is a
 **dictation** — that needs a person and a microphone, and every timing figure in
 this file is therefore still from a dev build. The pinned log window and a long
 dictation remain from this item too.
+
+### 1b. A real dictation on an installed build — needs the owner
+
+Nobody has spoken into an installed release build. Setup's engine check
+transcribes a bundled clip through the real worker, and the app warms and logs
+`granite_warm result=ok`, but a *dictation* needs a person and a microphone — so
+every timing figure in this repository is still from a harness. With a CUDA
+worker stageable on this machine, a long dictation on the card is the single most
+informative thing left.
+
+**Do it on an installed build, in release, not on `tauri dev`.** A debug build's
+SHA-256 dominates any timing that verifies a model — 17.5 s in debug against
+2.36 s in release on the same rig.
+
+#### Before you start
+
+1. `Get-Process SpeakEasy*` — nothing running, or the single-instance lock
+   silently absorbs the launch and you test the old binary.
+2. Stage the graphics-card worker and re-prove the record, in that order:
+
+   ```powershell
+   .\scripts\Enable-GraniteCuda.ps1
+   ```
+
+   It calls `--verify-provider` itself. Skipping the re-prove is not neutral — it
+   manufactures `running_beyond_record` out of a machine that is fine.
+3. Open Settings → Transcription and read the disclosure before speaking. It
+   should say `Dictation runs on: Graphics card (GPU)` with **no** integrity line
+   beneath it if the marker was re-proved, or the not-a-fault
+   `running_beyond_record` sentence if it was not.
+4. Open the pinned log window, or tail
+   `%APPDATA%\ai.speakeasy.mini\logs\speakeasy.log`.
+
+#### What to say
+
+**Two to three minutes, continuously.** Not a sentence — the interesting failure
+is length. `max_new_tokens` is 2048 and a 120 s clip needs roughly 400 tokens for
+312 words, so a three-minute dictation is the first thing anybody has run that
+gets within sight of the ceiling. Read from something you can compare against
+afterwards, because you will need to check the *end* of the transcript rather
+than the beginning.
+
+Do it twice if you have the patience: once on the card, once after
+`Enable-GraniteCuda.ps1 -Revert`, from the same script. That gives the first
+processor-versus-card comparison on real speech rather than a 6.42 s fixture.
+
+#### What to watch, and what each thing would mean
+
+| Signal | Where | What it means |
+| --- | --- | --- |
+| `granite_warm result=ok engine= device= installed= provider=` | log | The provider four-tuple. `device=cuda` is the one to confirm before you speak |
+| `hotkey_delivery result=committed` | log | The transcript reached the target application. Anything else is a delivery outcome, not a transcription one |
+| `target_inspect_refused` | log | The foreground window was something SpeakEasy Mini owns, so it fell back to the clipboard. Reads like a delivery bug and is not one |
+| The **last clause** of the transcript | the target window | The `max_new_tokens` ceiling stops generation with no error and no end-of-generation token. A truncation is *precise* and plausible, so nothing downstream catches it — you are the only instrument |
+| Elapsed between the second hotkey press and the paste | a clock | The only real end-to-end number this product has |
+
+**Do not paste into a Notepad window you did not create.** Windows 11 Notepad
+restores its previous tabs, and a dictation proof has already written into
+somebody's real unsaved note. Create a file, open it, and confirm its name in the
+title bar first.
+
+#### What would make it a finding
+
+A transcript that ends mid-clause is the one everybody is looking for and nobody
+has been able to produce. A transcript that is fluent, confident and *unrelated*
+to what you said is Granite answering the prompt instead of transcribing, which
+`is_plausible` is supposed to catch and which is the only guard left.
 
 ### 2. Finish the installer (`apps/bootstrapper`) — done 2026-08-19
 Everything this entry listed exists and is proven: the hardware probe, the

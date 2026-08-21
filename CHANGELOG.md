@@ -71,6 +71,11 @@ setup installs the processor configuration and says so.
   install/uninstall cycles rather than a user-facing choice. `--remove-all` is
   refused rather than silently accepted, because it named the behaviour that is
   now the default.
+- **An uninstall no longer leaves an empty registry key with the product's name
+  on it.** Found by running the production default against a real installation
+  for the first time rather than a staged one: everything else was gone and
+  `Software\SpeakEasy Mini` was still there, because the version stamp lives in a
+  subkey. The parent is now removed too, and only when it is empty.
 - **Files in the program folder that setup did not install are no longer spared.**
   They were, on the reasoning that an unrecognised file there was probably a
   large on-demand download — a download this product has not had since the
