@@ -1,11 +1,16 @@
 # Changelog
 
-## Unreleased
+## 1.5.0 — 2026-08-21
 
-Work that landed after 1.4.2 was tagged. The version number has deliberately not
-moved: it is what the binary reports, what the registry stamp records and what
-the install manifest carries, and `scripts/Increment-ProductVersion.ps1` moves
-all three together when a release is actually cut.
+Three sessions of work behind 1.4.2, and one theme runs through all of it: the
+product had several places where it stated something its evidence did not
+support, and every one of them read as a fact. A record written from a radio
+button, a sentence about a device assembled from a fact about a model, a driver
+query that failed being reported as a driver that said no, and an uninstall that
+announced a removal while leaving 2.14 GB behind.
+
+Still processor-only on every machine: no graphics-card worker is published, so
+setup installs the processor configuration and says so.
 
 ### Setup can no longer record a configuration it did not prove — 2026-08-20
 
