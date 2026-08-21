@@ -546,6 +546,11 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
                 // place the two are ever seen together -- and they disagreeing
                 // silently is the defect this field exists to make impossible.
                 recorded_provider: installed_configuration(&profile_root),
+                // The real probe, named at the composition root rather than
+                // inside the warm. This is the *only* place it is named, which
+                // is what makes a staged one possible without a switch in the
+                // shipped binary.
+                cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
             },
             &coordinator,
         );

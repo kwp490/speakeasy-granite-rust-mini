@@ -27,7 +27,7 @@ use speakeasy_domain::{
     UtteranceAudio,
 };
 use speakeasy_models::{
-    CudaContextProof, ExecutionProvider, GpuProbe, InstallSpec, NvmlCudaContextProbe, NvmlGpuProbe,
+    CudaContextProbe, CudaContextProof, ExecutionProvider, GpuProbe, InstallSpec, NvmlGpuProbe,
     Pack, PackRole, TrustedManifest, admit, bundled_manifest, prove_cuda_context,
     verify_pack_files,
 };
@@ -330,12 +330,28 @@ pub struct GraniteEnvironment<'a> {
     /// environment can tell those apart. Read by `assess_provider_integrity`
     /// once the worker has come up.
     pub recorded_provider: &'a str,
+    /// How to ask whether the worker's own process is holding a CUDA context.
+    ///
+    /// Beside `recorded_provider` deliberately: these are the two halves of the
+    /// same comparison, and the probe was the half that was not passed in.
+    /// `warm` named `NvmlCudaContextProbe` inline, so the app's `cuda_unverified`
+    /// — a CUDA worker whose context could not be checked — was the one device
+    /// value no test on any machine could produce. Setup's side of it had been
+    /// reachable since `smoke::verify_engine_with` took its probe; the app's had
+    /// not, which is how a value shipped with copy, a code and a UI branch and no
+    /// proof that anything ever emitted it.
+    ///
+    /// **Not an environment variable.** A production switch whose only purpose is
+    /// to make the app misreport its own provider is the shape of the defect this
+    /// module exists to have removed.
+    pub cuda_context_probe: &'a dyn CudaContextProbe,
 }
 
 /// Bounds the `FinishStream` call, where Granite's ~2 GB load and inference
 /// both happen (not `LoadModel`, which only checks file presence). Sized
-/// generously against a realistic dictation, not the ~6 s beckett fixture
-/// measurement, which is a 10 s clip.
+/// generously against a realistic dictation rather than against the 6.42 s
+/// fixture the hardware tests use, whose resident pass measured 2.93 s on the
+/// processor and 361 ms on an RTX 4070 Laptop GPU (2026-08-21).
 const GRANITE_FINISH_STREAM_DEADLINE: Duration = Duration::from_secs(90);
 
 /// Static identity for the CPU Granite pack. The packs are a fixed,
@@ -578,6 +594,7 @@ impl GraniteEngineCoordinator {
         choice: &GranitePackChoice<'_>,
         diagnostic_log: Option<PathBuf>,
         recorded_provider: &str,
+        cuda_context_probe: &dyn CudaContextProbe,
     ) -> Result<Arc<ResidentGraniteAdapter>, DomainError> {
         let mut slot = self
             .adapter
@@ -589,7 +606,12 @@ impl GraniteEngineCoordinator {
         self.record_engine_reason(choice.reason.code());
         verify_pack_files(choice.pack, &choice.model_root)
             .map_err(|_| domain_error(ErrorCode::AdapterFailed))?;
-        let (adapter, worker) = match warm(granite_worker_exe, choice, diagnostic_log) {
+        let (adapter, worker) = match warm(
+            granite_worker_exe,
+            choice,
+            diagnostic_log,
+            cuda_context_probe,
+        ) {
             Ok((adapter, worker)) => (Arc::new(adapter), worker),
             Err(error) => {
                 self.record_worker_failure();
@@ -616,6 +638,7 @@ fn warm(
     granite_worker_exe: &Path,
     choice: &GranitePackChoice<'_>,
     diagnostic_log: Option<PathBuf>,
+    cuda_context_probe: &dyn CudaContextProbe,
 ) -> Result<(ResidentGraniteAdapter, WorkerProvider), DomainError> {
     let process_deadlines = ProcessDeadlines::new(Duration::from_secs(10), Duration::from_secs(5))
         .map_err(|_| domain_error(ErrorCode::InvalidData))?;
@@ -676,7 +699,7 @@ fn warm(
     // and querying NVML about one would make a driver question part of every
     // processor install's warm path.
     let context = (compiled_cuda == Some(true))
-        .then(|| prove_cuda_context(&NvmlCudaContextProbe, client.process_id()));
+        .then(|| prove_cuda_context(cuda_context_probe, client.process_id()));
     Ok((
         WorkerFinalAdapter::new(
             client,
@@ -756,6 +779,7 @@ pub fn warm_granite_if_configured(
             &choice,
             environment.diagnostic_log.clone(),
             environment.recorded_provider,
+            environment.cuda_context_probe,
         )
         .map(|_adapter| ())?;
 
@@ -967,6 +991,7 @@ pub async fn run_granite_final_pass(
         &choice,
         environment.diagnostic_log,
         environment.recorded_provider,
+        environment.cuda_context_probe,
     )?;
 
     // Built from the resident adapter's own clock, not a fresh one -- see
@@ -1214,6 +1239,23 @@ mod tests {
     /// The one test that is about the gate names its own numbers.
     const AMPLE_MEMORY: Option<u64> = Some(GRANITE_MINIMUM_TOTAL_MEMORY_BYTES * 2);
 
+    /// What Granite says about `apps/bootstrapper/fixtures/smoke.wav`.
+    ///
+    /// The same string `apps/bootstrapper`'s `smoke::SPOKEN` holds, and arrived at
+    /// the same way -- discovered by running the model, never typed. Both guesses
+    /// at the *previous* fixture's ground truth were wrong, one of them on a
+    /// punctuation choice ("dog. And Monday" for a comma that was spoken), which
+    /// is why this is pinned from output rather than from the script that
+    /// generated the audio.
+    ///
+    /// Spelled here as well as there rather than shared: this crate deliberately
+    /// links no part of the bootstrapper, and a constant reached across that
+    /// boundary would be the only reason to. The two are held together by both
+    /// tests failing loudly if the model's answer ever changes, which is the
+    /// thing worth detecting.
+    const SMOKE_CLIP_TRANSCRIPT: &str =
+        "The quick brown fox jumps over the lazy dog. And Monday begins at dawn.";
+
     /// The pack the real resolver would land on, without the disk check —
     /// tests stage their own files and need the pack before they exist.
     fn granite_pack(manifest: &TrustedManifest) -> &Pack {
@@ -1254,6 +1296,7 @@ mod tests {
                 total_memory_bytes: AMPLE_MEMORY,
                 diagnostic_log: None,
                 recorded_provider: "unrecorded",
+                cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
             },
             &coordinator,
             audio,
@@ -1294,6 +1337,7 @@ mod tests {
                 total_memory_bytes: AMPLE_MEMORY,
                 diagnostic_log: None,
                 recorded_provider: "unrecorded",
+                cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
             },
             &coordinator,
             audio,
@@ -1467,6 +1511,7 @@ mod tests {
                 total_memory_bytes: Some(GRANITE_MINIMUM_TOTAL_MEMORY_BYTES - 1),
                 diagnostic_log: None,
                 recorded_provider: "unrecorded",
+                cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
             },
             &coordinator,
             audio,
@@ -1553,6 +1598,7 @@ mod tests {
                 total_memory_bytes: AMPLE_MEMORY,
                 diagnostic_log: None,
                 recorded_provider: "unrecorded",
+                cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
             },
             &coordinator,
             audio,
@@ -1607,6 +1653,183 @@ mod tests {
             .collect()
     }
 
+    /// Write the cold and resident pass durations where someone can read them.
+    ///
+    /// Written down, not only printed. `--nocapture` did not deliver this line on
+    /// this machine -- `--show-output` reported the test's stdout as empty -- so
+    /// the two numbers the resident-worker test exists to produce were being
+    /// discarded while it passed. A measurement that cannot be read is not a
+    /// measurement.
+    ///
+    /// `cold` is spawn plus a ~2.2 GB load plus inference, and is not comparable
+    /// across builds because this crate's own SHA-256 verification dominates it
+    /// in a debug harness. `resident` is almost entirely the release worker's own
+    /// inference, and is the number worth quoting.
+    fn record_resident_timing(
+        target_debug: &Path,
+        worker_exe: &Path,
+        cold: Duration,
+        resident: Duration,
+    ) {
+        let report = format!(
+            "granite final pass: worker={} first={cold:?} second={resident:?}
+",
+            if image_is_cuda_build(worker_exe) {
+                "cuda"
+            } else {
+                "cpu"
+            }
+        );
+        print!("{report}");
+        std::fs::write(target_debug.join("granite-resident-timing.txt"), &report)
+            .expect("the measurement must be written");
+    }
+
+    /// Whether a built worker carries llama.cpp's CUDA backend.
+    ///
+    /// The same `ggml-cuda` marker `scripts/GraniteWorkerProvider.ps1` and
+    /// `Enable-GraniteCuda.ps1` read, and for the reason their comments give: the
+    /// CUDA build is an order of magnitude larger than the CPU one (54 MB against
+    /// 4 MB measured 2026-08-21), so size is a proxy where the marker is the fact.
+    fn image_is_cuda_build(worker_exe: &Path) -> bool {
+        let image = std::fs::read(worker_exe).expect("the staged worker must be readable");
+        image
+            .windows(b"ggml-cuda".len())
+            .any(|window| window == b"ggml-cuda")
+    }
+
+    /// A [`CudaContextProbe`] whose answer is decided by the test.
+    ///
+    /// The reason [`GraniteEnvironment::cuda_context_probe`] exists. Two of the
+    /// four values [`WorkerProvider::device`] can return are unreachable against
+    /// a real driver on a machine with a working card: it will answer, and it
+    /// will place a CUDA worker on a device. So the two that matter most --
+    /// "answered no" and "could not be asked" -- have to be staged.
+    struct StagedContextProbe(Result<Vec<u32>, speakeasy_models::GpuProbeFailure>);
+
+    impl CudaContextProbe for StagedContextProbe {
+        fn compute_process_ids(&self) -> Result<Vec<u32>, speakeasy_models::GpuProbeFailure> {
+            self.0.clone()
+        }
+    }
+
+    /// What a CUDA-built worker reports as its device, under three probes.
+    ///
+    /// The proof that closes the graphics-card path on real hardware, and it
+    /// needs real hardware for exactly one of its three cases: `cuda` is a claim
+    /// about a driver, a card and a live process, and nothing staged can make it
+    /// true. The other two are staged *because* they cannot be produced on a
+    /// working machine on demand, which is the whole argument for the probe being
+    /// a parameter rather than a call.
+    ///
+    /// Each case is its own scope with its own coordinator, and that is not
+    /// tidiness: each warm leaves a resident worker holding roughly 3 GiB of
+    /// VRAM, and three at once does not fit on an 8 GiB card. A test that ran out
+    /// of video memory would report `cpu` for the first case and read exactly
+    /// like the regression it is here to detect.
+    ///
+    /// The staged worker is checked for `ggml-cuda` first. Without that check
+    /// this test passes on a CPU worker -- `compiled_cuda` would be `Some(false)`,
+    /// every case would answer `cpu`, and two of the three assertions would be
+    /// vacuously satisfied by the wrong binary.
+    ///
+    /// ```text
+    /// cargo test -p speakeasy-desktop --lib a_cuda_worker_reports -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore = "hardware: needs a CUDA-built target/debug/proof/granite-worker.exe, the staged GGUF files, and an NVIDIA card"]
+    fn a_cuda_worker_reports_the_device_its_context_probe_can_prove() {
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("..")
+            .canonicalize()
+            .expect("repository root");
+        let target_debug = repository.join("target").join("debug");
+        let worker_exe = target_debug.join("proof").join("granite-worker.exe");
+        let install_root = target_debug.join("model-lifecycle").join("models");
+        assert!(
+            worker_exe.is_file(),
+            "missing {}; see this test's documentation",
+            worker_exe.display()
+        );
+        assert!(
+            image_is_cuda_build(&worker_exe),
+            "the staged worker is not a CUDA build; run scripts/Enable-GraniteCuda.ps1"
+        );
+
+        let manifest = bundled_manifest().expect("the bundled manifest must parse");
+        let pack = granite_pack(&manifest);
+        let choice = cpu_choice(pack, &install_root);
+
+        // The card, proved. `installed=cpu` because that is what an ordinary
+        // release records, and a CUDA worker staged over it is precisely
+        // `RunningBeyondRecord` -- disclosed, and deliberately not a fault.
+        {
+            let coordinator = GraniteEngineCoordinator::default();
+            coordinator
+                .ensure_ready(
+                    &worker_exe,
+                    &choice,
+                    None,
+                    "cpu",
+                    &speakeasy_models::NvmlCudaContextProbe,
+                )
+                .expect("a CUDA worker must warm on a machine with a card");
+            assert_eq!(
+                coordinator.device(),
+                "cuda",
+                "NVML must place this worker's own pid on a device"
+            );
+            assert_eq!(
+                coordinator.provider_integrity(),
+                ProviderIntegrity::RunningBeyondRecord
+            );
+        }
+
+        // A driver that will not answer. Neither `cuda` -- which would be the
+        // unverified claim -- nor `cpu`, which would report a fault on a machine
+        // that is almost certainly using its card.
+        {
+            let coordinator = GraniteEngineCoordinator::default();
+            coordinator
+                .ensure_ready(
+                    &worker_exe,
+                    &choice,
+                    None,
+                    "cpu",
+                    &StagedContextProbe(Err(speakeasy_models::GpuProbeFailure::LibraryMissing)),
+                )
+                .expect("an unanswerable driver must not fail the warm");
+            assert_eq!(coordinator.device(), "cuda_unverified");
+            // Nothing was proved, so nothing is promoted: against a processor
+            // record this is agreement, not a discrepancy.
+            assert_eq!(coordinator.provider_integrity(), ProviderIntegrity::Matches);
+        }
+
+        // The definitive negative: NVML answered, and this pid is not on any
+        // device. Against a graphics-card record that is the actionable fault,
+        // and it is the one combination a CPU-only release could never produce
+        // honestly.
+        {
+            let coordinator = GraniteEngineCoordinator::default();
+            coordinator
+                .ensure_ready(
+                    &worker_exe,
+                    &choice,
+                    None,
+                    "cuda",
+                    &StagedContextProbe(Ok(vec![])),
+                )
+                .expect("a worker NVML does not list must still warm");
+            assert_eq!(coordinator.device(), "cpu");
+            assert_eq!(
+                coordinator.provider_integrity(),
+                ProviderIntegrity::GpuInstallNotOperational
+            );
+        }
+    }
+
     /// End-to-end proof against the **real** compiled worker process and the
     /// real GGUF files -- not just the library calls `speakeasy-granite`'s own
     /// proofs already cover. Exercises exactly the path `run_retained_
@@ -1619,6 +1842,15 @@ mod tests {
     /// same `<install_root>/models/...` shape `ModelCoordinator.root` resolves
     /// to in the real app. Panics loudly rather than skipping when either is
     /// absent, per this repository's convention for hardware-gated tests.
+    ///
+    /// The clip is `apps/bootstrapper/fixtures/smoke.wav`, which travels with the
+    /// code. It was `.tools/fixtures/beckett.wav` until 2026-08-21, and that file
+    /// is gone -- `.tools/` is gitignored, so the fixture existed only on the
+    /// machine that made it, and by the time this test was next run there was
+    /// nothing to run it against. That is the second time this repository has
+    /// lost a fixture that way; the first is recorded in `.gitignore` beside the
+    /// exception that keeps this one. A hardware test whose input cannot be
+    /// obtained is not a test that is hard to run, it is a test that is gone.
     ///
     /// ```text
     /// cargo test -p speakeasy-desktop --lib granite_final_pass_transcribes -- --ignored --nocapture
@@ -1636,9 +1868,10 @@ mod tests {
         let worker_exe = target_debug.join("proof").join("granite-worker.exe");
         let install_root = target_debug.join("model-lifecycle").join("models");
         let wav = repository
-            .join(".tools")
+            .join("apps")
+            .join("bootstrapper")
             .join("fixtures")
-            .join("beckett.wav");
+            .join("smoke.wav");
         for path in [&worker_exe, &wav] {
             assert!(
                 path.is_file(),
@@ -1678,6 +1911,7 @@ mod tests {
                 total_memory_bytes: AMPLE_MEMORY,
                 diagnostic_log: None,
                 recorded_provider: "unrecorded",
+                cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
             },
             &coordinator,
             audio,
@@ -1687,7 +1921,7 @@ mod tests {
         .expect("Granite must transcribe the fixture without error")
         .expect("Granite must be configured given the files staged above");
         assert_eq!(
-            outcome.text, "Ever tried? Ever failed? No matter. Try again. Fail again. Fail better.",
+            outcome.text, SMOKE_CLIP_TRANSCRIPT,
             "the transcript no longer matches the pinned output"
         );
         assert!(!coordinator.is_quarantined());
@@ -1698,12 +1932,22 @@ mod tests {
     /// against the *same* coordinator and asserts `Arc::ptr_eq` on the
     /// adapter `ensure_ready` hands back each time -- if either call had
     /// spawned a new process, this would be a different `Arc` (and a second
-    /// spawn would also fail outright, since `beckett.wav`'s second dictation
-    /// pushes audio into a stream the first `Worker` already believed it had
-    /// finished, on a process that only ever answers `Hello` once).
+    /// spawn would also fail outright, since the second dictation pushes audio
+    /// into a stream the first `Worker` already believed it had finished, on a
+    /// process that only ever answers `Hello` once).
     ///
     /// Same fixture requirements as
     /// [`granite_final_pass_transcribes_the_fixture_through_the_real_worker_process`].
+    ///
+    /// **This is also the resident-run measurement**, and the only one: `first`
+    /// is a cold pass and `second` is the resident one, so the pair is what makes
+    /// the resident worker's value legible. It writes them to
+    /// `target/debug/granite-resident-timing.txt`. Note that `first` is not
+    /// comparable across builds -- it includes this crate's own SHA-256
+    /// verification of ~2.3 GB of weights, which a debug build dominates, the
+    /// trap `CLAUDE.md` records under "Running the app". `second` is almost
+    /// entirely the release worker's own inference and is the number worth
+    /// quoting.
     #[test]
     #[ignore = "hardware: needs target/debug/proof/granite-worker.exe and the staged GGUF files"]
     fn run_granite_final_pass_reuses_the_resident_worker_across_dictations() {
@@ -1717,9 +1961,10 @@ mod tests {
         let worker_exe = target_debug.join("proof").join("granite-worker.exe");
         let install_root = target_debug.join("model-lifecycle").join("models");
         let wav = repository
-            .join(".tools")
+            .join("apps")
+            .join("bootstrapper")
             .join("fixtures")
-            .join("beckett.wav");
+            .join("smoke.wav");
         for path in [&worker_exe, &wav] {
             assert!(
                 path.is_file(),
@@ -1752,6 +1997,7 @@ mod tests {
                     total_memory_bytes: AMPLE_MEMORY,
                     diagnostic_log: None,
                     recorded_provider: "unrecorded",
+                    cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
                 },
                 &coordinator,
                 audio,
@@ -1770,7 +2016,13 @@ mod tests {
         let pack = granite_pack(&manifest);
         let choice = cpu_choice(pack, &install_root);
         let first_adapter = coordinator
-            .ensure_ready(&worker_exe, &choice, None, "unrecorded")
+            .ensure_ready(
+                &worker_exe,
+                &choice,
+                None,
+                "unrecorded",
+                &speakeasy_models::NvmlCudaContextProbe,
+            )
             .expect("the first dictation must have warmed the engine");
 
         let started = std::time::Instant::now();
@@ -1778,16 +2030,22 @@ mod tests {
         let second_elapsed = started.elapsed();
 
         let second_adapter = coordinator
-            .ensure_ready(&worker_exe, &choice, None, "unrecorded")
+            .ensure_ready(
+                &worker_exe,
+                &choice,
+                None,
+                "unrecorded",
+                &speakeasy_models::NvmlCudaContextProbe,
+            )
             .expect("the engine is still warm after the second dictation");
-        println!("granite final pass resident: first={first_elapsed:?} second={second_elapsed:?}");
+        record_resident_timing(&target_debug, &worker_exe, first_elapsed, second_elapsed);
 
         assert!(
             Arc::ptr_eq(&first_adapter, &second_adapter),
             "both dictations must run against the identical resident adapter"
         );
         assert_eq!(
-            first.text, "Ever tried? Ever failed? No matter. Try again. Fail again. Fail better.",
+            first.text, SMOKE_CLIP_TRANSCRIPT,
             "the first dictation's transcript no longer matches the pinned output"
         );
         assert_eq!(
@@ -1839,9 +2097,10 @@ mod tests {
         let worker_exe = target_debug.join("proof").join("granite-worker.exe");
         let install_root = target_debug.join("model-lifecycle").join("models");
         let wav = repository
-            .join(".tools")
+            .join("apps")
+            .join("bootstrapper")
             .join("fixtures")
-            .join("beckett.wav");
+            .join("smoke.wav");
         for path in [&worker_exe, &wav] {
             assert!(
                 path.is_file(),
@@ -1879,6 +2138,7 @@ mod tests {
                     total_memory_bytes: AMPLE_MEMORY,
                     diagnostic_log: Some(diagnostic_log.clone()),
                     recorded_provider: "unrecorded",
+                    cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
                 },
                 &coordinator,
                 audio,

@@ -463,13 +463,21 @@ export const messages = {
    * that produced this whole surface: setup used to record a graphics-card
    * installation from an unchecked radio button, the app then correctly ran on
    * the processor, and the disagreement existed only as three fields of one log
-   * line that nothing compared. It names what to do — a reinstall is what
-   * re-runs the proof — and it does not claim dictation is broken, because it is
-   * not: the same model produces the same transcript on the processor.
+   * line that nothing compared. It names what to do, and it does not claim
+   * dictation is broken, because it is not: the same model produces the same
+   * transcript on the processor.
+   *
+   * The remedy changed on 2026-08-21 and the copy had to change with it. It said
+   * "reinstall", because a reinstall was the only thing that re-ran the proof;
+   * the bootstrapper's `--verify-provider` verb now runs the identical check
+   * against an installed build in seconds. Leaving the old wording in place
+   * would have had the app recommending the expensive remedy while a cheap one
+   * shipped beside it. The two ordinary causes come first, because they are what
+   * a user can actually act on and neither needs a command line.
    */
   providerIntegrity: {
     gpu_install_not_operational:
-      "This installation was recorded as using the graphics card, and dictation is running on the processor instead. Transcripts are unaffected; the speed is not. Reinstall SpeakEasy Mini to have setup re-check the graphics-card engine, or keep using the processor.",
+      "This installation was recorded as using the graphics card, and dictation is running on the processor instead. Transcripts are unaffected; the speed is not. Update the graphics driver and close anything else using the card, then re-check the engine — running setup with --verify-provider re-proves it without reinstalling.",
     running_beyond_record:
       "Dictation is running on the graphics card, which is more than this installation was recorded as providing. Nothing is wrong — the graphics-card engine was staged after setup ran.",
   },

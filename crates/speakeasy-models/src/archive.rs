@@ -593,35 +593,40 @@ mod zip_tests {
 
     /// The spike: the real NVIDIA redistributable, not a fixture.
     ///
-    /// `cuda_cudart` is the smallest of the four (3.5 MB, one required DLL), so
-    /// it proves the whole zip path end to end -- central directory, prefix
+    /// `cuda_cudart` is the smaller of the two (2.5 MB, one required DLL), so it
+    /// proves the whole zip path end to end -- central directory, prefix
     /// stripping, length and digest enforcement -- against bytes NVIDIA actually
     /// served, at the digest `models/trusted-manifest.json` pins.
     ///
-    /// Ignored because it needs `scripts/Get-GpuRuntime.ps1` to have run. The
+    /// Ignored because it needs `scripts/Get-CudaRuntime.ps1` to have run. The
     /// values are restated here rather than read from the manifest only because
     /// `ProofArtifact::NativeRuntime` exposes nothing but `id()` today; the
     /// production path must read them from the manifest, not duplicate them.
+    ///
+    /// Note `bin/x64/`, not `bin/`: CUDA 13 moved every redistributable library
+    /// down a directory, which is exactly the kind of fact a restated constant
+    /// gets wrong silently, and the reason this test is worth un-ignoring by hand
+    /// after a re-pin.
     #[test]
-    #[ignore = "requires .tools/gpu-runtime/download populated by scripts/Get-GpuRuntime.ps1"]
+    #[ignore = "requires .tools/cuda-runtime/download populated by scripts/Get-CudaRuntime.ps1"]
     fn the_real_nvidia_cudart_redistributable_extracts_at_its_pinned_digest() {
         let archive = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../.tools/gpu-runtime/download")
-            .join("cuda_cudart-windows-x86_64-12.9.79-archive.zip");
+            .join("../../.tools/cuda-runtime/download")
+            .join("cuda_cudart-windows-x86_64-13.3.29-archive.zip");
         assert!(archive.is_file(), "missing {}", archive.display());
 
         let spec = InstallSpec {
-            id: "nvidia-cuda-cudart-windows-x64-12.9.79".to_owned(),
-            revision: "12.9.79".to_owned(),
-            archive_prefix: PathBuf::from("cuda_cudart-windows-x86_64-12.9.79-archive"),
-            archive_bytes: 3_521_238,
-            archive_sha256: "179e9c43b0735ffe67207b3da556eb5a0c50f3047961882b7657d3b822d34ef8"
+            id: "nvidia-cuda-cudart-windows-x64-13.3.29".to_owned(),
+            revision: "13.3.29".to_owned(),
+            archive_prefix: PathBuf::from("cuda_cudart-windows-x86_64-13.3.29-archive"),
+            archive_bytes: 2_589_792,
+            archive_sha256: "1feb7dd266813ffe8dbc24e115183a5ac35a4795c8d34aca0df85ab616b64d9c"
                 .to_owned(),
-            installed_bytes: 583_680,
+            installed_bytes: 551_024,
             required_files: vec![InstallFile {
-                path: PathBuf::from("bin/cudart64_12.dll"),
-                bytes: 583_680,
-                sha256: "760c38928bbe5759f7b31ed6692599eb7ec83cedd5702e84c2b72028a89837e1"
+                path: PathBuf::from("bin/x64/cudart64_13.dll"),
+                bytes: 551_024,
+                sha256: "b00ca6f53699120da815bf3e06e2e4285fae2f201235b883dcbb50eec51e2a2a"
                     .to_owned(),
             }],
         };
@@ -631,10 +636,10 @@ mod zip_tests {
         extract_required_files(&archive, &destination, &spec, &CancelToken::default())
             .expect("the real cudart archive must extract at its pinned digest");
 
-        let installed = destination.join("bin/cudart64_12.dll");
+        let installed = destination.join("bin/x64/cudart64_13.dll");
         assert_eq!(
             fs::metadata(&installed).expect("installed dll").len(),
-            583_680,
+            551_024,
             "and the file on disk is the length the manifest recorded"
         );
     }

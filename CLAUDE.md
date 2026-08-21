@@ -75,6 +75,19 @@ Frontend-only, from `apps/desktop`: `npm run typecheck`, `npm run lint`,
 `npm test`, `npm run build`. Rust: `cargo test -p <crate> --lib`,
 `cargo clippy --all-targets`.
 
+Re-pinning NVIDIA's CUDA redistributables in `models/trusted-manifest.json`,
+which is the enforced requirement list rather than documentation:
+
+```powershell
+.\scripts\Get-CudaRuntime.ps1
+```
+
+Re-proving which provider an installed build runs on, without a reinstall:
+
+```powershell
+& "$env:LOCALAPPDATA\SpeakEasy Mini\speakeasy-bootstrapper.exe" --verify-provider
+```
+
 Building and proving the installer, which is a separate path the gate does not
 touch:
 
@@ -119,7 +132,12 @@ Three things about that will waste your afternoon if you do not know them:
 2. **Dev is not the installed build, and the difference has invalidated
    measurements twice.** A debug build's SHA-256 dominates any timing that
    verifies a model — the same rig reported a 17.5 s saving in debug and 2.36 s
-   in release. Time things in release, on an installed build.
+   in release. Time things in release, on an installed build. The *resident*
+   timing is the exception worth knowing: it is almost entirely the release
+   worker's own inference, so it survives a debug harness where the cold number
+   does not. Measured 2026-08-21 on an RTX 4070 Laptop GPU over a 6.42 s clip —
+   2,928 ms on the processor against 361 ms on CUDA, and the transcript
+   byte-identical on both.
 3. **Trust the disk log over the UI and over proof scrapers.**
    `%APPDATA%\ai.speakeasy.mini\logs\speakeasy.log` carries a specific error
    code where the UI often shows generic text.
@@ -360,6 +378,49 @@ Every one of these produced a plausible, wrong result rather than an error.
   and verified by name in the window title, never just a window owned by the
   right process.
 
+- **A pinned requirement nothing reads is not a fact, it is a plan — and it
+  becomes a refusal the day something reads it.** The catalog pinned CUDA
+  **12.9** (`cudart64_12.dll`, `cublas64_12.dll`, `cublasLt64_12.dll`) while
+  `Enable-GraniteCuda.ps1` staged **13** and the only toolkit any machine here
+  has is 13.3. Harmless for months, because no code compared the two. On
+  2026-08-20 `speakeasy_models::required_cuda_runtime_files` began reading those
+  `proof_files` as the enforced list, and a locally built CUDA worker was then
+  refused as `RuntimeFilesMissing(cublas64_12.dll, cublasLt64_12.dll,
+  cudart64_12.dll)` with three perfectly good CUDA 13 libraries sitting beside it
+  under their real names. Re-pinned to 13.3.1 on 2026-08-21. Two things about
+  doing that:
+  - **CUDA 13 moved the libraries from `bin/` to `bin/x64/`.** A re-pin is not the
+    old paths with a digit changed, and the first attempt refused for exactly
+    that reason. `required_cuda_runtime_files` survived it only because it
+    reduces `proof_files` to *base names* rather than stripping a known prefix.
+  - **`scripts/Get-CudaRuntime.ps1` produces the entries.** Its predecessor was
+    deleted with the streaming engine, which is how the 12.9 numbers came to sit
+    in the catalog as constants nobody could re-derive. It cross-checks each
+    archive against NVIDIA's own `redistrib_<version>.json`, takes the per-file
+    digests from the verified archive (NVIDIA publishes none), and reports whether
+    the installed toolkit's libraries are the *same bytes* — which is the only
+    thing that makes `Enable-GraniteCuda.ps1` staging from the toolkit sound. All
+    three matched on 2026-08-21; version strings agreeing would not have been
+    that claim.
+- **`--nocapture` delivered nothing from `speakeasy-desktop`'s test binary, and
+  `--show-output` reported the test's stdout as empty.** Both hardware tests that
+  exist partly to *measure* something were printing their numbers into a void,
+  and passing, so nothing said the measurement was missing. Cause not found;
+  the fix is that the resident-run timing is now written to
+  `target/debug/granite-resident-timing.txt` as well as printed. **A measurement
+  that only exists in captured stdout is not a measurement.** Also: an edit meant
+  for one hardware test landed in a sibling with a similar name, and because the
+  test filter selected the other one, everything passed while producing nothing —
+  check *which* test ran, not just that one did.
+- **A fixture under `.tools/` is a test with a deletion date.** The three
+  granite_engine hardware tests read `.tools/fixtures/beckett.wav`, which is
+  gitignored, existed only on the machine that made it, and **was gone** by
+  2026-08-21 — so all three had been unrunnable for some unknown stretch while
+  reading as merely `#[ignore]`d. This is the *second* time; the first is recorded
+  in `.gitignore` beside the `!apps/bootstrapper/fixtures/smoke.wav` exception
+  that was added for it. All three now use that committed clip, and its ground
+  truth was **discovered by running the model**, not typed — the same rule that
+  caught "Granit" and "dog. And Monday".
 - **A claim assembled out of an intention is indistinguishable from a fact, and
   outlives every layer that would have checked it.** A support log read
   `engine=cpu_gpu_runtime_missing device=cpu installed=cuda`. Three correct
@@ -491,6 +552,30 @@ Every one of these produced a plausible, wrong result rather than an error.
   `native-runtime` artifact `granite-worker-cuda-windows-x64`, and until it does,
   the wizard's option is disabled, the packager refuses to assemble a CUDA worker
   without its libraries, and no installation may record `cuda`.
+- **The whole workspace targets CUDA 13.x**, pinned at cudart 13.3.29 and
+  libcublas 13.6.0.2 from `redistrib_13.3.1.json` — the versions whose bytes are
+  byte-identical to this workspace's CUDA Toolkit, proved by digest. Accepting
+  `cudart64_*.dll` by pattern was considered and rejected: presence would stop
+  implying provenance, and every required file in this catalog is a file the
+  catalog pins.
+- **`install-provider.txt` has exactly one writer and two callers.** The writer is
+  `seed::record_installed_provider`, fed from `smoke::verify_engine`'s verdict.
+  The callers are the wizard's last page and the bootstrapper's
+  `--verify-provider` verb, which `scripts/Enable-GraniteCuda.ps1` invokes after
+  staging a CUDA worker and after `-Revert`. The script reads no NVML, classifies
+  nothing and writes no marker — a second implementation of the three-gate proof
+  would be a second source of truth for the same claim, which is the shape of the
+  defect the 2026-08-20 work removed. **Neither skip is neutral:** staging without
+  re-proving reports `running_beyond_record`, and reverting without re-proving
+  manufactures `gpu_install_not_operational` from the script meant to undo the
+  change.
+- **The NVML probe is a parameter threaded through `GraniteEnvironment`, not an
+  environment variable.** A production switch whose only purpose is to make the
+  app misreport its own provider is the same shape as the radio button that
+  started all this. Threading it is what made `device=cuda_unverified` reachable:
+  a working card always answers and always takes the worker, so "the driver would
+  not answer" and "the driver said no" are precisely the two answers no real
+  machine can be asked for.
 - **The active provider is reported as the device, never as the pack.** The pack
   reason (`engine=`) and the device (`device=`) are different facts that disagree
   on any machine running a CUDA worker against the single CPU-named pack. Settings

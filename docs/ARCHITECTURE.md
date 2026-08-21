@@ -176,7 +176,15 @@ answered, and it separates three genuinely independent facts:
 
 Setup's engine check requires all three before `install-provider.txt` says
 `cuda`, and writes nothing at all if the check never ran (the app reads that as
-`unrecorded`). The app re-checks the third at every warm and compares it against
+`unrecorded`). The bootstrapper's `--verify-provider` verb runs that same check
+against an installed build and rewrites the marker from its verdict, so the
+record can be re-proved without a reinstall — which is what
+`scripts/Enable-GraniteCuda.ps1` calls after it stages a CUDA worker, and after
+`-Revert` puts the processor one back. **Two callers, one implementation.** The
+script reads no NVML and writes no marker: `install-provider.txt` having exactly
+one writer is what makes a claim assembled from an intention unrepeatable, and a
+PowerShell re-implementation of the three gates would have been a second writer
+wearing a different hat. The app re-checks the third at every warm and compares it against
 the record: `ProviderIntegrity` is `ok`, `unrecorded`,
 `gpu_install_not_operational` — the actionable fault — or `running_beyond_record`,
 which is what `scripts/Enable-GraniteCuda.ps1` produces on purpose and is
@@ -195,6 +203,20 @@ reports the difference rather than conflating them.
 Measured on an RTX 5090: Granite Q4_K_M resident run 1,571.9 ms on CPU versus
 156.4 ms on CUDA, RTF 0.158 versus 0.0157, holding ~3.27 GiB of VRAM. Cold load
 is 5,218 ms against 2,104 ms.
+
+Measured 2026-08-21 on an **RTX 4070 Laptop GPU** (compute 8.9, driver 596.36,
+8,188 MiB), through the app's own resident path on a 6.42 s clip: resident pass
+2,928 ms on the processor against **361 ms** on CUDA — RTF 0.456 against 0.0563,
+a factor of 8.1. Different card, different clip and a different harness from the
+5090 figures above, so the two sets are not comparable to each other; both are
+comparable within themselves, which is the only comparison either was made for.
+
+**The transcript is byte-identical on both devices.** The same whole-transcript
+assertion passes against the CPU worker and the CUDA worker, which is worth more
+than the speed: setup's engine check compares a whole transcript against one
+pinned ground truth, so a CUDA path that changed the greedy decode by a single
+mark would fail that check on every graphics-card machine, and nothing would have
+found out until one existed.
 
 ## Delivery safety
 

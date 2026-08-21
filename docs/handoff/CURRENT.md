@@ -5,11 +5,12 @@ cost you an afternoon if you rediscover them yourself.
 
 Read `CLAUDE.md` first. This file assumes it.
 
-> **Picking this up cold?** The work waiting for you is **"0. Prove the
-> graphics-card path on this machine"** under *What is outstanding*. Its four
-> design decisions were taken by the owner on 2026-08-20, so it is a plan to
-> execute rather than one to make — and its first step, re-pinning the catalog's
-> CUDA redistributables to 13.x, blocks everything after it.
+> **Picking this up cold?** Item 0, the graphics-card proof, is **done**
+> (2026-08-21) — read it for what it found, not for what to do. The work waiting
+> for you is **item 8**, the engine-reason sentence that contradicts the device
+> printed beside it, which is a copy change and therefore needs the owner. Items
+> 9 and 10 came out of the same proof and are both claims the code makes that its
+> evidence does not support.
 
 ## Start here
 
@@ -40,8 +41,9 @@ predicted:
 | Setup's engine check | transcribes the bundled clip through the real worker in ~5 s |
 | `speakeasy-granite` | compiles, ~2 min cold |
 | Broken doc links | none, `--document-private-items` and denied, workspace-wide (four were reintroduced on 2026-08-19 and cleared 2026-08-20) |
-| **The provider a machine reports** | proved, never chosen: `installed=cpu device=cpu provider=ok` on this host, and `gpu_install_not_operational` reproduced on demand |
-| Graphics-card path | **never run on hardware.** No release carries a CUDA worker; two of the five provider states are unit-tested only |
+| **The provider a machine reports** | proved, never chosen. All five states now produced on hardware — see item 0 |
+| Graphics-card path | **run on hardware** (2026-08-21, RTX 4070 Laptop): resident pass 361 ms on CUDA against 2,928 ms on the processor, transcript byte-identical. Still nothing published |
+| The CUDA pin | 13.3.1, produced by `scripts/Get-CudaRuntime.ps1` and byte-identical to this workspace's toolkit |
 | Branch | `main`, pushed to `kwp490/speakeasy-granite-rust-mini` |
 
 **The installer's copy, its vocabulary box and the words it collects were
@@ -839,119 +841,129 @@ it cost three runs to notice. Kill `ai-speakeasy-mini` before re-running.
 
 Ordered by what unblocks the most.
 
-### 0. Prove the graphics-card path on this machine — **the next session's job**
+### 0. Prove the graphics-card path on this machine — done 2026-08-21
 
-Everything in the provider work of 2026-08-20 is built and tested, and two of
-its states have never been produced on hardware, because producing them needs a
-CUDA-built worker and no release carries one. This item closes that, and the
-four decisions below were taken by the owner on 2026-08-20 rather than left to
-whoever picks it up.
+All four rows of this item's acceptance table are satisfied on an **RTX 4070
+Laptop GPU** (compute 8.9, driver 596.36, 8,188 MiB). Nothing was published:
+`models/trusted-manifest.json` still carries no
+`granite-worker-cuda-windows-x64`, `download::plan` still has one item, and the
+wizard's graphics-card option is still disabled with the reason.
 
-**Decided: a local proof, not a publication.** Build a CUDA worker with
-`scripts\Enable-GraniteCuda.ps1`, stage it over an installed processor build, and
-drive the states out on this machine. Do **not** upload anything, do not add the
-worker to `models/trusted-manifest.json` as
-`granite-worker-cuda-windows-x64`, and do not give `download::plan` its second
-item. Publishing is still item 3 and still needs Hugging Face credentials and the
-attribution review the catalog's own limitations say is outstanding — and the
-moment that artifact id appears in the manifest, the wizard offers the option and
-the packager starts demanding libraries, on every machine. Keep the release
-CPU-only until that is deliberate.
+**The first step was the whole blocker it was described as.** The catalog pinned
+CUDA 12.9 while every machine that can build a CUDA worker ships 13.x, and the
+requirement had become *enforced* the day before, so a locally built worker was
+refused for three libraries sitting beside it under their real names. Two things
+the plan did not know:
 
-**Decided: the whole workspace targets CUDA 13.x.** This is the first thing to
-do and it blocks the rest. The requirement list became *enforced* on 2026-08-20
-— `speakeasy_models::required_cuda_runtime_files` reads it out of the manifest's
-pinned `proof_files` — and the manifest pins **12.9** (`cudart64_12.dll`,
-`cublas64_12.dll`, `cublasLt64_12.dll`) while `Enable-GraniteCuda.ps1` stages
-**13** and the only toolkit on this machine is **13.3**. So a locally built
-worker would be refused as
-`RuntimeFilesMissing(cublas64_12.dll, cublasLt64_12.dll, cudart64_12.dll)` while
-sitting beside three perfectly good CUDA 13 libraries. The mismatch pre-dates
-this work — `CLAUDE.md` already recorded "the CUDA 13 trio that no list in this
-workspace names yet" — it was simply inert until something read the list.
+- **CUDA 13 moved the libraries from `bin/` to `bin/x64/`.** A re-pin is not the
+  12.9 paths with a digit changed, and the first attempt refused for exactly
+  that reason. `required_cuda_runtime_files` survived the move only because it
+  reduces `proof_files` to base names instead of stripping a known prefix.
+- **`scripts/Get-CudaRuntime.ps1` is new**, and is how the entries are now
+  produced: it cross-checks each archive against NVIDIA's own
+  `redistrib_13.3.1.json`, takes the per-file digests from the verified archive
+  because NVIDIA publishes none, and reports whether the installed toolkit's
+  libraries are the *same bytes*. All three matched, which is what makes
+  `Enable-GraniteCuda.ps1` staging from the toolkit sound — version strings
+  agreeing would not have been that claim.
 
-Re-pin, do not pattern-match. Fetch NVIDIA's 13.x `cuda_cudart` and `libcublas`
-Windows redistributable archives, cross-check length and SHA-256 against
-NVIDIA's own `redistrib_13.*.json` the way the 12.9 entries were, and replace
-both artifacts — id, version, url, `archive_prefix`, `extracted_bytes` and every
-`proof_files` entry. Then update `CUDA_RUNTIME_ARTIFACT_IDS` in
-`crates/speakeasy-models/src/granite_gpu.rs` and the same two ids in
-`scripts/GraniteWorkerProvider.ps1`;
-`the_packager_and_the_models_crate_require_the_same_cuda_libraries` fails until
-both are done, which is the point of it. Rewrite the two catalog `limitations`
-sentences that describe the 12.9 provenance, and
-`the_cuda_runtime_requirement_comes_from_the_manifests_own_digests` asserts the
-12 file names by hand — it has to move with them.
+**What was measured.** Through the app's own resident path on the 6.42 s clip:
+resident pass **2,928 ms on the processor against 361 ms on CUDA**, RTF 0.456
+against 0.0563, a factor of 8.1. Not comparable to the RTX 5090 figures in
+`ARCHITECTURE.md` — different card, different clip, different harness. **The
+transcript is byte-identical on both devices**, which matters more than the
+speed: setup's engine check compares a whole transcript against one pinned
+ground truth, so a CUDA path that moved a single punctuation mark would have
+failed that check on every graphics-card machine, and nothing would have found
+out until one existed.
 
-Accepting `cudart64_*.dll` by pattern was considered and rejected: presence would
-stop implying provenance, and every required file in this catalog is a file the
-catalog pins.
+#### The acceptance table, with its evidence
 
-**Decided: the NVML probe threads through the warm path.** The smoke test already
-takes it (`smoke::verify_engine_with`), so setup's side of `cuda_unverified` is
-reachable; the app's is not, because `granite_engine::warm` names
-`NvmlCudaContextProbe` inline. Thread it through `GraniteEnvironment` exactly the
-way `recorded_provider` was threaded on 2026-08-20 — a field, defaulted at the
-test sites, supplied by `coordinators.rs` — so an integration test can stage a
-probe that fails and assert the app reports `device=cuda_unverified` rather than
-`cuda` or `cpu`. **No environment variable.** A production switch whose only
-purpose is to make the app misreport its provider is the shape this whole fix
-removed.
+| State | Evidence |
+| --- | --- |
+| `provider=ok` on the card | `granite_warm result=ok engine=cpu_gpu_pack_not_installed device=cuda installed=cuda provider=ok`; the running Settings window read `Dictation runs on: Graphics card (GPU)` with **no** integrity element in the DOM |
+| `running_beyond_record` | `... device=cuda installed=cpu provider=running_beyond_record`; Settings rendered the not-a-fault copy with class `setting-detail`, not `warning` |
+| `gpu_runtime_files_missing` | `--verify-provider` exited 1 with "The graphics-card engine cannot start: cublas64_13.dll is not beside the worker", and left the marker alone |
+| `cuda_unverified` | `a_cuda_worker_reports_the_device_its_context_probe_can_prove`, on hardware: the real probe gives `cuda`, a staged `Err(LibraryMissing)` gives `cuda_unverified`, a staged `Ok(vec![])` gives `cpu` |
 
-**Decided: `Enable-GraniteCuda.ps1` updates the install marker.** The owner's
-call, against the recommendation, and the recommendation's concern is worth
-carrying rather than discarding: `install-provider.txt` having exactly one writer
-is what makes the 2026-08-20 defect unrepeatable, and a script that re-implements
-the three-gate proof would be a second implementation to drift.
+Both new assertions were also made to **fail** on purpose before being believed.
+The `--verify-provider` argument parser was given back the first-fragment bug and
+its test failed; the hardware test was pointed at a non-CUDA binary and its
+`ggml-cuda` guard fired.
 
-So implement it as **two callers, one implementation**. Give the bootstrapper a
-verb — `Mode::VerifyProvider { install_root }` beside `Install` and `Uninstall`
-in `apps/bootstrapper/src/main.rs` — that runs `smoke::verify_engine` against the
-installed worker and calls `seed::record_installed_provider` from its verdict,
-printing the evidence code and returning a non-zero exit on anything but
-`Verified`. `Enable-GraniteCuda.ps1` then *calls* that verb after it stages the
-worker and its libraries. The script must not read NVML, must not decide anything
-about providers, and must not write the file. Invoke it with the call operator
-and read `$LASTEXITCODE` — `Start-Process -ArgumentList` quotes nothing and this
-repository's own path has a space in it. Note that this verb makes the marker
-re-provable *without* a reinstall, which is a better answer than the
-`gpu_install_not_operational` copy's current "reinstall to re-check"; update that
-catalog entry in the same change or it will be telling users to do the expensive
-thing.
+#### Two rows were unreachable as written, and why
 
-**What passing looks like.** Four states on this machine, each with the evidence:
+`inspect_gpu_payload` answers **published, then present, then operational**, in
+that order, and `WorkerNotPublished` short-circuits. So `payload: None` — which
+`ProviderEvidence::proven()` requires before anything may record `cuda` — is
+impossible while the artifact id is absent from the manifest. **Rows 1 and 3
+therefore contradict this item's own "publish nothing" decision.**
 
-| State | How to produce it | What must be true |
-| --- | --- | --- |
-| `provider=ok` on the card | staged CUDA worker, libraries beside it, marker re-proved | `device=cuda`, `provider=ok`, Settings shows "Graphics card (GPU)" and **no** integrity line |
-| `running_beyond_record` | staged CUDA worker, marker left at `cpu` | `device=cuda installed=cpu provider=running_beyond_record`, Settings discloses it as not-a-fault |
-| `gpu_runtime_files_missing` | delete one staged DLL, re-run the verb | refused, and the message names that file |
-| `cuda_unverified` | integration test with a staged failing probe | `device=cuda_unverified`, and the marker is **not** promoted |
+They were produced by splicing a `granite-worker-cuda-windows-x64` entry into
+the catalog locally, building a bootstrapper from it, taking the evidence, and
+reverting; the manifest was then compared against its pre-splice state and is
+byte-equivalent. What those two rows prove is that **the code path works once a
+worker is published**, not that any release on this machine records `cuda`.
+Anyone repeating it needs the same splice, and it has to be reverted before the
+gate runs, because `the_shipped_catalog_publishes_no_graphics_card_worker` is
+designed to fail against it.
 
-`gpu_install_not_operational` is already proved on hardware (2026-08-20: marker
-forced to `cuda` on a CPU build, `provider=gpu_install_not_operational` logged
-and the warning rendered in Settings), and so is `provider=ok` on the processor.
+#### Three findings this proof produced, none of them fixed
 
-**Traps specific to this item**, beyond everything in `CLAUDE.md`:
+Each was found by running the thing rather than reading it.
 
-- **`Enable-GraniteCuda.ps1` reverts on any reinstall or upgrade**, because the
-  payload copy overwrites the staged worker. Re-run it after every install, and
-  do not read a `device=cpu` after an upgrade as a regression.
-- **`KNOWN_PROOF_ORPHANS` names `granite-worker.cpu.exe`** and
-  `INSTALLED_PROOF_FILES` names only `granite-worker.exe`. Staged CUDA libraries
-  live in `proof/` and an ordinary uninstall **spares** anything it does not
-  recognise there, deliberately — see that comment before adding names.
-- **The card here is an RTX 4070 Laptop GPU** (compute 8.9, driver 596.36). Every
-  GPU timing in `CLAUDE.md` and `ARCHITECTURE.md` is from an RTX 5090. Do not
-  compare new numbers against them; record which card produced which.
-- **`Architectures` must match the card.** `Enable-GraniteCuda.ps1` reads compute
-  capability from `nvidia-smi` and refuses rather than guessing. 8.9 is `89`.
-- **A CUDA build is ~57 MB against ~4 MB.** `Get-StagedFlavour` reads the
-  `ggml-cuda` marker rather than the size, and `GraniteWorkerProvider.ps1` reads
-  the same marker; keep them agreeing.
-- **The build needs `git config --global core.longpaths true`**, CMake and
-  libclang, and takes minutes. `cargo build -p speakeasy-granite-worker
-  --features cuda --release` is the expensive step.
+1. **The engine-reason sentence contradicts the device beside it.** Settings
+   renders, on this machine, verbatim: `Dictation runs on: Graphics card (GPU) —
+   this computer's graphics card is supported, but the graphics-card model is not
+   installed, so the processor model is being used.` The device is right, the
+   reason code (`cpu_gpu_pack_not_installed`) is right, and the *sentence* is
+   false. `ARCHITECTURE.md` predicted the two facts would disagree on exactly
+   this machine, and nobody had looked at the rendered line.
+2. **`cudart64_13.dll` is required and never loaded.** The CUDA worker's image
+   names `cublas64_13.dll` and `nvcuda.dll` and does **not** name
+   `cudart64_13.dll` at all — ggml links the CUDA runtime statically on Windows.
+   So the catalog's requirement list is a superset, `granite_gpu.rs`'s claim that
+   a CUDA build "links `cudart` and `cuBLAS` dynamically" is false for this
+   build, and a payload missing only cudart is refused despite being able to run.
+3. **`recorded=cuda` with `device=cuda_unverified` reports the actionable
+   fault.** `assess_provider_integrity` returns `GpuInstallNotOperational` there,
+   which asserts "dictation is running on the processor instead" on evidence that
+   proves nothing either way — the one inference `granite_gpu.rs`'s own header
+   says must never be made. Reachable when NVML stops answering on a machine
+   where setup proved `cuda`.
+
+#### Traps found while doing it
+
+- **The machine that can build a CUDA worker is the one machine where a missing
+  library cannot be reproduced.** The CUDA Toolkit puts `bin\x64` on `PATH`, so
+  Windows resolves a library deleted from beside the worker and it starts anyway.
+  Deleting `cublas64_13.dll` produced a *verified* run and a correct demotion to
+  `cpu` rather than a refusal; the refusal needed the toolkit stripped from
+  `PATH` for the invocation.
+- **`.tools/fixtures/beckett.wav` is gone**, and all three `granite_engine`
+  hardware tests read it, so they had been unrunnable for an unknown stretch
+  while reading as merely `#[ignore]`d. They now use the committed
+  `apps/bootstrapper/fixtures/smoke.wav`, whose ground truth was discovered by
+  running the model. Second time this repository has lost a gitignored fixture.
+- **`--nocapture` delivered nothing from `speakeasy-desktop`'s test binary**, and
+  `--show-output` reported its stdout as empty, so both resident-run
+  measurements had been printing into a void while passing. The timing is now
+  written to `target/debug/granite-resident-timing.txt`. Cause not found.
+- **An edit landed in a sibling hardware test with a similar name**, and the test
+  filter selected the other one, so everything passed while producing nothing.
+  Check which test ran, not that one did.
+- **`Enable-GraniteCuda.ps1` still reverts on any reinstall or upgrade.** The
+  payload copy overwrites the staged worker. Re-run it afterwards, and do not
+  read a `device=cpu` after an upgrade as a regression.
+
+#### Where this machine was left
+
+Install at `%LOCALAPPDATA%\SpeakEasy Mini`, version 1.4.2, with the **CUDA
+worker staged** and its three libraries beside it, and `install-provider.txt`
+reading `cpu` — so the app reports `device=cuda installed=cpu
+provider=running_beyond_record`, disclosed as not-a-fault. That is the honest
+resting state for a machine carrying a worker no release publishes.
+
 
 ### 1. Run the app end to end — done 2026-08-18
 See above. It found two blocking defects; both are fixed and the first real
@@ -1215,6 +1227,91 @@ build; all of it misleads a reader.
   distribute something it does not is worse than one that is merely stale — but
   they are worth re-reading whenever the payload changes, because nothing checks
   them against `Build-LocalInstaller.ps1`'s actual output.
+
+### 8. The engine-reason sentence contradicts the device beside it — needs the owner
+Found on hardware 2026-08-21 by reading the running Settings window. On a machine
+with a CUDA worker staged, Settings → Transcription renders, verbatim:
+
+```text
+Dictation runs on: Graphics card (GPU) — this computer's graphics card is
+supported, but the graphics-card model is not installed, so the processor model
+is being used.
+```
+
+The device is correct, the reason code (`cpu_gpu_pack_not_installed`) is correct,
+and **the sentence is false**: the processor model is not being used. The two
+halves are the pack and the device, which `ARCHITECTURE.md` under "Which provider
+runs, and how you find out" already says will disagree on exactly this machine —
+so this is not a surprise, it is a prediction nobody checked the rendering of.
+`granite_warm`'s re-selection step exists to correct the *code* after the worker
+says what it is, and it does; what it cannot fix is that the corrected code's
+prose still asserts a device.
+
+Why it is not fixed here: it is installer-and-app copy, which is owner-reviewable
+by rule, and the fix is a wording decision rather than a mechanical one. The
+narrow version is that `engineReasons.cpu_gpu_pack_not_installed` should describe
+the *pack* without asserting what is running — it is the only one of the three
+reason strings that names a device. The wider version is that a reason clause
+appended to a device line with an em-dash reads as one sentence about one fact,
+and any reason that can disagree with the device does not belong there.
+
+**Do not fix this by dropping the reason.** It is the load-bearing half on the
+ordinary machine: "running on the processor" reads identically whether there is
+no graphics card or a good one whose pack was never installed, and that
+distinction is why the field exists.
+
+### 9. `cudart64_13.dll` is required and never loaded
+Measured 2026-08-21 against the CUDA worker this workspace builds. The image
+names `cublas64_13.dll` and `nvcuda.dll`; it does **not** contain the string
+`cudart64_13.dll` at all, because ggml links the CUDA runtime statically on
+Windows. `nvcuda.dll` comes from the driver and is not redistributable.
+
+Three things follow, none of them dangerous and all of them wrong:
+
+- The catalog's requirement list is a **superset** of what the worker loads, so
+  `inspect_gpu_payload` refuses a payload missing only cudart even though it
+  would run. That is a refusal on a false premise, which is the same class of
+  defect as a claim on a false premise.
+- `granite_gpu.rs`'s module header says a CUDA build of llama.cpp "links `cudart`
+  and `cuBLAS` dynamically". Not this build.
+- `Enable-GraniteCuda.ps1` stages ~493 MB, of which 551 KB is unnecessary. Not
+  the point, but worth knowing before someone optimises the wrong file.
+
+The right answer is probably not to drop cudart: it is pinned, it is cheap, and a
+build flag change (`CMAKE_CUDA_RUNTIME_LIBRARY`) would make it load-bearing
+again with nothing anywhere noticing. What is wrong is the *claim*, and possibly
+the refusal. Whoever fixes it should decide deliberately and write down which,
+because "presence implies provenance" is the argument that kept the list pinned
+rather than pattern-matched in the first place.
+
+**Check `cublasLt64_13.dll` too while you are there.** It is not named in the
+image either; the standing explanation is that cuBLAS loads it at run time, and
+that is plausible and unverified. Removing it and watching the worker fail is a
+five-minute experiment nobody has run.
+
+### 10. An unprovable context reports the actionable fault
+`assess_provider_integrity("cuda", worker)` returns `GpuInstallNotOperational`
+whenever the worker is not *provably* on the card — including
+`CudaContextProof::ProbeUnavailable`, where NVML could not be asked. The copy for
+that state says dictation "is running on the processor instead", which is a claim
+the evidence does not support: the worker is probably on the card, and the only
+thing that happened is that a driver query failed.
+
+This is the exact inference `granite_gpu.rs`'s own header forbids — "recording a
+*fault* on it would blame a working install for a driver query" — made one layer
+up, where nothing was looking. `device=` gets this right and reports
+`cuda_unverified`; the integrity comparison collapses it.
+
+Reachable when NVML stops answering on a machine where setup proved `cuda`: a
+driver update mid-session, or NVML being unavailable to the app's own token. Not
+reachable on any release today, because no release can record `cuda`.
+
+The honest answer is a fifth `ProviderIntegrity` state meaning "recorded as the
+graphics card, and this run could not be checked", which is neither `ok` nor a
+fault. That needs copy, so it needs the owner. Do not fold it into `Matches`
+either: that would claim agreement nothing verified, which is the same mistake
+pointing the other way.
+
 
 ## Decisions already made — do not re-open without new evidence
 

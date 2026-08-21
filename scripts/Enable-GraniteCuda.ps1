@@ -23,6 +23,21 @@ Re-run this afterwards. `-Verify` reports which one is currently staged. That
 failure mode is the single best argument for finishing the download path, at
 which point this script should be retired rather than maintained.
 
+# It decides nothing about providers
+
+Staging a worker changes the answer to a question only setup had ever asked, so
+both `-Revert` and an ordinary run finish by calling the installed
+bootstrapper's `--verify-provider`, which re-runs the three-gate proof and
+rewrites `install-provider.txt` from its verdict. This script does not read NVML,
+does not classify anything and does not write that file: exactly one writer is
+what keeps a provider claim from being assembled out of an intention again.
+
+Skipping that step is not neutral in either direction. A staged CUDA worker with
+the marker left at `cpu` reports `running_beyond_record` -- disclosed, not a
+fault -- and a `-Revert` with the marker left at `cuda` reports
+`gpu_install_not_operational`, which *is* the fault, manufactured by the script
+meant to undo the change.
+
 Bundling the CUDA *redistributables* into the installer was considered and
 rejected on real evidence: cuBLAS alone is ~492 MB, and the CUDA execution
 provider's redistributables at ~2.3 GB already overflow `makensis` (see
@@ -75,8 +90,8 @@ Stage a worker that is already built, without asking cargo.
 Report which worker is staged and exit. Changes nothing.
 
 .PARAMETER Revert
-Restore the CPU worker saved on the first run, and remove the staged CUDA
-DLLs.
+Restore the CPU worker saved on the first run, remove the staged CUDA DLLs, and
+re-prove the provider so the marker follows the worker back.
 
 .EXAMPLE
 .\scripts\Enable-GraniteCuda.ps1
@@ -105,9 +120,19 @@ $staged = Join-Path $proof 'granite-worker.exe'
 # second build or a reinstall to undo this.
 $cpuBackup = Join-Path $proof 'granite-worker.cpu.exe'
 
-# cuBLAS loads cuBLASLt itself at run time, so all three have to be present
-# even though only cuBLAS appears in the worker's import table.
-$cudaDlls = @('cudart64_13.dll', 'cublas64_13.dll', 'cublasLt64_13.dll')
+# The libraries the worker needs beside it, read out of the trusted manifest's
+# pinned `proof_files` rather than written down here. That is not tidiness: this
+# list said `cudart64_13.dll` while the catalog pinned `cudart64_12.dll` for
+# months, harmlessly, until `speakeasy_models::required_cuda_runtime_files` began
+# reading the catalog as the enforced requirement -- at which point this script
+# staged three correct libraries and the app refused them all by the wrong names.
+# One list cannot disagree with itself.
+#
+# cuBLAS loads cuBLASLt itself at run time, so all three have to be present even
+# though only cuBLAS appears in the worker's import table; the catalog pins all
+# three for that reason.
+. (Join-Path $PSScriptRoot 'GraniteWorkerProvider.ps1')
+$cudaDlls = Get-RequiredCudaRuntimeFile -RepositoryRoot $repositoryRoot
 
 if (-not (Test-Path -LiteralPath $proof -PathType Container)) {
     throw "No installed SpeakEasy at $InstallRoot. Install one first -- see docs/LOCAL-DEVELOPMENT.md."
@@ -121,6 +146,47 @@ function Get-StagedFlavour {
     $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($staged))
     if ($text.Contains('ggml-cuda')) { return 'cuda' }
     return 'cpu'
+}
+
+function Invoke-ProviderVerification {
+    <#
+    .SYNOPSIS
+        Have the installed bootstrapper re-prove which provider this build runs
+        on, and re-record it.
+
+    .DESCRIPTION
+        This script does not read NVML, does not decide anything about providers
+        and does not write `install-provider.txt`. It calls the one thing that
+        does. `--verify-provider` runs the same `smoke::verify_engine` and
+        `seed::record_installed_provider` pair the wizard's last page runs, so
+        the marker still has exactly one writer -- which is what makes the
+        2026-08-20 defect (a provider claim assembled from something other than a
+        run) unrepeatable rather than merely fixed.
+
+        Without this, staging a CUDA worker left the marker saying `cpu` and the
+        app reporting `running_beyond_record` forever; reverting left it saying
+        `cuda` over a CPU worker, which is the actionable fault
+        `gpu_install_not_operational` -- manufactured by the very script meant to
+        undo the change.
+    #>
+    param([Parameter(Mandatory)][string]$Root)
+
+    $bootstrapper = Join-Path $Root 'speakeasy-bootstrapper.exe'
+    if (-not (Test-Path -LiteralPath $bootstrapper -PathType Leaf)) {
+        throw ("No bootstrapper at $bootstrapper, so the installed provider cannot be " +
+            're-proved. The marker now describes the previous worker.')
+    }
+    Write-Host 'Re-proving the installed provider through the bootstrapper.'
+    # The call operator, not `Start-Process -ArgumentList`: that joins an array
+    # with spaces and quotes nothing, and this repository's own path has a space
+    # in it. `$InstallRoot` arriving as two arguments is refused by
+    # `Mode::classify` rather than half-used, but a refusal is still a failure
+    # nobody asked for.
+    & $bootstrapper --verify-provider --install-root $Root
+    if ($LASTEXITCODE -ne 0) {
+        throw ("The installed provider could not be re-proved (exit $LASTEXITCODE). " +
+            'The message above says why; `install-provider.txt` was left alone.')
+    }
 }
 
 if ($Verify) {
@@ -151,6 +217,7 @@ if ($Revert) {
         Remove-Item -LiteralPath (Join-Path $proof $dll) -Force -ErrorAction SilentlyContinue
     }
     Write-Host "Granite reverted to the CPU worker."
+    Invoke-ProviderVerification -Root $InstallRoot
     exit 0
 }
 
@@ -219,6 +286,8 @@ foreach ($dll in $cudaDlls) {
     }
     Copy-Item -LiteralPath $source -Destination (Join-Path $proof $dll) -Force
 }
+
+Invoke-ProviderVerification -Root $InstallRoot
 
 [pscustomobject]@{
     staged_worker = Get-StagedFlavour

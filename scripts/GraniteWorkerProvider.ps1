@@ -5,10 +5,13 @@
     beside it to do so.
 
 .DESCRIPTION
-    Dot-sourced by the two scripts that assemble a payload:
-    `Build-LocalInstaller.ps1` and `Invoke-ProofPackage.ps1`. It exists as one
-    file rather than as a function in each because the two would drift, and the
-    drift lands as a payload that claims a provider it does not carry.
+    Dot-sourced by the two scripts that assemble a payload --
+    `Build-LocalInstaller.ps1` and `Invoke-ProofPackage.ps1` -- and by
+    `Enable-GraniteCuda.ps1`, which stages the same libraries into an installed
+    build. It exists as one file rather than as a function in each because they
+    would drift, and the drift lands as a payload that claims a provider it does
+    not carry, or as a staging script that copies libraries under names nothing
+    is looking for.
 
     **The question it answers is "packaged", not "works".** A worker with its
     libraries beside it can still run on the processor -- a refusing driver, a
@@ -20,9 +23,11 @@
     not degrade: Windows cannot resolve the imports and the worker never starts.
 
     Measured 2026-08-20: the shipped payload is CPU-only, so
-    `Get-GraniteWorkerProvider` returns `cpu` and the requirement list is
-    unused. It is written now because the moment it is needed is the moment a
-    CUDA worker is first packaged, and that is the worst moment to be writing it.
+    `Get-GraniteWorkerProvider` returns `cpu` and the packaging check never
+    fires. It was written before it was needed because the moment it is needed is
+    the moment a CUDA worker is first packaged, and that is the worst moment to be
+    writing it. `Get-RequiredCudaRuntimeFile` stopped being unused on 2026-08-21,
+    when `Enable-GraniteCuda.ps1` began staging from it.
 #>
 
 Set-StrictMode -Version Latest
@@ -66,7 +71,9 @@ function Get-RequiredCudaRuntimeFile {
         is the same place `speakeasy_models::required_cuda_runtime_files` reads
         them and the same digests the downloader verifies. A hand-written list
         here is how this workspace came to name `cudart64_13.dll` in one script
-        and pin `cudart64_12.dll` in the catalog.
+        and pin `cudart64_12.dll` in the catalog -- and that mismatch outlived
+        the comment describing it, because until the list became enforced
+        nothing read either side.
     #>
     param([Parameter(Mandatory)][string]$RepositoryRoot)
 
@@ -75,8 +82,8 @@ function Get-RequiredCudaRuntimeFile {
     # The ids `granite_gpu.rs` names. Kept in step by
     # `the_packager_and_the_models_crate_require_the_same_cuda_libraries`.
     $ids = @(
-        'nvidia-cuda-cudart-windows-x64-12.9.79',
-        'nvidia-libcublas-windows-x64-12.9.2.10'
+        'nvidia-cuda-cudart-windows-x64-13.3.29',
+        'nvidia-libcublas-windows-x64-13.6.0.2'
     )
     $files = foreach ($artifact in $manifest.artifacts) {
         if ($artifact.id -notin $ids) { continue }

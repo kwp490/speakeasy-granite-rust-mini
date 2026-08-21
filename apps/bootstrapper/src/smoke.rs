@@ -243,7 +243,7 @@ pub fn verify_engine(worker_exe: &Path, model_root: &Path) -> Verdict {
 pub fn verify_engine_with(
     worker_exe: &Path,
     model_root: &Path,
-    context_probe: &impl CudaContextProbe,
+    context_probe: &dyn CudaContextProbe,
 ) -> Verdict {
     let samples = match read_fixture_samples(BUNDLED_CLIP) {
         Ok(samples) => samples,
@@ -280,7 +280,16 @@ pub fn verify_engine_with(
 /// `None` means published and complete. A manifest that will not parse reads as
 /// "not published", which is the conservative answer and the same one every
 /// other reader of a broken catalog gives.
-fn gpu_payload_rejection(worker_exe: &Path) -> Option<GpuPayloadRejection> {
+///
+/// Public because [`Verdict`] deliberately drops it. A run that never started
+/// returns [`Verdict::Unavailable`] with a reason and no evidence, and one cause
+/// of not starting is a CUDA worker whose libraries are not beside it — Windows
+/// cannot resolve the imports and names no file. So a caller holding an
+/// `Unavailable` asks this to find out whether that is the explanation. Only
+/// [`GpuPayloadRejection::RuntimeFilesMissing`] ever is: a worker that was never
+/// published or never installed does not stop the *installed* one from running.
+#[must_use]
+pub fn gpu_payload_rejection(worker_exe: &Path) -> Option<GpuPayloadRejection> {
     let manifest = bundled_manifest().ok()?;
     let directory = worker_exe.parent()?;
     let file_name = worker_exe.file_name()?.to_string_lossy().into_owned();
@@ -299,7 +308,7 @@ fn transcribe(
     worker_exe: &Path,
     model_root: &Path,
     samples: &[f32],
-    context_probe: &impl CudaContextProbe,
+    context_probe: &dyn CudaContextProbe,
 ) -> Result<EngineRun, &'static str> {
     let clock = Arc::new(SystemClock::default());
     // Setup runs the engine exactly once, so the throttle's restart-loop job is
@@ -658,7 +667,7 @@ mod tests {
         // A CUDA worker with no CUDA libraries beside it.
         let missing_dlls = ProviderEvidence {
             payload: Some(GpuPayloadRejection::RuntimeFilesMissing(vec![
-                "cublas64_12.dll".to_owned(),
+                "cublas64_13.dll".to_owned(),
             ])),
             handshake_cuda: Some(true),
             context: Some(CudaContextProof::Holding),

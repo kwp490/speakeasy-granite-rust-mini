@@ -70,6 +70,9 @@ fn main() -> ExitCode {
             place(install_root.as_deref(), console::ensure_attached())
         }
         Mode::Uninstall { silent, remove_all } => remove(silent, remove_all),
+        Mode::VerifyProvider { install_root } => {
+            verify_provider(install_root.as_deref(), console::ensure_attached())
+        }
         Mode::Misuse { detail } => {
             repair::report(
                 &catalog::arguments_not_understood(&detail),
@@ -106,6 +109,23 @@ enum Mode<'a> {
     /// What the Add/Remove Programs entry invokes. Keeps every optional item by
     /// default, matching what NSIS's `/SD IDYES` did in its silent path.
     Uninstall { silent: bool, remove_all: bool },
+    /// Re-run the engine check against an installed build and re-record what it
+    /// proved.
+    ///
+    /// Exists so that `install-provider.txt` keeps having exactly one writer.
+    /// `scripts/Enable-GraniteCuda.ps1` stages a CUDA worker over an installed
+    /// processor build, which changes the answer to a question only setup had
+    /// ever asked — and the alternative was a PowerShell script that read NVML
+    /// and wrote the marker itself. That would be a second implementation of the
+    /// three-gate proof, free to drift from this one, and the defect this whole
+    /// surface exists to prevent was a *second* source of truth for the same
+    /// claim. So the script calls this, and this calls `smoke::verify_engine`
+    /// and `seed::record_installed_provider` — the same two functions the
+    /// wizard's last page calls, in the same order.
+    ///
+    /// It is also the cheap remedy for `gpu_install_not_operational`: re-proving
+    /// the engine no longer costs a reinstall.
+    VerifyProvider { install_root: Option<OsString> },
     /// A recognised verb whose remaining arguments were not understood.
     ///
     /// Distinct from [`Mode::Repair`], which is where an *unrecognised* verb
@@ -184,6 +204,18 @@ impl<'a> Mode<'a> {
                     remove_all: rest.iter().any(|argument| argument == REMOVE_ALL),
                 }
             }
+            // Deliberately the same shape as `--install`, including the
+            // refusal: a verb that takes a path must refuse an argument list it
+            // cannot consume whole, because a caller who lost a space to
+            // `Start-Process -ArgumentList` and a caller who meant two
+            // arguments are indistinguishable from here.
+            [first, rest @ ..] if first == "--verify-provider" => match rest {
+                [] => Self::VerifyProvider { install_root: None },
+                [flag, root] if flag == "--install-root" => Self::VerifyProvider {
+                    install_root: Some(root.clone()),
+                },
+                unexpected => Self::misuse("--verify-provider", unexpected),
+            },
             _ => Self::Repair(arguments),
         }
     }
@@ -311,6 +343,114 @@ fn place(install_root: Option<&std::ffi::OsStr>, destination: console::Destinati
                 destination,
                 repair::Severity::Failure,
             );
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Re-prove which provider an installed build runs on, and record it.
+///
+/// The three gates are not re-implemented here. This resolves two paths, calls
+/// [`smoke::verify_engine`], and turns its verdict into a
+/// [`seed::record_installed_provider`] call — which is what makes
+/// `install-provider.txt` still have exactly one writer with two callers, rather
+/// than two writers. See [`Mode::VerifyProvider`].
+///
+/// # Nothing is written unless something was proved
+///
+/// Only `Verified` records. A mismatch means the engine ran and produced the
+/// wrong words, and an unavailable verdict means it did not run at all; writing
+/// `cpu` for either would be the same manufactured claim as writing `cuda` from
+/// a radio button, one step milder. An absent or stale file reads as
+/// `unrecorded` or is compared and reported, and both of those are honest.
+///
+/// # Why it refuses while the app is running
+///
+/// Not for file locks — it opens nothing the app holds. For the *answer*: the
+/// proof is NVML listing this worker's own pid as holding a compute context, and
+/// a resident worker belonging to the running app is a second process on the
+/// same card. That does not make this check wrong, but a card with only enough
+/// free memory for one of them makes it wrong in the direction that matters,
+/// recording `cpu` for an installation that is fine. `Enable-GraniteCuda.ps1`
+/// already refuses for its own reason, so this is the second of two.
+fn verify_provider(
+    install_root: Option<&std::ffi::OsStr>,
+    destination: console::Destination,
+) -> ExitCode {
+    if install::app_is_running() {
+        repair::report(
+            catalog::UNINSTALL_REFUSED_RUNNING,
+            destination,
+            repair::Severity::Failure,
+        );
+        return ExitCode::FAILURE;
+    }
+    let Some(root) = install_root
+        .map(std::path::PathBuf::from)
+        .or_else(probe::install_root)
+    else {
+        repair::report(
+            catalog::INSTALL_ROOT_UNLOCATABLE,
+            destination,
+            repair::Severity::Failure,
+        );
+        return ExitCode::FAILURE;
+    };
+    let Some(model_root) = download::installed_model_root() else {
+        repair::report(
+            catalog::DATA_ROOT_UNLOCATABLE,
+            destination,
+            repair::Severity::Failure,
+        );
+        return ExitCode::FAILURE;
+    };
+    let worker = smoke::staged_worker(&root);
+    match smoke::verify_engine(&worker, &model_root) {
+        smoke::Verdict::Verified { provider, evidence } => {
+            let recorded = seed::record_installed_provider(match provider {
+                smoke::ProvenProvider::GraphicsCard => seed::Provider::GraphicsCard,
+                smoke::ProvenProvider::Processor => seed::Provider::Processor,
+            });
+            if !recorded {
+                repair::report(
+                    catalog::PROVIDER_NOT_RECORDED,
+                    destination,
+                    repair::Severity::Failure,
+                );
+                return ExitCode::FAILURE;
+            }
+            repair::report(
+                &catalog::provider_recorded(
+                    match provider {
+                        smoke::ProvenProvider::GraphicsCard => "cuda",
+                        smoke::ProvenProvider::Processor => "cpu",
+                    },
+                    evidence.code(),
+                ),
+                destination,
+                repair::Severity::Information,
+            );
+            ExitCode::SUCCESS
+        }
+        smoke::Verdict::Mismatch { .. } => {
+            repair::report(
+                catalog::PROVIDER_VERIFY_MISMATCH,
+                destination,
+                repair::Severity::Failure,
+            );
+            ExitCode::FAILURE
+        }
+        smoke::Verdict::Unavailable { .. } => {
+            // A worker that will not start, and one specific cause that can be
+            // named. Anything else gets the general advice, because guessing at
+            // a cause is how a user is sent to fix the wrong thing.
+            let message = match smoke::gpu_payload_rejection(&worker) {
+                Some(speakeasy_models::GpuPayloadRejection::RuntimeFilesMissing(files)) => {
+                    catalog::provider_verify_runtime_missing(&files)
+                }
+                _ => catalog::PROVIDER_VERIFY_UNAVAILABLE.to_owned(),
+            };
+            repair::report(&message, destination, repair::Severity::Failure);
             ExitCode::FAILURE
         }
     }
@@ -497,6 +637,40 @@ mod tests {
         ));
         assert!(matches!(
             classify(&["--uninstall", "--remove-everything"]),
+            Mode::Misuse { .. }
+        ));
+    }
+
+    #[test]
+    fn verify_provider_takes_an_install_root_or_none_and_refuses_a_split_one() {
+        // The same three cases `--install` has, for the same reason: this verb
+        // also takes a path, and `Start-Process -ArgumentList` quotes nothing
+        // while this repository's own path has a space in it. A verb that took
+        // the first fragment would re-prove the provider of a directory nobody
+        // named -- or, finding no worker there, record nothing and report a
+        // broken install.
+        assert!(matches!(
+            classify(&["--verify-provider"]),
+            Mode::VerifyProvider { install_root: None }
+        ));
+        let Mode::VerifyProvider {
+            install_root: Some(root),
+        } = classify(&[
+            "--verify-provider",
+            "--install-root",
+            r"C:\Program Files\App",
+        ])
+        else {
+            panic!("a single well-formed root must be accepted");
+        };
+        assert_eq!(root, OsString::from(r"C:\Program Files\App"));
+        assert!(matches!(
+            classify(&[
+                "--verify-provider",
+                "--install-root",
+                r"C:\Coding",
+                r"Projects\app"
+            ]),
             Mode::Misuse { .. }
         ));
     }

@@ -5,48 +5,48 @@
   "install_eligible": true,
   "artifacts": [
     {
-      "id": "nvidia-cuda-cudart-windows-x64-12.9.79",
+      "id": "nvidia-cuda-cudart-windows-x64-13.3.29",
       "kind": "native-runtime",
-      "version": "12.9.79",
-      "url": "https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/windows-x86_64/cuda_cudart-windows-x86_64-12.9.79-archive.zip",
-      "archive_bytes": 3521238,
-      "archive_sha256": "179e9c43b0735ffe67207b3da556eb5a0c50f3047961882b7657d3b822d34ef8",
-      "archive_prefix": "cuda_cudart-windows-x86_64-12.9.79-archive",
-      "extracted_bytes": 11336190,
+      "version": "13.3.29",
+      "url": "https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/windows-x86_64/cuda_cudart-windows-x86_64-13.3.29-archive.zip",
+      "archive_bytes": 2589792,
+      "archive_sha256": "1feb7dd266813ffe8dbc24e115183a5ac35a4795c8d34aca0df85ab616b64d9c",
+      "archive_prefix": "cuda_cudart-windows-x86_64-13.3.29-archive",
+      "extracted_bytes": 9570537,
       "licenses": [
         "NVIDIA CUDA Toolkit EULA"
       ],
       "proof_files": [
         {
-          "path": "bin/cudart64_12.dll",
-          "bytes": 583680,
-          "sha256": "760c38928bbe5759f7b31ed6692599eb7ec83cedd5702e84c2b72028a89837e1"
+          "path": "bin/x64/cudart64_13.dll",
+          "bytes": 551024,
+          "sha256": "b00ca6f53699120da815bf3e06e2e4285fae2f201235b883dcbb50eec51e2a2a"
         }
       ],
       "proof_status": "hash-verified-against-nvidia-redistrib-manifest-and-loaded-by-cuda-provider"
     },
     {
-      "id": "nvidia-libcublas-windows-x64-12.9.2.10",
+      "id": "nvidia-libcublas-windows-x64-13.6.0.2",
       "kind": "native-runtime",
-      "version": "12.9.2",
-      "url": "https://developer.download.nvidia.com/compute/cuda/redist/libcublas/windows-x86_64/libcublas-windows-x86_64-12.9.2.10-archive.zip",
-      "archive_bytes": 549731131,
-      "archive_sha256": "62782c354e1536118caab8fe5fd295ac5fd9076e4814aba0bdaf032fe2b833ae",
-      "archive_prefix": "libcublas-windows-x86_64-12.9.2.10-archive",
-      "extracted_bytes": 774597264,
+      "version": "13.6.0.2",
+      "url": "https://developer.download.nvidia.com/compute/cuda/redist/libcublas/windows-x86_64/libcublas-windows-x86_64-13.6.0.2-archive.zip",
+      "archive_bytes": 393706755,
+      "archive_sha256": "62e9fa30560c8f0a28e0cdcf9d6fc1fed347bcfab8847239b9ae1fdc1d86408a",
+      "archive_prefix": "libcublas-windows-x86_64-13.6.0.2-archive",
+      "extracted_bytes": 518722310,
       "licenses": [
         "NVIDIA CUDA Toolkit EULA"
       ],
       "proof_files": [
         {
-          "path": "bin/cublas64_12.dll",
-          "bytes": 102518272,
-          "sha256": "52ce5ba0ec5327d39be6021f0f9362d2ed4d64d7206f9b5afc06398d827b8e82"
+          "path": "bin/x64/cublas64_13.dll",
+          "bytes": 52697712,
+          "sha256": "8c6bac24474af29627ec96500025a5d410a1b7e8ffa00e1fe13b1781fc6b3ddc"
         },
         {
-          "path": "bin/cublasLt64_12.dll",
-          "bytes": 668673536,
-          "sha256": "71705a7cf0923f4ab034d0d2620bbfc989ff669ac3d79f868b7a7c597ca559c5"
+          "path": "bin/x64/cublasLt64_13.dll",
+          "bytes": 463655536,
+          "sha256": "e323abd89e0f03c1db91a09d7aeb1928de08e1f86192cc713b335fefe3e368a9"
         }
       ],
       "proof_status": "hash-verified-against-nvidia-redistrib-manifest-and-loaded-by-cuda-provider"
@@ -227,8 +227,8 @@
     "Granite's Hugging Face downloads redirect through a Xet-CDN host (observed 2026-08-03: `us.aws.cdn.hf.co`, identical across the GGUF files and stable for a given repository commit). This is exactly the kind of CDN hostname that has changed before, here and elsewhere; do not hardcode it into an exact-match redirect allowlist (`crates/speakeasy-models/src/download.rs`'s `validate_url`) without expecting to revisit it.",
     "Granite's per-file digests and lengths were cross-checked against Hugging Face's own `X-Linked-Size`/`X-Linked-ETag` response headers and the repository file-tree API's LFS `oid`, not only against local staged copies. The GGUF conversion tooling and its exact version are not disclosed by IBM; provenance here is the published bytes' digests, not a reproducible build.",
     "Q4_K_M is the shipped quantization, chosen on measurement rather than by decision: ~21% faster than Q8_0 on a 120 s utterance (RTF 0.277 versus 0.352) with an identical transcript but for one punctuation choice. Q8_0 stays in this catalog as the recorded alternative, not as a second thing to keep working.",
-    "The two CUDA redistributables are cudart and cuBLAS only, and they are here for llama.cpp's CUDA build of the Granite worker. The cuFFT and cuDNN entries this catalog used to carry belonged to ONNX Runtime and left with it; cuDNN's digest was the weakest provenance link in this file and is now simply absent.",
-    "They are served from NVIDIA's own hosts rather than rehosted, so their availability is NVIDIA's to decide. Both digests were cross-checked against NVIDIA's redistrib_12.9.2.json. NVIDIA's CUDA EULA permits redistribution of these runtime libraries with an application, but that has not been through this project's attribution review, so both remain marked review-required.",
+    "The two CUDA redistributables are cudart and cuBLAS only, and they are here for llama.cpp's CUDA build of the Granite worker. The cuFFT and cuDNN entries this catalog used to carry belonged to ONNX Runtime and left with it; cuDNN's digest was the weakest provenance link in this file and is now simply absent. Both moved from CUDA 12.9 to 13.x on 2026-08-21, because the requirement became enforced and the mismatch then mattered: `speakeasy_models::required_cuda_runtime_files` reads these `proof_files` back as the list a payload must satisfy, so pinning `cudart64_12.dll` while every machine that can build a CUDA worker ships `cudart64_13.dll` refused a complete payload naming three libraries sitting beside it. Note that CUDA 13 moved the DLLs from `bin/` to `bin/x64/`, which is why these paths are not the 12.9 paths with a digit changed.",
+    "They are served from NVIDIA's own hosts rather than rehosted, so their availability is NVIDIA's to decide. Every length and digest here is produced by `scripts/Get-CudaRuntime.ps1`, which cross-checks each archive against NVIDIA's own redistrib_13.3.1.json and then takes the per-file digests from the verified archive's members -- NVIDIA publishes none. The version pinned is the one whose bytes match this workspace's CUDA Toolkit exactly, proved by digest rather than by comparing version strings, because `scripts/Enable-GraniteCuda.ps1` stages the libraries from the toolkit and not from these archives. NVIDIA's CUDA EULA permits redistribution of these runtime libraries with an application, but that has not been through this project's attribution review, so both remain marked review-required.",
     "There is no GPU Granite configuration in this catalog, and that is the one real gap. Granite runs on the GPU by *build* -- `speakeasy-granite`'s `cuda` feature -- not by download, so a GPU `final-asr` **pack** would say nothing: there is one GGUF and a CUDA worker offloads that same file. What is missing is the worker binary. The declaration is therefore made by absence, and the absence is specific: a published CUDA worker appears here as a `native-runtime` artifact with id `granite-worker-cuda-windows-x64`, alongside the cudart and cuBLAS entries whose `proof_files` are the libraries it loads. `speakeasy_models::inspect_gpu_payload` is the single reader of that fact, and until the artifact exists every layer above it -- the wizard's provider option, the packager, and the installed-configuration marker -- answers 'processor'. Asking this catalog for a CUDA pack instead is what let an installation with no CUDA worker in it record `installed=cuda` (fixed 2026-08-20)."
   ]
 }

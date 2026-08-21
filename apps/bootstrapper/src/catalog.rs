@@ -373,6 +373,47 @@ pub fn seeds_not_recorded(failed: &[&str]) -> String {
 pub const PROVIDER_NOT_RECORDED: &str = "Dictation works, but setup could not record which configuration it installed. \
      SpeakEasy Mini will report its provider as unrecorded; nothing else is affected.";
 
+/// The `--verify-provider` verb re-proved the installation, and recorded it.
+///
+/// A short key-value line rather than a sentence, because the only readers are a
+/// script and whoever is reading its transcript afterwards. `device` is the
+/// provider that was proved and written to `install-provider.txt`; `evidence` is
+/// the stable code naming which of the three gates decided it, and it is present
+/// on a graphics-card result too -- `cuda_context_held` is as much a fact worth
+/// recording as the reason a processor result stayed one.
+pub fn provider_recorded(device: &str, evidence: &str) -> String {
+    format!("provider_recorded device={device} evidence={evidence}")
+}
+
+/// The verb ran the engine and it did not hear the clip.
+///
+/// Separate from [`SMOKE_MISMATCH`] because the audience is. That one is a
+/// wizard page with a Retry button beside it; this is a script's stderr, and
+/// telling a script to press Retry tells nobody anything.
+///
+/// Nothing is recorded. The engine demonstrably did not work, and a provider
+/// written from a run that produced the wrong words would be a claim about a
+/// configuration that just failed.
+pub const PROVIDER_VERIFY_MISMATCH: &str = "The engine ran and did not transcribe the recording, so no configuration was recorded. The installed files are suspect: remove SpeakEasy Mini and run setup again.";
+
+/// The verb could not run the engine at all.
+pub const PROVIDER_VERIFY_UNAVAILABLE: &str = "The engine did not run, so there is nothing to record. Check that SpeakEasy Mini is not running and that its models are installed, then try again.";
+
+/// The engine could not start and the graphics-card libraries are missing.
+///
+/// The one case where the reason a run failed is knowable and specific, so it is
+/// said instead of the general advice above. A CUDA worker with a library
+/// missing does not run slower -- Windows cannot resolve its imports, refuses to
+/// start the process, and names no file in the error. Naming them *is* the
+/// instruction, which is why `GpuPayloadRejection::RuntimeFilesMissing` carries
+/// them this far.
+pub fn provider_verify_runtime_missing(files: &[String]) -> String {
+    format!(
+        "The graphics-card engine cannot start: {} is not beside the worker. Restore it, or re-run scripts/Enable-GraniteCuda.ps1, then try again.",
+        files.join(", ")
+    )
+}
+
 /// Setup finished and there is no app where it recorded one.
 pub const APP_NOT_FOUND: &str = "SpeakEasy Mini was not started: its program file is not where setup recorded it. \
      Nothing else on this computer is wrong. Run setup again.";

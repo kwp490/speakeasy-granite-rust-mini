@@ -69,9 +69,16 @@ pub const GRANITE_CUDA_WORKER_ARTIFACT_ID: &str = "granite-worker-cuda-windows-x
 /// `proof_files` and exist in exactly one place. A second hand-written list of
 /// DLL names is how `cudart64_12` and `cudart64_13` came to both be referenced
 /// in this workspace for the same requirement.
+///
+/// CUDA 13 since 2026-08-21. The 12.9 pin was inert for as long as nothing read
+/// it, and became a refusal the day this function did: a worker built against
+/// the only toolkit a developer here has loads `cudart64_13.dll`, so the payload
+/// was rejected as `RuntimeFilesMissing` naming three libraries that were
+/// present under their real names. `scripts/Get-CudaRuntime.ps1` produces the
+/// entries these ids point at.
 const CUDA_RUNTIME_ARTIFACT_IDS: &[&str] = &[
-    "nvidia-cuda-cudart-windows-x64-12.9.79",
-    "nvidia-libcublas-windows-x64-12.9.2.10",
+    "nvidia-cuda-cudart-windows-x64-13.3.29",
+    "nvidia-libcublas-windows-x64-13.6.0.2",
 ];
 
 /// Why this installation cannot run Granite on the graphics card.
@@ -92,7 +99,7 @@ pub enum GpuPayloadRejection {
     /// The worker is here and at least one pinned runtime library is not.
     ///
     /// Carries the file names because they are the instruction. A CUDA build
-    /// with `cublas64_12.dll` missing does not run slower — it does not start,
+    /// with `cublas64_13.dll` missing does not run slower — it does not start,
     /// and Windows' error for that names no file the user can act on.
     RuntimeFilesMissing(Vec<String>),
 }
@@ -113,8 +120,10 @@ impl GpuPayloadRejection {
 /// The file name of every runtime library a CUDA Granite worker needs beside it.
 ///
 /// Read out of the manifest's pinned `proof_files`, and reduced to base names:
-/// NVIDIA wraps each redistributable in `bin/`, and what has to sit next to the
-/// worker is the DLL itself. Sorted and de-duplicated so two artifacts naming
+/// NVIDIA buries each library in a directory of its own — `bin/` in CUDA 12.9,
+/// `bin/x64/` in 13.x — and what has to sit next to the worker is the DLL
+/// itself. Reducing rather than stripping a known prefix is why the 13.x move
+/// cost this function nothing. Sorted and de-duplicated so two artifacts naming
 /// the same library produce one requirement.
 ///
 /// Empty when the manifest carries neither redistributable, which is itself a
@@ -189,7 +198,21 @@ pub fn inspect_gpu_payload(
 /// a complete CUDA payload that runs on the CPU anyway — cannot be produced on
 /// demand by any machine this is developed on, and a test that can only assert
 /// what the developer's own card happens to do is not a test of the logic.
-pub trait CudaContextProbe {
+///
+/// Used through `&dyn` rather than a generic parameter, and that is what lets it
+/// be *threaded* rather than merely injected one call deep: the app's warm path
+/// carries it as a field of `GraniteEnvironment`, beside the recorded provider it
+/// gets compared against. A generic there would infect the environment struct,
+/// both entry points that take one, and every test that builds one, so the probe
+/// would have stayed hardcoded at the bottom — which is where it was, and which
+/// is why the app's own `cuda_unverified` had never been produced.
+///
+/// `Send + Sync` because the environment holding it crosses an `await` inside a
+/// Tauri command, and Tauri requires that future to be `Send`. Stated as a
+/// supertrait rather than written into every reference to the trait object: an
+/// implementation that could not be shared across threads has no use here, since
+/// the only question it answers is a driver query about a process id.
+pub trait CudaContextProbe: Send + Sync {
     /// Every pid NVML reports as running compute work on any device.
     ///
     /// # Errors
@@ -241,7 +264,7 @@ impl CudaContextProof {
 /// process. This is the "proven operational" half — a CUDA-built worker that
 /// could not initialize CUDA looks exactly like a CPU one from the outside, and
 /// llama.cpp reports the fallback in its own stderr rather than as an error.
-pub fn prove_cuda_context(probe: &impl CudaContextProbe, process_id: u32) -> CudaContextProof {
+pub fn prove_cuda_context(probe: &dyn CudaContextProbe, process_id: u32) -> CudaContextProof {
     match probe.compute_process_ids() {
         Ok(pids) if pids.contains(&process_id) => CudaContextProof::Holding,
         Ok(_) => CudaContextProof::NotHolding,
@@ -326,15 +349,25 @@ mod tests {
         // Base names, from `proof_files`, so this cannot drift from what the
         // downloader verifies. The workspace previously named `cudart64_13.dll`
         // in one place and pinned `cudart64_12.dll` in another.
+        //
+        // Named by hand here on purpose, and it is the only place they are. This
+        // is what makes the catalog's CUDA major an explicit decision rather
+        // than whatever the last person to touch the manifest happened to pin:
+        // reading the names out of the manifest to assert against the manifest
+        // would pass on an empty list.
         let manifest = bundled_manifest().expect("the bundled manifest must parse");
         let required = required_cuda_runtime_files(&manifest);
         assert!(
-            required.contains(&"cudart64_12.dll".to_owned()),
+            required.contains(&"cudart64_13.dll".to_owned()),
             "cudart is pinned in the catalog and must be required: {required:?}"
         );
         assert!(
-            required.contains(&"cublas64_12.dll".to_owned()),
+            required.contains(&"cublas64_13.dll".to_owned()),
             "cuBLAS is pinned in the catalog and must be required: {required:?}"
+        );
+        assert!(
+            required.contains(&"cublasLt64_13.dll".to_owned()),
+            "cuBLASLt is loaded by cuBLAS at run time and must be required too: {required:?}"
         );
         assert!(
             required.iter().all(|name| !name.contains('/')),

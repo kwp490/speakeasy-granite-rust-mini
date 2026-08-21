@@ -129,6 +129,23 @@ reading, and the requirement is to never *hide* the provider, not to narrate it.
 Whether an outcome is a fault is decided in Rust and sent as a boolean, so the
 page cannot classify it differently from the enum that defines it.
 
+**All four device values have now been produced on hardware** (2026-08-21, RTX
+4070 Laptop GPU): `cuda` against a real driver, `cuda_unverified` against a
+staged probe that refuses to answer, and `cpu` both from a processor build and
+from a CUDA build NVML says is not on a device. Two of them are staged
+deliberately, and that is the point — a working card will always answer and will
+always take the worker, so "the driver would not answer" and "the driver said no"
+are exactly the cases a real machine cannot be asked to produce.
+
+**The `gpu_install_not_operational` copy names the cheap remedy, not the
+expensive one.** It said "reinstall SpeakEasy Mini" until 2026-08-21, because a
+reinstall was the only thing that re-ran the three-gate proof; the bootstrapper's
+`--verify-provider` verb now runs the identical check against an installed build
+in seconds. The wording leads with the two things a user can act on without a
+command line — the graphics driver, and something else holding the card — and
+names the verb after them. Copy that recommends the costliest available fix is
+not neutral: it is what most people will do.
+
 Settings never starts, stops or cancels a dictation. There is one dictation
 controller — the dock and the global shortcut, which share a single
 implementation — and no second path that could deliver differently.

@@ -671,6 +671,10 @@ async fn run_retained_transcription(
                 // so the comparison has to be available here too, or a machine
                 // whose startup warm failed would never notice the mismatch.
                 recorded_provider: installed_configuration(&profile.root),
+                // As at the launch warm, and it has to be the same answer: a
+                // dictation's own warm can be the first of a process, so this is
+                // a second composition-root site rather than a second decision.
+                cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
             },
             &app.state::<GraniteEngineCoordinator>(),
             audio.clone(),
