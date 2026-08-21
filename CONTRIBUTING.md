@@ -23,7 +23,10 @@ enforces that policy; see [docs/LOCAL-DEVELOPMENT.md](docs/LOCAL-DEVELOPMENT.md)
 No native runtime has to be staged before compiling. `Get-GpuRuntime.ps1`
 staged sherpa-onnx and ONNX Runtime and left with them; `speakeasy-granite`
 compiles llama.cpp itself, so a C++ toolchain, CMake and libclang are the only
-native prerequisites. `git config --global core.longpaths true` is also
+native prerequisites. Do not confuse that deleted script with
+`scripts/Get-CudaRuntime.ps1`, which is unrelated: it fetches NVIDIA's CUDA
+redistributables only to produce the digests `models/trusted-manifest.json`
+pins, and nothing in a build or the gate calls it. `git config --global core.longpaths true` is also
 required — llama.cpp's checkout exceeds `MAX_PATH` without it.
 
 ## Required gate

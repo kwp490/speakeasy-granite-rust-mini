@@ -118,10 +118,20 @@ backend is compiled into the worker executable rather than loaded beside it. No
 CUDA-built worker has been published, so every install today runs on the
 processor — including on machines with a card that clears every requirement.
 
-Setup says so rather than hiding it, and the app records which configuration was
-installed so that "running on the processor" can be told from "the graphics-card
-engine failed to load". If you want the GPU build now,
-`scripts\Enable-GraniteCuda.ps1` builds one locally and needs the CUDA Toolkit.
+Setup says so rather than hiding it, and the app records which configuration it
+**proved** it installed — not which one you asked for — so that "running on the
+processor" can be told from "the graphics-card engine failed to load". Settings
+reports the device dictation is actually on, and
+`speakeasy-bootstrapper --verify-provider` re-checks it against an installed
+build without a reinstall.
+
+If you want the GPU build now, `scripts\Enable-GraniteCuda.ps1` builds and stages
+one locally and needs the CUDA Toolkit (13.x — the workspace pins cudart 13.3.29
+and libcublas 13.6.0.2). It was measured on an RTX 4070 Laptop GPU on
+2026-08-21: a resident pass took 361 ms against 2,928 ms on the processor, with a
+byte-identical transcript. Note that it does not survive a reinstall or an
+upgrade — the payload copy puts the processor worker back — so re-run it
+afterwards.
 
 To **build**, additionally:
 

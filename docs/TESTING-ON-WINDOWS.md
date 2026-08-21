@@ -33,7 +33,7 @@ Get-ChildItem "target\local-development\$version"
 Copy these two files to the target machine by any means — USB, network share,
 cloud drive:
 
-- `SpeakEasy Mini_<version>_x64-setup.exe`
+- `SpeakEasyMiniSetup.exe`
 - `SHA256SUMS`
 
 On the target machine, **verify the checksum before running it**, because an
@@ -41,7 +41,7 @@ unsigned installer that arrived over a copy is exactly the case a checksum is
 for:
 
 ```powershell
-Get-FileHash .\SpeakEasy Mini_<version>_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\SpeakEasyMiniSetup.exe -Algorithm SHA256
 Get-Content .\SHA256SUMS | Select-String 'setup.exe'
 ```
 
@@ -52,8 +52,15 @@ expected for a locally built artifact.
 To install unattended to the default per-user location:
 
 ```powershell
-.\SpeakEasy Mini_<version>_x64-setup.exe /S "/D=$env:LOCALAPPDATA\SpeakEasy Mini"
+.\SpeakEasyMiniSetup.exe --install --install-root "$env:LOCALAPPDATA\SpeakEasy Mini"
 ```
+
+Both the file name and the flags changed when NSIS was replaced, and this
+document carried the old ones until 2026-08-21. `/S "/D=..."` is NSIS syntax:
+the current installer does not recognise it, falls through to the repair verb
+parser, prints its usage and exits 1 — measured, not assumed. Use the call
+operator as written above rather than `Start-Process -ArgumentList`, which
+quotes nothing and would hand `SpeakEasy` and `Mini` over as two arguments.
 
 The installer refuses to replace a running app, to reinstall the same version,
 or to downgrade. Quit SpeakEasy Mini from its tray icon before upgrading.
@@ -113,14 +120,27 @@ For the non-hardware workspace checks:
 .\scripts\Invoke-ScaffoldChecks.ps1 -SkipNpmInstall -SkipGranite
 ```
 
-The ignored CUDA execution-provider proof requires a real supported NVIDIA
-machine and the full runtime/model setup; ordinary green unit tests do not
-prove that CUDA executed.
+The hardware-gated proofs are `#[ignore]`d and need a real NVIDIA machine, a
+staged worker and the model files; ordinary green unit tests do not prove that
+CUDA executed. They live in `apps/desktop/src-tauri/src/granite_engine.rs` — the
+CUDA execution-provider proof this paragraph used to name was ONNX Runtime's and
+left with the streaming engine.
+
+```powershell
+cargo test -p speakeasy-desktop --lib a_cuda_worker_reports -- --ignored
+```
+
+That one needs a CUDA-built worker staged at `target\debug\proof\`; it asserts
+the `ggml-cuda` marker first and fails loudly rather than passing vacuously on a
+processor build.
 
 ## What to report
 
-Please record the Windows version, GPU model and driver version, whether the
-GPU or CPU pack was selected, whether model verification completed, whether a
-short dictation produced text, and any error code shown in Settings. Exported
+Please record the Windows version, GPU model and driver version, the **device**
+Settings reports dictation running on (and the provider line beneath it, if one
+appears), whether model verification completed, whether a short dictation
+produced text, and any error code shown in Settings. The device rather than the
+pack: there is one Granite model file and a graphics-card worker offloads that
+same file, so the pack reads `cpu` even on a machine holding the card. Exported
 diagnostics are sanitized and should not contain audio, transcripts, tokens, or
 credentials.

@@ -220,7 +220,9 @@ visible once the first is fixed.
 
 **One: a merge keyed on positional ids fails closed on the whole batch.** Setup's
 words become dictionary entries named `installer-0`, `installer-1`, … *by
-position*, and an ordinary uninstall keeps `personalization.json` on purpose. So a
+position*, and an uninstall run with `--keep-user-data` keeps
+`personalization.json` -- which is what the proof scripts pass. (A production
+uninstall removes it as of 2026-08-21; see item 0b.) So a
 second install merged a shorter list over the old ids, left one behind, and where
 the survivor held a word the new list also held the two were a `ConflictingRule`
 to the dictionary validator — which rejects **every entry in the merge**. The user
@@ -254,7 +256,8 @@ failures with one symptom.
 ### Two instruments were wrong in the same place
 
 `Test-SetupWizard.ps1` waited for `personalization.json` to *exist* and then read
-it. An uninstall keeps that file, so on a reinstall the wait returned instantly
+it. An uninstall run with `--keep-user-data` keeps that file, so on a reinstall
+the wait returned instantly
 with the previous install's words and reported the new ones lost — against an app
 that had applied them correctly a moment later. It polls for the content it is
 asserting now, with a deadline, so it can still fail. And `WM_SETTEXT` does not
@@ -799,7 +802,8 @@ this product writing into the parent's state:
 
 - **`probe::install_root()` defaulted to `%LOCALAPPDATA%\SpeakEasy`.** Setup
   would have written this app's executables over an existing SpeakEasy
-  installation, and `uninstall` removes the install directory whole -- so
+  installation, and `uninstall` removes the install directory whole -- more
+  completely since 2026-08-21 -- so
   uninstalling Mini would have deleted SpeakEasy. `shortcut::start_menu_folder`
   had the same collision.
 - **Add/Remove Programs showed `DisplayName: SpeakEasy`**, so the two products

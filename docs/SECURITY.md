@@ -16,10 +16,14 @@ local, personal use, not public distribution.
 
 ## Installer behavior
 
-- NSIS refuses to install or uninstall while SpeakEasy Mini is running under any
-  local user session.
+- Setup refuses to install or uninstall while SpeakEasy Mini is running under any
+  local user session. (NSIS was named here until 2026-08-21; it was replaced
+  entirely by `apps/bootstrapper` and the refusal is now that program's.)
 - Same-version reinstalls and automatic downgrades are refused; use the
   Repair shortcut for explicit recovery instead.
+- An uninstall removes the program and all of its user data by default, asks
+  once with the whole scope named before doing so, and reports by name anything
+  it could not remove. `--keep-user-data` is a testing flag, not a user option.
 - The repair tool requires explicit artifact selection and confirmation,
   and refuses to restore into a non-empty destination.
 

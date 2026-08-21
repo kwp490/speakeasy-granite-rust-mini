@@ -31,11 +31,29 @@ Build and install the current-user test artifact locally:
 ```powershell
 .\scripts\Build-LocalInstaller.ps1
 $version = & .\scripts\Get-ProductVersion.ps1
-$installer = Join-Path (Get-Location) "target\local-development\$version\SpeakEasyMini_${version}_x64-setup.exe"
+$installer = Join-Path (Get-Location) "target\local-development\$version\SpeakEasyMiniSetup.exe"
 $installRoot = Join-Path $env:LOCALAPPDATA 'SpeakEasy Mini'
-& $installer /S "/D=$installRoot"
+& $installer --install --install-root $installRoot
 ```
+
+Both the artifact name and the flags here were NSIS's until 2026-08-21 —
+`SpeakEasyMini_<version>_x64-setup.exe` with `/S "/D=..."` — and neither had
+existed since the bootstrapper replaced it. The old command does not fail
+visibly: it falls through to the repair verb parser, prints usage and exits 1.
+
+Use the call operator, not `Start-Process -ArgumentList`, which joins its array
+with spaces and quotes nothing — and this repository's own path has a space in
+it. Read `$LASTEXITCODE`; the installer reports refusals that way.
 
 Stop SpeakEasy Mini before installing an upgrade. The installer deliberately refuses
 to replace a running app, reinstall the same version, or downgrade an installed
-version.
+version — so an install/uninstall cycle at the same version needs the uninstall
+first:
+
+```powershell
+& (Join-Path $installRoot 'speakeasy-bootstrapper.exe') --uninstall /S --keep-user-data
+```
+
+`--keep-user-data` is what makes that cycle cheap: without it the uninstall also
+removes the ~2.14 GB of model weights, which is correct for a user and expensive
+for a developer doing it repeatedly. It is a testing flag and nothing else.

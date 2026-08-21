@@ -94,6 +94,36 @@ The repair verbs refuse non-empty restore destinations and do not silently
 overwrite data. Settings and history are plaintext on disk; a backup is a
 recovery copy, not secure erasure or encryption.
 
+## Which engine is it running on, and re-proving it
+
+Settings → Transcription reports the **device** dictation runs on — `cpu`,
+`cuda`, `cuda_unverified` (a graphics-card engine whose context could not be
+confirmed), or `unknown` — and, only when the two disagree, how that compares
+with the configuration setup recorded at install time. The same three fields are
+in the diagnostic log as `granite_warm … device= installed= provider=`.
+
+`provider=gpu_install_not_operational` is the one that needs action: setup proved
+a graphics-card installation and this run is on the processor. Dictation still
+works and the transcript is unaffected — the same model file runs on either
+device — so this is a speed and provisioning fault, not a broken engine.
+
+```text
+speakeasy-bootstrapper --verify-provider
+speakeasy-bootstrapper --verify-provider --install-root <install-path>
+```
+
+This re-runs the engine check against the installed build and rewrites the
+recorded configuration from its verdict, which used to need a full reinstall. It
+prints `provider_recorded device=<cpu|cuda> evidence=<code>` and exits zero only
+when the engine actually ran and produced the right transcript. Quit SpeakEasy
+Mini first: it refuses while the app is running, because a resident worker is a
+second process competing for the same card.
+
+`provider=running_beyond_record` is **not** a fault. It means the machine is
+running on the graphics card while the recorded configuration says processor,
+which is what staging a worker by hand produces, and the app says so rather than
+reporting the record as though it were the truth.
+
 ## Returning to a previous installer
 
 Use an installer retained in a verified recovery bundle or a checksum-verified
@@ -104,3 +134,31 @@ use the explicit `reinstall` command (adding
 The installer lifecycle intentionally blocks same-version reinstall and
 automatic downgrade; the Repair shortcut is the supported explicit route back
 to a previous version.
+
+## Uninstalling
+
+```text
+speakeasy-bootstrapper --uninstall
+speakeasy-bootstrapper --uninstall /S
+speakeasy-bootstrapper --uninstall /S --keep-user-data
+```
+
+**An uninstall removes everything by default** — the program directory whole,
+plus settings, transcript history, the downloaded models, recovery backups and
+the diagnostic log — and removes the directories themselves, not just their
+contents. The first form asks once before doing any of it, with every category
+named and with any files in the program folder that setup did not place there
+listed separately; the focused button is No. `/S` cannot ask and so proceeds,
+which is a caller asserting it already knows.
+
+`--keep-user-data` keeps the profile and still clears the program directory. It
+exists for repeated install/uninstall cycles that would otherwise re-download
+the models each time — `Test-InstallerLifecycle.ps1` and `Test-SetupWizard.ps1`
+both pass it — and is not the route a user should be given.
+
+Two things to expect. `--remove-all` is **refused**, not accepted as an alias:
+it used to mean the thorough behaviour, that behaviour is now the default, and a
+flag that quietly means "do what you were going to do anyway" would let a caller
+keep believing it is choosing. And a file Windows will not release is reported
+by name with its OS error, the exit code is non-zero, and the install directory
+survives — which is the intended signal, not a partial success.

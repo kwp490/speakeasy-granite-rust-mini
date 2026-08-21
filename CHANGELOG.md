@@ -1,5 +1,74 @@
 # Changelog
 
+## Unreleased
+
+Work that landed after 1.4.2 was tagged. The version number has deliberately not
+moved: it is what the binary reports, what the registry stamp records and what
+the install manifest carries, and `scripts/Increment-ProductVersion.ps1` moves
+all three together when a release is actually cut.
+
+### Setup can no longer record a configuration it did not prove — 2026-08-20
+
+- **The provider is proved, never chosen.** A support log read
+  `engine=cpu_gpu_runtime_missing device=cpu installed=cuda`: three correct
+  fields, an impossible combination, and nothing anywhere that compared them.
+  The installed-configuration record came from the provider page's radio button,
+  three pages before anything ran. It is now written from the engine check's
+  verdict and nowhere else, and requires all three of a published CUDA worker, a
+  complete payload on disk, and NVML placing that worker's own process on a
+  device.
+- **The graphics-card option is disabled when it cannot be installed**, with the
+  reason named. `UI-GUIDE.md` had said so since the page was designed; nothing
+  ever did it.
+- **The app compares the record against reality at every warm** and says so when
+  they disagree, rather than reporting the installation it was told about.
+  Dictation is never refused for it — the same model file produces the same
+  transcript on either device, so refusing would cost the user their dictation to
+  make a point about provisioning.
+
+### The graphics-card path, proved on hardware — 2026-08-21
+
+- **CUDA moved to 13.x.** The catalog pinned 12.9 while every machine that can
+  build a CUDA worker ships 13.x. Harmless while nothing read the list, and a
+  refusal the day something did. Note that CUDA 13 moved its libraries from
+  `bin/` to `bin/x64/`, so this was not the old paths with a digit changed.
+  `scripts/Get-CudaRuntime.ps1` now produces the pinned entries and proves they
+  are byte-identical to the installed toolkit.
+- **`--verify-provider`** re-runs the engine check against an installed build and
+  rewrites the recorded configuration from its verdict, so re-proving no longer
+  costs a reinstall. The app's own diagnostic copy now points at it instead of
+  recommending a reinstall.
+- **All five provider states have been produced on real hardware** (RTX 4070
+  Laptop GPU), including the two that a working card cannot be asked to produce
+  and so are driven from a staged driver probe.
+- Measured on that card, on a 6.42 s clip: resident pass 2,928 ms on the
+  processor against 361 ms on CUDA. The transcript is byte-identical on both,
+  which matters more than the speed — the installer's engine check compares a
+  whole transcript against one pinned ground truth.
+- **Nothing is published.** A graphics-card worker is still not in the trusted
+  manifest, so a release still installs the processor configuration on every
+  machine and says so.
+
+### Uninstall leaves nothing — 2026-08-21
+
+- **An uninstall now removes everything by default**: the program directory
+  whole, and the settings, transcript history, downloaded models, recovery
+  backups and diagnostic log with it — directories included, not just their
+  contents. It kept all of that by default before, inherited from the NSIS
+  installer it replaced, so a user who asked the product to go was left with
+  2.14 GB of models and a settings tree and told it had been removed.
+- **It asks once first**, with every category named and with anything in the
+  program folder that setup did not place there listed separately. The focused
+  button is No.
+- **`--keep-user-data` is the opt-out**, and is a testing affordance for repeated
+  install/uninstall cycles rather than a user-facing choice. `--remove-all` is
+  refused rather than silently accepted, because it named the behaviour that is
+  now the default.
+- **Files in the program folder that setup did not install are no longer spared.**
+  They were, on the reasoning that an unrecognised file there was probably a
+  large on-demand download — a download this product has not had since the
+  streaming engine was removed.
+
 ## 1.4.2 — 2026-08-19
 
 The first release of SpeakEasy Mini, forked from SpeakEasy and reduced to one

@@ -126,7 +126,13 @@ The Repair shortcut verifies file checksums, backs up your settings/history
 before touching anything, and restores only into a new or empty
 destination.
 
-Uninstall offers separate choices for settings/personalization, transcript
-history, installed models, and recovery backups — review each one; deletion
-is best-effort. Uninstall never touches the separate Python product's data,
-models, or credentials.
+Uninstall removes everything: the program, your settings and personalization,
+your transcript history, the downloaded speech models, recovery backups, and the
+diagnostic log. It asks once first, listing all of it, and the answer it starts
+on is **No** — so nothing is deleted by pressing Enter. Anything in the program
+folder that setup did not put there is listed separately in that question,
+because it is the part you cannot predict.
+
+Deletion is best-effort: a file Windows will not release is reported by name
+rather than passed over in silence. Uninstall never touches the separate Python
+product's data, models, or credentials.
