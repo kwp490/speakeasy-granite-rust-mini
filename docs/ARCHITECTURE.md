@@ -130,8 +130,8 @@ Granite runs on the GPU or the CPU, and — unlike the streaming engine this
 replaced — that is decided by **which worker binary is installed**, not by which
 model pack was downloaded. Granite's CUDA support is a compile-time feature of
 `speakeasy-granite`, so a machine with a perfectly good NVIDIA card still runs on
-the CPU unless a CUDA-built `granite-worker.exe` is present beside it with
-`cudart` and `cuBLAS`.
+the CPU unless a CUDA-built `granite-worker.exe` is present beside it with the
+CUDA libraries the catalog pins.
 
 Two consequences follow, and both are deliberate:
 
@@ -161,11 +161,19 @@ answered, and it separates three genuinely independent facts:
    `final-asr` *pack* answers nothing: there is one GGUF and the CUDA worker
    offloads that same file, so a pack entry would be a duplicate of the CPU one.
    Asking the manifest for a pack is exactly what the old check did.
-2. **Present** — is that worker on this disk with every library it loads beside
-   it? `cudart` and `cuBLAS` are pinned in the same catalog and their
-   `proof_files` are the requirement, read from there rather than written down a
-   second time. A CUDA build without them does not run slower; Windows cannot
-   resolve the imports and it does not start.
+2. **Present** — is that worker on this disk with every library the catalog
+   requires beside it? `cudart` and `cuBLAS` are pinned in the same catalog and
+   their `proof_files` are the requirement, read from there rather than written
+   down a second time. A CUDA build without them does not run slower — and it
+   does not always fail at startup either, which is why this is a precondition
+   rather than something read off a worker that came up. Measured 2026-08-21:
+   `cublas64_13.dll` is an import of the image and its absence stops the process
+   before `main`, while `cublasLt64_13.dll` is loaded by cuBLAS at the first
+   matmul, so a worker missing only that one starts, loads the weights, and
+   fails ~36 s later mid-dictation. `cudart64_13.dll` is the third case: it is
+   required and **never loaded**, because ggml links the CUDA runtime statically
+   on Windows. The requirement list is a deliberate superset — see
+   "The CUDA requirement list is a superset, deliberately" below.
 3. **Operational** — is a live worker process holding a CUDA context? Nothing
    static can say. The startup handshake (`Hello` → `compiled_accelerators`)
    reports what the binary *could* do, and a refusing driver, a claimed card or
@@ -185,10 +193,22 @@ script reads no NVML and writes no marker: `install-provider.txt` having exactly
 one writer is what makes a claim assembled from an intention unrepeatable, and a
 PowerShell re-implementation of the three gates would have been a second writer
 wearing a different hat. The app re-checks the third at every warm and compares it against
-the record: `ProviderIntegrity` is `ok`, `unrecorded`,
-`gpu_install_not_operational` — the actionable fault — or `running_beyond_record`,
+the record. `ProviderIntegrity` has five values: `ok`, `unrecorded`,
+`gpu_install_not_operational` — the actionable fault — `running_beyond_record`,
 which is what `scripts/Enable-GraniteCuda.ps1` produces on purpose and is
-disclosed rather than treated as a failure.
+disclosed rather than treated as a failure, and `gpu_record_unconfirmed`.
+
+That fifth one is the fault's other half, split out on 2026-08-21. Only a
+**definitive** negative is a fault: a worker with no CUDA backend, or one NVML
+answered about and did not list. A probe that could not be asked — and a worker
+that never answered its handshake — prove nothing in either direction, and
+reporting them as the fault told the user dictation had moved to the processor
+on the strength of a failed driver query. That is the one inference
+`granite_gpu`'s own header forbids, made one layer up where nothing was looking.
+The verdict and the device now agree by construction: `cpu` is the fault,
+`cuda_unverified` and `unknown` are unconfirmed, and no layer names a device it
+did not establish. Folding the case into `ok` was rejected for the mirror-image
+reason — that claims an agreement nothing verified.
 
 `GraniteEngineCoordinator::engine_reason` carries a stable code for why this
 machine is on the provider it is on — `probe_preferred`,
@@ -288,6 +308,32 @@ verifies them, then the app works fully offline.
 The two CUDA redistributables in the catalog (`cudart`, `cuBLAS`) are there for
 llama.cpp's GPU build. The cuFFT and cuDNN entries this catalog used to carry
 belonged to ONNX Runtime and left with it.
+
+### The CUDA requirement list is a superset, deliberately
+
+Three files are enforced and only two are loaded. Measured 2026-08-21 against
+the CUDA worker this workspace builds, with the CUDA Toolkit stripped from
+`PATH` — which matters, because the toolkit puts `bin\x64` on it and Windows
+will then resolve a library that is not beside the worker at all:
+
+| File | Named in the image | Deleting it |
+| --- | --- | --- |
+| `cublas64_13.dll` | yes | the process does not start |
+| `cublasLt64_13.dll` | no | starts, loads the weights, fails ~36 s in at the first matmul |
+| `cudart64_13.dll` | no | nothing: transcribes, and NVML confirms the context |
+
+`cudart` is never loaded because ggml links the CUDA runtime statically on
+Windows. It stays enforced anyway, and that is a decision rather than an
+oversight: `CMAKE_CUDA_RUNTIME_LIBRARY` is one build flag away from making it
+load-bearing again with nothing anywhere noticing, and every file this catalog
+requires is a file it pins by digest — the property that lets presence imply
+provenance, and the reason `cudart64_*.dll` by pattern was rejected. The cost is
+551 KB and a refusal that no published payload can trigger, since the worker and
+its libraries are pinned and shipped as one artifact.
+
+`cublasLt` is the case that justifies the shape of the check. A gate that
+concluded "the worker started, so its libraries are fine" would have passed that
+payload and lost a dictation half a minute later.
 
 ## Trust boundaries
 

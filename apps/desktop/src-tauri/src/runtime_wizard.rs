@@ -76,8 +76,8 @@ pub struct RuntimePaths {
     /// `runtime_resources_unavailable` on every call: every dictation would
     /// have failed, in the one code path no test covers and the app had never
     /// been launched to exercise. ONNX Runtime's CUDA provider left with them;
-    /// Granite's GPU support is llama.cpp's, and needs cudart and cuBLAS in
-    /// `proof` rather than an execution-provider DLL.
+    /// Granite's GPU support is llama.cpp's, and needs the catalog's pinned
+    /// CUDA libraries in `proof` rather than an execution-provider DLL.
     pub granite_worker: PathBuf,
 }
 

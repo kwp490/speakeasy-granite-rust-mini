@@ -130,6 +130,25 @@ impl WorkerProvider {
             (Some(true), Some(CudaContextProof::Holding))
         )
     }
+
+    /// Whether this run is provably **not** on the graphics card.
+    ///
+    /// Deliberately not `!proved_graphics_card()`. Three states exist and only
+    /// two of them are answers: a binary with no CUDA backend cannot be on the
+    /// card, and NVML listing no context for this pid is the definitive
+    /// negative, but a probe that could not be asked -- and a worker that never
+    /// answered its handshake at all -- prove nothing in either direction.
+    /// Collapsing those into the negative is what made
+    /// [`ProviderIntegrity::GpuInstallNotOperational`] tell a user their
+    /// dictation had moved to the processor on the strength of a failed driver
+    /// query, which is the one inference `speakeasy_models::granite_gpu`'s own
+    /// header forbids.
+    const fn disproved_graphics_card(self) -> bool {
+        matches!(
+            (self.compiled_cuda, self.context),
+            (Some(false), _) | (Some(true), Some(CudaContextProof::NotHolding))
+        )
+    }
 }
 
 /// Whether what setup recorded still describes what is running.
@@ -162,6 +181,21 @@ pub enum ProviderIntegrity {
     /// purpose — a CUDA worker staged over a CPU install — and the honest thing
     /// is to say so rather than report the record as though it were the truth.
     RunningBeyondRecord,
+    /// Setup recorded a graphics-card installation and **this run could not be
+    /// checked** — the driver query failed, or the worker never answered its
+    /// handshake.
+    ///
+    /// Added 2026-08-21. Until then this fell into
+    /// [`Self::GpuInstallNotOperational`], whose copy tells the user dictation
+    /// "is running on the processor instead" — a claim about a device on
+    /// evidence that says nothing about any device. The worker is most likely on
+    /// the card and the only thing that happened is that NVML would not answer.
+    ///
+    /// Not a fault, and deliberately not folded into [`Self::Matches`] either:
+    /// that would claim an agreement nothing verified, which is the same mistake
+    /// pointing the other way. `device=` had this right all along and reported
+    /// `cuda_unverified`; it was the comparison one layer up that collapsed it.
+    GpuRecordUnconfirmed,
 }
 
 impl ProviderIntegrity {
@@ -172,6 +206,7 @@ impl ProviderIntegrity {
             Self::Matches => "ok",
             Self::GpuInstallNotOperational => "gpu_install_not_operational",
             Self::RunningBeyondRecord => "running_beyond_record",
+            Self::GpuRecordUnconfirmed => "gpu_record_unconfirmed",
         }
     }
 
@@ -198,7 +233,13 @@ fn assess_provider_integrity(recorded: &str, worker: WorkerProvider) -> Provider
         // claim about a configuration nobody verified.
         "" | "unrecorded" => ProviderIntegrity::Unrecorded,
         "cuda" if on_card => ProviderIntegrity::Matches,
-        "cuda" => ProviderIntegrity::GpuInstallNotOperational,
+        // Only the definitive negative is the fault. `disproved_graphics_card`
+        // carries why the two are not each other's complement; the effect here
+        // is that this arm and `WorkerProvider::device` agree by construction --
+        // `cpu` is the fault, `cuda_unverified` and `unknown` are the
+        // unconfirmed state, and nothing reports a device it did not establish.
+        "cuda" if worker.disproved_graphics_card() => ProviderIntegrity::GpuInstallNotOperational,
+        "cuda" => ProviderIntegrity::GpuRecordUnconfirmed,
         _ if on_card => ProviderIntegrity::RunningBeyondRecord,
         _ => ProviderIntegrity::Matches,
     }
@@ -1168,13 +1209,18 @@ mod tests {
             )),
         };
         assert_eq!(unprovable.device(), "cuda_unverified");
-        // Still not proof, so a graphics-card record over it is still the fault:
-        // setup wrote `cuda` only where it had proof, so an installation that
-        // now cannot prove it is one whose card stopped being used.
+        // And the comparison says the same thing. It used to answer
+        // `GpuInstallNotOperational` here, on the argument that setup wrote
+        // `cuda` only where it had proof so an installation that can no longer
+        // prove it is one whose card stopped being used. That argument is
+        // wrong: what stopped is the *query*. The fault's copy tells the user
+        // dictation moved to the processor, and nothing here establishes any
+        // device at all.
         assert_eq!(
             assess_provider_integrity("cuda", unprovable),
-            ProviderIntegrity::GpuInstallNotOperational
+            ProviderIntegrity::GpuRecordUnconfirmed
         );
+        assert!(!ProviderIntegrity::GpuRecordUnconfirmed.is_fault());
     }
 
     /// A worker that never answered the handshake reports `unknown`, not `cpu`.
@@ -1189,12 +1235,51 @@ mod tests {
             context: None,
         };
         assert_eq!(silent.device(), "unknown");
-        // A record of `cuda` over an unknown worker is still the fault: nothing
-        // proves the card is in use, and the record claims it is.
+        // Nothing proves the card is in use -- and nothing refutes it either,
+        // which is the half the old assertion here dropped. A worker that did
+        // not answer is the same evidential position as a driver that did not
+        // answer, so it gets the same answer.
         assert_eq!(
             assess_provider_integrity("cuda", silent),
-            ProviderIntegrity::GpuInstallNotOperational
+            ProviderIntegrity::GpuRecordUnconfirmed
         );
+    }
+
+    /// The device and the integrity verdict cannot disagree about the device.
+    ///
+    /// The whole class of defect this module keeps producing is a layer
+    /// asserting something a neighbouring layer does not support, so the
+    /// correspondence is pinned rather than left to two `match` arms that happen
+    /// to line up today: only `cpu` -- the definitive negative -- may be the
+    /// fault, and the fault is the only verdict whose copy names a device.
+    #[test]
+    fn only_a_definitive_processor_run_may_be_reported_as_the_fault() {
+        let cases = [
+            (Some(false), None, "cpu"),
+            (Some(true), Some(CudaContextProof::NotHolding), "cpu"),
+            (Some(true), Some(CudaContextProof::Holding), "cuda"),
+            (
+                Some(true),
+                Some(CudaContextProof::ProbeUnavailable(
+                    speakeasy_models::GpuProbeFailure::LibraryMissing,
+                )),
+                "cuda_unverified",
+            ),
+            (None, None, "unknown"),
+        ];
+        for (compiled_cuda, context, device) in cases {
+            let worker = WorkerProvider {
+                compiled_cuda,
+                context,
+            };
+            assert_eq!(worker.device(), device);
+            let verdict = assess_provider_integrity("cuda", worker);
+            assert_eq!(
+                verdict.is_fault(),
+                device == "cpu",
+                "{device} must not decide the fault this way"
+            );
+        }
     }
 
     /// An installation with no marker is checked against nothing.

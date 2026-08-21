@@ -358,8 +358,18 @@ export function Transcription() {
                 {gpu.active_provider === null
                   ? messages.engineNone
                   : formatState(gpu.active_device)}
-              </bdi>{" "}
-              — {formatEngineReason(gpu.engine_reason)}
+              </bdi>
+            </p>
+            {/* Its own sentence, in its own element, and never joined to the
+                line above. It used to hang off the device after an em-dash,
+                which reads as one sentence about one fact -- and these are two
+                facts that disagree on any machine running a graphics-card
+                worker against the single processor-named pack. The rendered
+                result was `Dictation runs on: Graphics card (GPU) -- ... so the
+                processor model is being used.` Rewording alone would have left
+                the next reason free to do it again. */}
+            <p className="setting-detail" data-testid="engine-reason">
+              {formatEngineReason(gpu.engine_reason)}
             </p>
             {/* Shown only when it says something. `ok` and `unrecorded` are the
                 quiet answers and have no copy, so this renders nothing on a

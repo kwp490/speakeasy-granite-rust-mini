@@ -457,7 +457,8 @@ export const messages = {
    *
    * `ok` and `unrecorded` have no copy on purpose: they are the quiet answers,
    * and a line that appears on every launch to say nothing is wrong is a line
-   * people stop reading. Only the two disclosures below are ever shown.
+   * people stop reading. Only the three disclosures below are ever shown, and
+   * only one of them is a fault.
    *
    * `gpu_install_not_operational` is the actionable one, and it is the condition
    * that produced this whole surface: setup used to record a graphics-card
@@ -474,12 +475,20 @@ export const messages = {
    * would have had the app recommending the expensive remedy while a cheap one
    * shipped beside it. The two ordinary causes come first, because they are what
    * a user can actually act on and neither needs a command line.
+   *
+   * `gpu_record_unconfirmed` is the one it used to swallow. A driver that will
+   * not answer NVML is not evidence of anything, and until 2026-08-21 it landed
+   * in the fault above and told the user their dictation had moved to the
+   * processor. This says what is known, says nothing is known to be wrong, and
+   * puts the remedy last because there may be nothing to remedy.
    */
   providerIntegrity: {
     gpu_install_not_operational:
       "This installation was recorded as using the graphics card, and dictation is running on the processor instead. Transcripts are unaffected; the speed is not. Update the graphics driver and close anything else using the card, then re-check the engine — running setup with --verify-provider re-proves it without reinstalling.",
     running_beyond_record:
       "Dictation is running on the graphics card, which is more than this installation was recorded as providing. Nothing is wrong — the graphics-card engine was staged after setup ran.",
+    gpu_record_unconfirmed:
+      "This installation was recorded as using the graphics card, and this run could not be confirmed — the graphics driver did not answer. Dictation is unaffected and is most likely still on the card. If it keeps happening, update the graphics driver, then re-check with setup's --verify-provider.",
   },
   engineNone: "Nothing yet",
   engineReasonUnknown: "The reason is unavailable.",
@@ -492,18 +501,36 @@ export const messages = {
    * `cpu_gpu_pack_not_installed` is the one that has to exist: without it a
    * user with a perfectly good graphics card sees "runs on processor" and has
    * no way to learn that the GPU model was simply never installed.
+   *
+   * **Every one of these describes the installation, and none of them says what
+   * is running.** That is the change of 2026-08-21, and the defect was found by
+   * reading the rendered window rather than the code. They were clauses appended
+   * to the device line with an em-dash, so Settings said, verbatim, `Dictation
+   * runs on: Graphics card (GPU) — ... so the processor model is being
+   * used.` The device was right, the code was right, and the sentence was false:
+   * a reason about the *pack* and a device are two facts that disagree on any
+   * machine running a graphics-card worker against the single processor-named
+   * pack, which `ARCHITECTURE.md` under "Which provider runs, and how you find
+   * out" had predicted and nobody had looked at. Two things keep it fixed —
+   * these strings are scoped to what the installation includes, and the page
+   * renders them as their own sentence instead of joining them to the device.
+   *
+   * `probe_preferred` was reworded too, though it was not the reported defect.
+   * "The best engine this hardware supports" becomes false the day a
+   * graphics-card pack is preferred and the driver refuses it, and keeping a
+   * latent copy of the bug just fixed is not worth the smaller diff.
    */
   engineReasons: {
-    probe_preferred: "the best engine this hardware supports.",
+    probe_preferred: "This installation includes the best engine this hardware supports.",
     cpu_gpu_pack_not_installed:
-      "this computer's graphics card is supported, but the graphics-card model is not installed, so the processor model is being used.",
+      "This computer's graphics card is supported, but this installation includes only the processor model.",
     cpu_gpu_runtime_missing:
-      "this computer's graphics card is supported, but this installation does not include graphics-card acceleration, so the processor model is being used.",
+      "This computer's graphics card is supported, but this installation does not include graphics-card acceleration.",
     // Not "nothing is installed": a pack can be on disk and still unrunnable
     // here — an installed graphics-card model on an installation that has no
     // graphics-card acceleration is exactly that. This says what is true of
     // the outcome in both cases without asserting the disk is empty.
-    no_pack_installed: "no transcription model is ready to run on this computer.",
+    no_pack_installed: "No transcription model is ready to run on this computer.",
   },
   /**
    * The graphics-card acceleration offer.

@@ -17,9 +17,16 @@
 //! 1. **Published.** Is a CUDA-capable Granite worker pinned in the trusted
 //!    manifest at all? This is a fact about the *release*, not the machine.
 //! 2. **Present.** Is that worker, and every runtime library it needs, on this
-//!    disk? A CUDA build of llama.cpp links `cudart` and `cuBLAS` dynamically,
-//!    and Windows resolves them from the worker's own directory — so a worker
-//!    without its DLLs beside it does not fall back, it fails to start.
+//!    disk? Windows resolves those libraries from the worker's own directory,
+//!    and a worker missing one does not fall back to the processor — it fails.
+//!    *When* it fails is the part worth knowing, and it is not always at
+//!    startup: `cuBLAS` is an import of the image and a missing `cublas64_13`
+//!    stops the process before `main`, but `cuBLASLt` is loaded by `cuBLAS` at
+//!    the first matmul, so a payload missing only that one starts, loads two
+//!    gigabytes of weights, and fails ~36 s later mid-dictation with
+//!    `AdapterFailed`. Measured 2026-08-21. That late failure is the reason
+//!    this gate is a *precondition* rather than something inferred from a
+//!    worker that started.
 //! 3. **Operational.** Is a live worker process actually holding a CUDA context
 //!    on a device? Nothing static can answer this. The worker's compiled
 //!    accelerators say what it *could* do, and a machine whose driver refuses,
@@ -61,9 +68,28 @@ pub const GRANITE_CUDA_WORKER_ARTIFACT_ID: &str = "granite-worker-cuda-windows-x
 
 /// The manifest ids of the CUDA redistributables a CUDA Granite worker needs.
 ///
-/// llama.cpp's CUDA backend links these dynamically, so they are the runtime
-/// half of "present". Both are already pinned by digest in the trusted
-/// manifest — `cuFFT` and `cuDNN` were there too and left with ONNX Runtime.
+/// They are the runtime half of "present". Both are already pinned by digest in
+/// the trusted manifest — `cuFFT` and `cuDNN` were there too and left with ONNX
+/// Runtime.
+///
+/// **This list is deliberately a superset of what the worker loads, and one of
+/// the three files is never loaded at all.** Measured 2026-08-21 against the
+/// worker this workspace builds: the image names `cublas64_13.dll` and
+/// `nvcuda.dll`; it does not contain the string `cudart64_13.dll`, because ggml
+/// links the CUDA runtime statically on Windows. With `cudart64_13.dll` deleted
+/// from beside the worker and the CUDA Toolkit stripped from `PATH`, the worker
+/// transcribed the fixture and NVML confirmed it holding a context on the
+/// device. `cublasLt64_13.dll` is not named in the image either, but it *is*
+/// required — see this module's header for the shape of that failure.
+///
+/// It stays pinned for two reasons. `CMAKE_CUDA_RUNTIME_LIBRARY` is one build
+/// flag away from making it load-bearing again, and nothing anywhere would
+/// notice the day it changed; and every file this catalog requires is a file
+/// this catalog pins by digest, which is the property that lets presence imply
+/// provenance. Accepting `cudart64_*.dll` by pattern was considered and
+/// rejected for the same reason. The cost of the superset is 551 KB and a
+/// refusal that cannot arise from a published payload, since the worker and its
+/// libraries are pinned and shipped as one artifact.
 ///
 /// Ids rather than file names, so the file names come from the manifest's own
 /// `proof_files` and exist in exactly one place. A second hand-written list of
@@ -357,6 +383,10 @@ mod tests {
         // would pass on an empty list.
         let manifest = bundled_manifest().expect("the bundled manifest must parse");
         let required = required_cuda_runtime_files(&manifest);
+        // cudart is required although this build never loads it -- statically
+        // linked by ggml, and proved unnecessary on 2026-08-21 by deleting it
+        // and watching the worker transcribe on the card anyway. The superset is
+        // deliberate; `CUDA_RUNTIME_ARTIFACT_IDS` carries the argument.
         assert!(
             required.contains(&"cudart64_13.dll".to_owned()),
             "cudart is pinned in the catalog and must be required: {required:?}"
@@ -365,6 +395,10 @@ mod tests {
             required.contains(&"cublas64_13.dll".to_owned()),
             "cuBLAS is pinned in the catalog and must be required: {required:?}"
         );
+        // Unlike cudart, this one is real, and it fails late: measured
+        // 2026-08-21, a worker without it starts, loads the weights, and dies
+        // ~36 s in at the first matmul. Requiring it up front is what keeps that
+        // out of a dictation.
         assert!(
             required.contains(&"cublasLt64_13.dll".to_owned()),
             "cuBLASLt is loaded by cuBLAS at run time and must be required too: {required:?}"
