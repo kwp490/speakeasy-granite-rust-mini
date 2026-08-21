@@ -981,11 +981,18 @@ Each was found by running the thing rather than reading it.
 
 #### Where this machine was left
 
-Install at `%LOCALAPPDATA%\SpeakEasy Mini`, version 1.4.2, with the **CUDA
+Install at `%LOCALAPPDATA%\SpeakEasy Mini`, **version 1.5.0**, with the **CUDA
 worker staged** and its three libraries beside it, and `install-provider.txt`
 reading `cpu` — so the app reports `device=cuda installed=cpu
 provider=running_beyond_record`, disclosed as not-a-fault. That is the honest
 resting state for a machine carrying a worker no release publishes.
+
+Reached the hard way on 2026-08-21: uninstalled for real (weights included),
+reinstalled by `Test-SetupWizard.ps1` from the 1.5.0 installer, then re-staged
+with `Enable-GraniteCuda.ps1`, which re-proves through `--verify-provider` and
+recorded `device=cpu evidence=gpu_worker_not_published`. The last warm reads
+`engine=cpu_gpu_pack_not_installed device=cuda installed=cpu
+provider=running_beyond_record`.
 
 
 ### 0b. Uninstall leaves nothing — done 2026-08-21
@@ -1230,6 +1237,13 @@ they are reachable by pointing `SPEAKEASY_GRANITE_MODEL_ROOT` at an empty
 directory, which is how the unit-test controls were run.
 
 ### 2b. Distribution — the release, and what it costs to cut another
+
+**1.5.0 was cut on 2026-08-21** and all three proofs pass against its artifacts:
+the gate, `Test-InstallerLifecycle.ps1`, and `Test-SetupWizard.ps1` end to end
+including a real download, the engine check and a launched app. It was held
+until the three provider-honesty findings landed, because cutting before them
+would have shipped a build whose Settings page states something false on any
+machine with a graphics-card engine.
 `SpeakEasyMiniSetup.exe` is published on GitHub Releases and the repository is
 public, which is what makes the README's first install path real. Cutting the
 next one is four commands and no automation, per the local-only rule:
