@@ -534,10 +534,18 @@ fn remove_user_data(removals: Removals, outcome: &mut Outcome) {
 /// process — and the behaviour worth pinning here is precisely the one that only
 /// shows up on a real tree: that the directories themselves go, not just the
 /// files inside them.
-fn remove_user_data_under(root: &Path, removals: Removals, outcome: &mut Outcome) {
-    // Paths mirror what the NSIS uninstall hook removed, so an uninstall after
-    // an upgrade from a pre-bootstrapper install still finds everything.
-    let targets: [(Removable, &str, &[&str]); 5] = [
+/// What each removable item is, under the profile root.
+///
+/// Extracted from [`remove_user_data_under`] on 2026-08-21 so that [`measure`]
+/// reads the same table the deletion does. A page that showed a size derived
+/// from a second copy of these paths could name a figure for one set of files
+/// and delete another, which is the shape of defect this repository keeps
+/// finding one layer up from where it was introduced.
+///
+/// Paths mirror what the NSIS uninstall hook removed, so an uninstall after an
+/// upgrade from a pre-bootstrapper install still finds everything.
+const fn targets() -> [(Removable, &'static str, &'static [&'static str]); 5] {
+    [
         (Removable::Configuration, "configuration", &["config"]),
         (
             Removable::History,
@@ -554,8 +562,66 @@ fn remove_user_data_under(root: &Path, removals: Removals, outcome: &mut Outcome
         // its one rotated generation are what rotation writes today, and a log
         // name that changes must not start surviving uninstalls silently.
         (Removable::Logs, "diagnostic logs", &["logs"]),
-    ];
-    for (item, label, relatives) in targets {
+    ]
+}
+
+/// What one removable item currently occupies, in bytes.
+///
+/// `None` when there is no profile root, or nothing of this item on disk —
+/// which is a different statement from zero and must not be rendered as
+/// "0 bytes" beside a checkbox.
+///
+/// Exists for the uninstall page's models checkbox. That one item is the only
+/// large, invisible cost in the list, and the page names its figure so the user
+/// can see what they are agreeing to; the other four are kilobytes and a size
+/// beside each of them buries the one that matters. **Measured rather than
+/// written down** — the label this replaces was inherited from an item that
+/// claimed "about 2.3 GB" for a download this fork never had.
+pub fn measure(item: Removable) -> Option<u64> {
+    let root = data_root()?;
+    let (_, _, relatives) = targets().into_iter().find(|(kind, _, _)| *kind == item)?;
+    let mut total = 0_u64;
+    let mut found = false;
+    for relative in relatives {
+        let path = root.join(relative);
+        if path.exists() {
+            found = true;
+            total = total.saturating_add(size_on_disk(&path));
+        }
+    }
+    found.then_some(total)
+}
+
+/// Bytes under a path, following directories and ignoring what cannot be read.
+///
+/// A file it cannot stat contributes nothing rather than aborting the walk: this
+/// figure exists to tell a user roughly what they are about to free, and
+/// refusing to show any number because one file was locked would be worse than
+/// showing a slightly low one. It is never used to decide anything.
+fn size_on_disk(path: &Path) -> u64 {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if metadata.is_file() {
+        return metadata.len();
+    }
+    if !metadata.is_dir() {
+        // A symlink or reparse point. Not followed: its target is somewhere
+        // else, and counting it here would attribute another directory's bytes
+        // to this checkbox.
+        return 0;
+    }
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| size_on_disk(&entry.path()))
+        .fold(0, u64::saturating_add)
+}
+
+fn remove_user_data_under(root: &Path, removals: Removals, outcome: &mut Outcome) {
+    for (item, label, relatives) in targets() {
         if !removals.includes(item) {
             outcome.kept.push(label.to_owned());
             continue;

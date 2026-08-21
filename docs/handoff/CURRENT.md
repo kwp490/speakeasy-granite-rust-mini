@@ -5,12 +5,16 @@ cost you an afternoon if you rediscover them yourself.
 
 Read `CLAUDE.md` first. This file assumes it.
 
-> **Picking this up cold?** Item 0, the graphics-card proof, is **done**
-> (2026-08-21) — read it for what it found, not for what to do. The work waiting
-> for you is **item 8**, the engine-reason sentence that contradicts the device
-> printed beside it, which is a copy change and therefore needs the owner. Items
-> 9 and 10 came out of the same proof and are both claims the code makes that its
-> evidence does not support.
+> **Picking this up cold?** Items 0, 0b, 8, 9 and 10 are all **done** — read them
+> for what they found, not for what to do. Every open item left needs the owner
+> rather than an agent: **item 3** (publishing the CUDA worker, deliberately
+> deferred past 1.5.0) and **item 1b** (a real dictation on an installed release
+> build, which needs a person and a microphone). Item 2b is the release itself.
+>
+> The three findings item 0 produced were all closed on 2026-08-21, and two of
+> them were closed by *measuring* rather than reasoning: `cudart64_13.dll` is
+> genuinely never loaded and `cublasLt64_13.dll` genuinely is, both proved by
+> deleting them.
 
 ## Start here
 
@@ -960,6 +964,13 @@ Each was found by running the thing rather than reading it.
 - **`Enable-GraniteCuda.ps1` still reverts on any reinstall or upgrade.** The
   payload copy overwrites the staged worker. Re-run it afterwards, and do not
   read a `device=cpu` after an upgrade as a regression.
+- **So does `npm run tauri -- dev`, one directory over.** Found 2026-08-21:
+  `beforeDevCommand` runs `Stage-DevRuntime.ps1`, which copies the CPU worker
+  over `target/debug/proof/granite-worker.exe` — 57,042,432 bytes became
+  4,333,568. That silently reverts a staged CUDA worker *and* disarms the three
+  `granite_engine` hardware tests, which read the same path, without failing
+  them. To look at the graphics-card path in a dev build, restore the worker and
+  start `npm run dev` and `target/debug/ai-speakeasy-mini.exe` separately.
 
 #### Where this machine was left
 
@@ -1019,11 +1030,33 @@ behaviour and that is now the default; a flag meaning "do what you were going to
 do anyway" lets a caller keep believing it is choosing. It is refused with the
 misuse message, so whoever passes it reads the change.
 
-**The dialog's focused button is No**, which is the one place this disagrees with
-the owner's "checkbox defaults to deleting the weights". A checkbox default is
-about what is selected when someone reads a page; a focused button is about what
-happens when someone presses Enter without reading. The per-item checkbox page is
-still not built, and when it is, its boxes should default to removing.
+**The per-item checkbox page was built on 2026-08-21** (`uninstall_page.rs`), and
+with it the owner reversed the focused-button call: the page *is* the
+confirmation, there is no dialog behind it, and its Remove button is the focused
+one. A second prompt re-asking what the page just asked is the
+sequential-prompts-answered-blind shape this module's header warns about.
+
+Three things about it worth keeping:
+
+- **`BS::DEFPUSHBUTTON` makes a button the default and does not focus it.**
+  Measured both ways: with the explicit `SetFocus` removed the focus lands on the
+  **heading static** — not the first check box, and not either button — so a page
+  relying on the style alone would have shipped with Enter doing nothing.
+- **Only the models entry names a size, and `uninstall::measure` walks the same
+  path table the deletion does.** A figure derived from a second copy of those
+  paths could describe one set of files while another is removed. The label this
+  descends from said "about 2.3 GB" for a download this fork never had, which is
+  what a written-down size eventually becomes. It read
+  `Downloaded speech models (2.3 GB)` on this machine.
+- **Cancel, the close box, and a window that could not be drawn all mean remove
+  nothing**, because a page nobody saw is not consent. Driven for real: the page
+  was launched against this machine's live installation, Cancel clicked, and the
+  install root, the weights and the three staged CUDA libraries were all still
+  there afterwards.
+
+Measured at 250% with `Measure-NativeWindow.ps1 -Fit`: client rect 480x398
+logical, every control fitting its box, the unrecognised-files block wrapping to
+four of the roughly five lines it reserves.
 
 **Proofs.** Gate exit 0. `Test-InstallerLifecycle.ps1` passes, with its
 "unexpected files in the install root" assertion replaced by "the install root
@@ -1307,9 +1340,12 @@ build; all of it misleads a reader.
   they are worth re-reading whenever the payload changes, because nothing checks
   them against `Build-LocalInstaller.ps1`'s actual output.
 
-### 8. The engine-reason sentence contradicts the device beside it — needs the owner
-Found on hardware 2026-08-21 by reading the running Settings window. On a machine
-with a CUDA worker staged, Settings → Transcription renders, verbatim:
+### 8. The engine-reason sentence contradicted the device — done 2026-08-21
+
+Found on hardware by reading the running Settings window; fixed the same way,
+and the fix was verified the same way rather than by reading the code back.
+
+Before, on a machine with a graphics-card worker staged:
 
 ```text
 Dictation runs on: Graphics card (GPU) — this computer's graphics card is
@@ -1317,80 +1353,96 @@ supported, but the graphics-card model is not installed, so the processor model
 is being used.
 ```
 
-The device is correct, the reason code (`cpu_gpu_pack_not_installed`) is correct,
-and **the sentence is false**: the processor model is not being used. The two
-halves are the pack and the device, which `ARCHITECTURE.md` under "Which provider
-runs, and how you find out" already says will disagree on exactly this machine —
-so this is not a surprise, it is a prediction nobody checked the rendering of.
-`granite_warm`'s re-selection step exists to correct the *code* after the worker
-says what it is, and it does; what it cannot fix is that the corrected code's
-prose still asserts a device.
+After, read out of the running window with `Invoke-WebviewProbe.ps1` against a
+warm with `engine=cpu_gpu_pack_not_installed device=cuda`:
 
-Why it is not fixed here: it is installer-and-app copy, which is owner-reviewable
-by rule, and the fix is a wording decision rather than a mechanical one. The
-narrow version is that `engineReasons.cpu_gpu_pack_not_installed` should describe
-the *pack* without asserting what is running — it is the only one of the three
-reason strings that names a device. The wider version is that a reason clause
-appended to a device line with an em-dash reads as one sentence about one fact,
-and any reason that can disagree with the device does not belong there.
+```text
+Dictation runs on: Graphics card (GPU)
+This computer's graphics card is supported, but this installation includes only
+the processor model.
+Dictation is running on the graphics card, which is more than this installation
+was recorded as providing. Nothing is wrong — the graphics-card engine was
+staged after setup ran.
+```
 
-**Do not fix this by dropping the reason.** It is the load-bearing half on the
-ordinary machine: "running on the processor" reads identically whether there is
-no graphics card or a good one whose pack was never installed, and that
-distinction is why the field exists.
+**Both halves were fixed, on the owner's decision, because either alone leaves
+the trap.** The strings: all four `engineReasons` entries now describe what the
+*installation includes* and none of them names a device, `probe_preferred`
+included — it was not the reported defect, but "the best engine this hardware
+supports" becomes false the day a graphics-card pack is preferred and the driver
+refuses it, and a latent copy of the bug just fixed is not worth the smaller
+diff. The structure: the reason is its own `<p data-testid="engine-reason">`
+rather than a clause hung off the device after an em-dash, so a future reason
+cannot re-create the compound sentence by wording alone.
 
-### 9. `cudart64_13.dll` is required and never loaded
-Measured 2026-08-21 against the CUDA worker this workspace builds. The image
-names `cublas64_13.dll` and `nvcuda.dll`; it does **not** contain the string
-`cudart64_13.dll` at all, because ggml links the CUDA runtime statically on
-Windows. `nvcuda.dll` comes from the driver and is not redistributable.
+Dropping the reason was rejected, per the original note: it is the load-bearing
+half on an ordinary machine.
 
-Three things follow, none of them dangerous and all of them wrong:
+**Where the graphics-card reading came from**, since it is not the default state
+of a dev launch — see the new trap below about `Stage-DevRuntime.ps1` reverting
+the staged worker. The CUDA worker was copied back into `target/debug/proof`,
+`npm run dev` and `target/debug/ai-speakeasy-mini.exe` were started separately so
+nothing re-staged, and the log line
+`granite_warm result=ok engine=cpu_gpu_pack_not_installed device=cuda
+installed=cpu provider=running_beyond_record` confirms the combination being
+rendered.
 
-- The catalog's requirement list is a **superset** of what the worker loads, so
-  `inspect_gpu_payload` refuses a payload missing only cudart even though it
-  would run. That is a refusal on a false premise, which is the same class of
-  defect as a claim on a false premise.
-- `granite_gpu.rs`'s module header says a CUDA build of llama.cpp "links `cudart`
-  and `cuBLAS` dynamically". Not this build.
-- `Enable-GraniteCuda.ps1` stages ~493 MB, of which 551 KB is unnecessary. Not
-  the point, but worth knowing before someone optimises the wrong file.
+### 9. `cudart64_13.dll` is required and never loaded — done 2026-08-21
 
-The right answer is probably not to drop cudart: it is pinned, it is cheap, and a
-build flag change (`CMAKE_CUDA_RUNTIME_LIBRARY`) would make it load-bearing
-again with nothing anywhere noticing. What is wrong is the *claim*, and possibly
-the refusal. Whoever fixes it should decide deliberately and write down which,
-because "presence implies provenance" is the argument that kept the list pinned
-rather than pattern-matched in the first place.
+Settled by experiment rather than by argument, which changed the answer to one
+of the two open questions. Owner decision: **keep cudart pinned, and correct the
+claim.**
 
-**Check `cublasLt64_13.dll` too while you are there.** It is not named in the
-image either; the standing explanation is that cuBLAS loads it at run time, and
-that is plausible and unverified. Removing it and watching the worker fail is a
-five-minute experiment nobody has run.
+All of it measured against the worker this workspace builds, with the CUDA
+Toolkit stripped from `PATH` — which is the whole trick, because the toolkit puts
+`bind` on it and Windows then resolves a library that is not beside the worker
+at all:
 
-### 10. An unprovable context reports the actionable fault
-`assess_provider_integrity("cuda", worker)` returns `GpuInstallNotOperational`
-whenever the worker is not *provably* on the card — including
-`CudaContextProof::ProbeUnavailable`, where NVML could not be asked. The copy for
-that state says dictation "is running on the processor instead", which is a claim
-the evidence does not support: the worker is probably on the card, and the only
-thing that happened is that a driver query failed.
+| File | Named in the image | Deleting it |
+| --- | --- | --- |
+| `cublas64_13.dll` | yes | the process does not start |
+| `cublasLt64_13.dll` | no | starts, loads the weights, fails **~36 s in** at the first matmul with `AdapterFailed` |
+| `cudart64_13.dll` | no | nothing: transcribes, and NVML confirms the context |
 
-This is the exact inference `granite_gpu.rs`'s own header forbids — "recording a
-*fault* on it would blame a working install for a driver query" — made one layer
-up, where nothing was looking. `device=` gets this right and reports
-`cuda_unverified`; the integrity comparison collapses it.
+**`cublasLt` was the unverified half of the item and it turned out to matter
+most.** The standing explanation — cuBLAS loads it at run time — is now measured,
+and the *shape* of its failure is the finding: a gate that concluded "the worker
+started, so its libraries are fine" would have passed that payload and lost a
+dictation half a minute later. That is the argument for the check being a
+precondition, and nothing had stated it.
 
-Reachable when NVML stops answering on a machine where setup proved `cuda`: a
-driver update mid-session, or NVML being unavailable to the app's own token. Not
-reachable on any release today, because no release can record `cuda`.
+`cudart` stays enforced although it is never loaded, and the reasoning is
+written where it can be found: `CMAKE_CUDA_RUNTIME_LIBRARY` is one build flag
+from making it load-bearing again with nothing noticing, and every file this
+catalog requires is a file it pins by digest — the property that lets presence
+imply provenance. The cost is 551 KB and a refusal no published payload can
+trigger, since the worker and its libraries ship as one artifact. What was wrong
+was the *claim*, and the three places that made it (`granite_gpu.rs`'s header,
+its `CUDA_RUNTIME_ARTIFACT_IDS` doc, `runtime_wizard.rs`) plus
+`ARCHITECTURE.md` now say what was measured.
 
-The honest answer is a fifth `ProviderIntegrity` state meaning "recorded as the
-graphics card, and this run could not be checked", which is neither `ok` nor a
-fault. That needs copy, so it needs the owner. Do not fold it into `Matches`
-either: that would claim agreement nothing verified, which is the same mistake
-pointing the other way.
+### 10. An unprovable context reported the actionable fault — done 2026-08-21
 
+A fifth `ProviderIntegrity` state, `GpuRecordUnconfirmed` /
+`gpu_record_unconfirmed`, approved by the owner with its copy. Not a fault, and
+deliberately not folded into `Matches` — that would claim an agreement nothing
+verified, which is the same mistake pointing the other way.
+
+The fix is a split rather than a new branch: `WorkerProvider::disproved_graphics_card`
+is now a separate question from `!proved_graphics_card()`, because three states
+exist and only two of them are answers. A binary with no CUDA backend cannot be
+on the card and NVML listing no context for this pid is the definitive negative;
+a probe that could not be asked, and a worker that never answered its handshake,
+prove nothing either way. Only the definitive negative is the fault.
+
+The verdict and the device now agree by construction, and
+`only_a_definitive_processor_run_may_be_reported_as_the_fault` pins the
+correspondence across all five worker states rather than leaving two `match`
+arms that happen to line up. **Two existing tests asserted the old behaviour and
+argued for it in their comments** — "an installation that now cannot prove it is
+one whose card stopped being used" — and both were rewritten to say why that
+argument is wrong: what stopped is the query. All three were made to fail by
+restoring the collapsed arm.
 
 ## Decisions already made — do not re-open without new evidence
 

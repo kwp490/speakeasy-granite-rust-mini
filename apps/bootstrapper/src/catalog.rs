@@ -710,45 +710,63 @@ pub const UNINSTALL_REFUSED_RUNNING: &str = "SpeakEasy Mini is running, so its f
      dictation, then quit SpeakEasy Mini from its tray menu and try again. Nothing \
      has been removed.";
 
-/// The confirmation an interactive uninstall asks before removing anything.
+/// The uninstall page's title bar, heading and key line.
 ///
-/// Everything is named, and it is named *before* the deletion rather than
-/// reported after it. The per-item checkboxes are still not built; what replaced
-/// "this keeps everything, pass a flag to be thorough" is one question with the
-/// whole scope in front of it, which is the same principle the checkbox page was
-/// for — see `uninstall.rs`'s header for why the default is now a clean machine.
-///
-/// `unrecognised` is listed separately and last because it is the only part the
-/// user might not expect: files in `proof/` that this installer did not put
-/// there, which until 2026-08-21 survived every uninstall silently. Staged CUDA
-/// libraries are what that is today, and half a gigabyte is worth a sentence.
-pub fn uninstall_confirmation(unrecognised: &[String]) -> String {
-    // Listed from the same source the checkboxes will render from, so the two
-    // cannot end up describing different sets.
-    let removed = crate::uninstall::Removable::ALL
-        .iter()
-        .map(|item| format!("  - {}", item.label()))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut message = format!(
-        "Remove SpeakEasy Mini and everything it stores on this computer?\n\n\
-         The program will be removed, along with:\n{removed}\n"
-    );
-    if !unrecognised.is_empty() {
-        use std::fmt::Write as _;
+/// Its own title rather than `WINDOW_TITLE`: the same executable is the setup
+/// wizard and the uninstaller, and a window labelled "`SpeakEasy Mini setup`"
+/// asking to delete everything is the kind of mismatch someone dismisses
+/// without reading.
+pub const UNINSTALL_WINDOW_TITLE: &str = "Remove SpeakEasy Mini";
+pub const UNINSTALL_HEADING: &str = "Remove SpeakEasy Mini?";
 
-        // `write!` rather than `push_str(&format!(..))`: clippy's
-        // `format_push_string`, and it is right — the intermediate `String` is
-        // pure waste. Writing into a `String` cannot fail, so the result is
-        // discarded rather than propagated out of a function that returns copy.
-        let _ = write!(
-            message,
-            "\nAlso in the program folder, and not placed there by setup:\n  {}\n",
-            unrecognised.join("\n  ")
-        );
+/// What is not optional, above the checkboxes.
+///
+/// The program always goes; only user data is a choice. Saying so before the
+/// list is what makes the list mean "and also", rather than reading as the
+/// whole of what an uninstall does.
+pub const UNINSTALL_INTRO: &str = "The program will be removed. Also remove:";
+
+/// The line the page is really asking about.
+///
+/// [`Tone::Warning`], and last, immediately above the buttons: everything above
+/// it is a list of items and this is the sentence that says the list cannot be
+/// got back.
+pub const UNINSTALL_IRREVERSIBLE: &str = "This cannot be undone.";
+
+/// The button that does it, and the one that does not.
+pub const UNINSTALL_REMOVE: &str = "Remove";
+pub const UNINSTALL_KEEP_EVERYTHING: &str = "Cancel";
+
+/// Heads the list of files in `proof/` that setup did not put there.
+pub const UNINSTALL_UNRECOGNISED: &str =
+    "Also in the program folder, and not placed there by setup:";
+
+/// A checkbox label with the space it is holding, e.g. `Downloaded speech
+/// models (2.1 GB)`.
+///
+/// Only the models item gets one. It is the only entry whose cost is both large
+/// and invisible, and four kilobyte-sized figures beside it would bury the one
+/// worth reading. The figure is **measured** at page-build time by
+/// `uninstall::measure` — the label this descends from named "about 2.3 GB" for
+/// a downloaded runtime this fork never had, which is what a written-down size
+/// eventually becomes.
+pub fn removable_label_with_size(label: &str, bytes: u64) -> String {
+    // Decimal GB, matching what Explorer's "Size on disk" column and every
+    // download page a user has seen would say for the same files. Below a
+    // gigabyte the same rounding would print `0.1 GB` for a hundred megabytes,
+    // so the smaller unit takes over.
+    const GB: f64 = 1_000_000_000.0;
+    const MB: f64 = 1_000_000.0;
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a display figure rounded to one decimal; the loss is far below the rounding"
+    )]
+    let bytes = bytes as f64;
+    if bytes >= GB {
+        format!("{label} ({:.1} GB)", bytes / GB)
+    } else {
+        format!("{label} ({:.0} MB)", (bytes / MB).max(1.0))
     }
-    message.push_str("\nThis cannot be undone. Choose No to keep everything and remove nothing.");
-    message
 }
 
 /// Shown when the user declines the confirmation above.

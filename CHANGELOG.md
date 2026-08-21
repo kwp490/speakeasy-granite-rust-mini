@@ -57,9 +57,11 @@ all three together when a release is actually cut.
   contents. It kept all of that by default before, inherited from the NSIS
   installer it replaced, so a user who asked the product to go was left with
   2.14 GB of models and a settings tree and told it had been removed.
-- **It asks once first**, with every category named and with anything in the
-  program folder that setup did not place there listed separately. The focused
-  button is No.
+- **It asks once first, on one page**, with a check box per category, every box
+  checked, and anything in the program folder that setup did not place there
+  listed separately. The page is the confirmation — nothing follows it — and its
+  Remove button is the focused one. The downloaded models are the one entry that
+  names how much space they are using, measured rather than written down.
 - **`--keep-user-data` is the opt-out**, and is a testing affordance for repeated
   install/uninstall cycles rather than a user-facing choice. `--remove-all` is
   refused rather than silently accepted, because it named the behaviour that is
@@ -68,6 +70,21 @@ all three together when a release is actually cut.
   They were, on the reasoning that an unrecognised file there was probably a
   large on-demand download — a download this product has not had since the
   streaming engine was removed.
+
+### Two claims the app could not support — 2026-08-21
+
+- **The engine line no longer contradicts itself.** On a machine with a
+  graphics-card engine, Settings read `Dictation runs on: Graphics card (GPU) —
+  ... so the processor model is being used.` The device was right and the reason
+  was right; the sentence was false. The reason is now its own sentence and every
+  one of them describes what the installation includes rather than what is
+  running, so the two halves can no longer disagree.
+- **A driver that will not answer is no longer reported as a fault.** Where the
+  installation was recorded as using the graphics card and this run could not be
+  checked, the app said dictation was "running on the processor instead" — a
+  claim about a device on evidence that establishes none. That case now has its
+  own disclosure saying what is actually known, and only a definitive negative is
+  reported as something to act on.
 
 ## 1.4.2 — 2026-08-19
 

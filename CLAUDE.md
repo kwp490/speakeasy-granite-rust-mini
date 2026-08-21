@@ -214,6 +214,27 @@ Every one of these produced a plausible, wrong result rather than an error.
   made non-focusable at startup, and a scaffold test asserts it. Any new window
   or spawned process is a candidate — check the foreground after launch, not
   just that the app looks right.
+- **A staged CUDA worker does not survive `npm run tauri -- dev`.**
+  `beforeDevCommand` runs `Stage-DevRuntime.ps1`, which copies the CPU worker
+  over `target/debug/proof/granite-worker.exe` — so a dev launch silently reverts
+  a worker staged there and the app then reports `device=cpu`, which reads as a
+  regression in whatever you were about to test. Measured 2026-08-21: 57,042,432
+  bytes became 4,333,568. It also breaks the three `granite_engine` hardware
+  tests, which read that same path, without failing them. Restore the worker and
+  start `npm run dev` and `target/debug/ai-speakeasy-mini.exe` separately when
+  the graphics-card path is what you are looking at. This is the same shape as
+  `Enable-GraniteCuda.ps1` reverting on reinstall, one directory over.
+- **The three CUDA libraries fail in three different ways, and one of them never
+  loads at all.** Measured 2026-08-21 with the toolkit stripped from `PATH`,
+  which is the only way to ask the question on a machine that can build the
+  worker: deleting `cublas64_13.dll` stops the process before `main`, deleting
+  `cublasLt64_13.dll` lets it start, load two gigabytes of weights and fail
+  **~36 s later** at the first matmul with `AdapterFailed`, and deleting
+  `cudart64_13.dll` does nothing at all — the worker transcribes and NVML
+  confirms the context, because ggml links the CUDA runtime statically on
+  Windows. So the catalog's requirement list is a deliberate superset, and the
+  late failure is why the check is a *precondition* rather than something
+  inferred from a worker that came up.
 - **Never default llama.cpp threads to the logical processor count.** On a
   32-logical i9, 32 threads measured ~4x slower than 4. The default is
   `(available_parallelism / 2).clamp(1, 8)`, and 16 threads reproducibly
@@ -645,15 +666,24 @@ Every one of these produced a plausible, wrong result rather than an error.
   means the same thing and losing a word to punctuation would be indefensible —
   and the count comes from the same parse that writes the seed, so it cannot
   describe a list the file disagrees with.
+- **The uninstall page is the confirmation, and its Remove button is focused.**
+  Owner decision 2026-08-21, and it inverts the earlier reading. One page, a
+  check box per `Removable`, every box checked, no dialog behind it — a second
+  prompt re-asking what the page just asked teaches people to press Enter twice.
+  `BS::DEFPUSHBUTTON` makes a button the *default* and does not focus it:
+  measured here, removing the explicit `SetFocus` puts the focus on the heading
+  static. Only the models entry names a size, and `uninstall::measure` walks the
+  same path table the deletion does, so the figure cannot describe one set of
+  files while another is removed.
 - **An uninstall leaves nothing, and keeping things is a testing flag.** Owner
   decision 2026-08-21, inverting the inherited `/SD IDYES` default. `--uninstall`
   removes the program directory whole *and* the profile — settings, transcript
   history, the 2.14 GB of weights, recovery backups, logs — and removes the
   directories themselves, not just their contents. `--keep-user-data` is the
   opt-out, and exists so an install/uninstall cycle does not re-download the
-  weights; both proof scripts pass it. The interactive path **asks first**, with
-  the whole scope named and any unrecognised files in `proof/` listed, and the
-  dialog's focused button is **No**. `--remove-all` is gone and is deliberately
+  weights; both proof scripts pass it. The interactive path **asks first**, on the
+  page described above, with any unrecognised files in `proof/` listed.
+  `--remove-all` is gone and is deliberately
   not accepted as an alias: it named the thorough behaviour, that behaviour is now
   the default, and a flag meaning "do what you were going to do anyway" lets a
   caller keep believing it is choosing. `Removals::default()` still selects

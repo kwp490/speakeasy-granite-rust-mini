@@ -103,9 +103,18 @@ with the configuration setup recorded at install time. The same three fields are
 in the diagnostic log as `granite_warm … device= installed= provider=`.
 
 `provider=gpu_install_not_operational` is the one that needs action: setup proved
-a graphics-card installation and this run is on the processor. Dictation still
-works and the transcript is unaffected — the same model file runs on either
-device — so this is a speed and provisioning fault, not a broken engine.
+a graphics-card installation and this run is **provably** on the processor — the
+worker has no graphics-card backend, or the driver answered and did not list it.
+Dictation still works and the transcript is unaffected — the same model file runs
+on either device — so this is a speed and provisioning fault, not a broken
+engine.
+
+`provider=gpu_record_unconfirmed` looks similar and is not the same thing: setup
+proved a graphics-card installation and **this run could not be checked**,
+because the driver did not answer or the worker never completed its handshake.
+Nothing is known to be wrong, and the engine is most likely on the card. The
+verb below is the way to settle it; if it persists, update the graphics driver
+first.
 
 ```text
 speakeasy-bootstrapper --verify-provider
@@ -147,8 +156,12 @@ speakeasy-bootstrapper --uninstall /S --keep-user-data
 plus settings, transcript history, the downloaded models, recovery backups and
 the diagnostic log — and removes the directories themselves, not just their
 contents. The first form asks once before doing any of it, with every category
-named and with any files in the program folder that setup did not place there
-listed separately; the focused button is No. `/S` cannot ask and so proceeds,
+named as a check box — every box checked — and with any files in the program
+folder that setup did not place there listed separately. **That page is the
+confirmation**: nothing follows it, and its Remove button is the focused one, so
+Enter removes. Cancel, the close box, and a window that could not be drawn all
+mean remove nothing. The downloaded-models box names how much space it is
+holding, measured at the time the page is drawn. `/S` cannot ask and so proceeds,
 which is a caller asserting it already knows.
 
 `--keep-user-data` keeps the profile and still clears the program directory. It

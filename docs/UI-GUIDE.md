@@ -120,14 +120,39 @@ four values are `cpu`, `cuda`, `cuda_unverified` (a graphics-card engine whose
 context could not be confirmed — neither of the other two would be true) and
 `unknown` (a worker that never answered its handshake).
 
-Beneath it, and **only when it says something**, sits the provider-integrity
-line: shown for `gpu_install_not_operational`, which is the actionable fault and
-carries what to do about it, and for `running_beyond_record`, which is not a
-fault and says so. `ok` and `unrecorded` have no copy at all — a line that
-appears on every launch to confirm nothing is wrong is a line people stop
-reading, and the requirement is to never *hide* the provider, not to narrate it.
-Whether an outcome is a fault is decided in Rust and sent as a boolean, so the
-page cannot classify it differently from the enum that defines it.
+**The reason is its own sentence, and it never asserts a device** (2026-08-21).
+It used to hang off the device line after an em-dash, and on a machine with a
+graphics-card worker staged the page read, verbatim: `Dictation runs on:
+Graphics card (GPU) — this computer's graphics card is supported, but the
+graphics-card model is not installed, so the processor model is being used.` The
+device was right and the reason code was right; the *sentence* was false, because
+a reason about the pack and a device are two facts that disagree on exactly that
+machine — which `ARCHITECTURE.md` had predicted and nobody had looked at the
+rendering of. Both halves were fixed, because either alone leaves the trap:
+every `engineReasons` string now describes what the **installation includes**,
+and the page renders it in its own element rather than joining it to the device.
+Dropping the reason instead was rejected — it is the load-bearing half on an
+ordinary machine, where "running on the processor" reads identically whether
+there is no graphics card or a good one whose model was never installed.
+
+Beneath them, and **only when it says something**, sits the provider-integrity
+line. Three of the five states have copy: `gpu_install_not_operational`, the
+actionable fault, which carries what to do about it; `running_beyond_record`,
+which is not a fault and says so; and `gpu_record_unconfirmed`, added 2026-08-21,
+for a graphics-card record this run could not check. `ok` and `unrecorded` have
+no copy at all — a line that appears on every launch to confirm nothing is wrong
+is a line people stop reading, and the requirement is to never *hide* the
+provider, not to narrate it. Whether an outcome is a fault is decided in Rust and
+sent as a boolean, so the page cannot classify it differently from the enum that
+defines it.
+
+**A driver that will not answer is not a fault.** `gpu_record_unconfirmed` exists
+because the fault above used to swallow it, and the fault's copy says dictation
+"is running on the processor instead" — a claim about a device, made on evidence
+that establishes no device at all. `device=` had this right the whole time and
+reported `cuda_unverified`; it was the comparison one layer up that collapsed the
+three answers into two. Folding it into `ok` was rejected for the mirror-image
+reason: that would claim an agreement nothing verified.
 
 **All four device values have now been produced on hardware** (2026-08-21, RTX
 4070 Laptop GPU): `cuda` against a real driver, `cuda_unverified` against a
@@ -281,21 +306,34 @@ is where the claims are easiest to overstate:
   time, and both proof scripts pass it.
 
   The interactive path — which is what the Add/Remove Programs entry invokes —
-  **asks once, with the whole scope in the question**. Every category is named
-  before anything is deleted, and files in `proof/` that setup did not put there
-  are named separately and last, because they are the part a user cannot predict:
-  today that is `Enable-GraniteCuda.ps1`'s staged CUDA libraries, and until
-  2026-08-21 they survived every uninstall silently. The focused button is **No**.
-  That is deliberately not the same as the eventual checkbox page's default,
-  which is to remove: what is *selected* when someone reads a page and what
-  happens when someone presses Enter without reading are different questions, and
-  this one cannot be undone. A silent run cannot ask and so proceeds — `/S` is a
-  caller asserting it already knows.
+  **asks once, on one page, with the whole scope on it**. A check box per
+  removable item, every box checked, rendered from `Removable::ALL` so a sixth
+  thing the uninstaller learns to remove cannot become a thing the page forgets
+  to offer. Files in `proof/` that setup did not put there are named separately
+  and last, because they are the part a user cannot predict: today that is
+  `Enable-GraniteCuda.ps1`'s staged CUDA libraries, and until 2026-08-21 they
+  survived every uninstall silently. A silent run cannot ask and so proceeds —
+  `/S` is a caller asserting it already knows.
 
-  The per-item checkbox page is still not built. One confirmation carrying the
-  full scope is the same principle it was for, and it is what makes inverting the
-  default safe: the destructive answer is only taken where somebody was there to
-  see it named.
+  **The page is the confirmation, and its Remove button is focused** (owner
+  decision, 2026-08-21). Nothing follows it: a second dialog re-asking what the
+  page just asked is the sequential-prompts-answered-blind shape the page exists
+  to replace, and it teaches people that the way through an uninstaller is to
+  press Enter twice. `BS::DEFPUSHBUTTON` alone does not focus a button — measured
+  here, with the explicit `SetFocus` removed the focus lands on the heading
+  static — so the focus is forced on the first paint and only then. `Cancel`, the
+  close box, and a window that could not be drawn all mean remove nothing,
+  because a page nobody saw is not consent.
+
+  **Only the models entry names a size, and the size is measured.** It is the one
+  item whose cost is large and invisible; four kilobyte figures beside it would
+  bury the one worth reading. `uninstall::measure` walks the same path table the
+  deletion uses, so the figure cannot describe one set of files while another is
+  removed. The label this descends from said "about 2.3 GB" for a downloaded
+  runtime this fork never had, which is what a written-down size eventually
+  becomes. Measured on this machine at 250%, the page is 480x398 logical and
+  every control fits its box, the models row reading
+  `Downloaded speech models (2.3 GB)`.
 - **A progress bar that is not moving must say why it is not moving.** The
   download step has three phases and only one of them advances a bar:
   transferring, re-checking a file that was already downloaded, and unpacking.
