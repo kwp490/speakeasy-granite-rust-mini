@@ -214,6 +214,18 @@ Every one of these produced a plausible, wrong result rather than an error.
   made non-focusable at startup, and a scaffold test asserts it. Any new window
   or spawned process is a candidate — check the foreground after launch, not
   just that the app looks right.
+
+  **The mirror image of this has no error code at all**, and it is the common
+  case on a CPU install. The foreground is read when the dictation *finishes*, so
+  the exposure is however long inference takes: measured 2026-08-25, **4.2 s on
+  the card and 44.5 s on the processor** for a full-length dictation. Any window
+  the user moves to inside that gap receives their transcript, with
+  `integrity=Equal result=committed` and nothing in the log to distinguish it
+  from a correct delivery. It caught the session that was measuring it — the
+  owner stopped speaking, switched windows to report back, and both processor
+  transcripts landed there rather than in the prepared target. On the processor
+  44 s is long enough that moving on is the *reasonable* thing to do, so treat a
+  "delivery went to the wrong application" report as a timing question first.
 - **A staged CUDA worker does not survive `npm run tauri -- dev`.**
   `beforeDevCommand` runs `Stage-DevRuntime.ps1`, which copies the CPU worker
   over `target/debug/proof/granite-worker.exe` — so a dev launch silently reverts
@@ -273,14 +285,28 @@ Every one of these produced a plausible, wrong result rather than an error.
   rather than as an antivirus. Unsigned is normal for official Rust, so
   `Get-AuthenticodeSignature` proves nothing here. Check the bin directory for a
   missing `.exe` beside a surviving `.pdb` before believing anything else.
-- **Granite's `max_new_tokens` is a silent ceiling.** The generation loop stops
-  on reaching it with no error, no end-of-generation token, and nothing that
-  distinguishes "the model finished" from "the model was cut off mid-clause".
-  The old default of 512 was closer to biting than anyone had checked: a 120 s
-  clip needs ~400 tokens for its 312 words, and a 4-minute dictation would have
-  lost roughly a third of itself. The shipped value is 2048. Nothing downstream
-  catches a truncation, because it is *precise* — the plausibility gate only
-  looks for transcripts that are too long.
+- **Granite's `max_new_tokens` is a silent ceiling — and it is currently
+  unreachable, which is the trap.** The generation loop stops on reaching it with
+  no error, no end-of-generation token, and nothing that distinguishes "the model
+  finished" from "the model was cut off mid-clause". Nothing downstream catches a
+  truncation, because it is *precise* — the plausibility gate only looks for
+  transcripts that are too long.
+
+  All of that is true and none of it can happen today. `max_new_tokens` is 2048;
+  `MAX_CAPTURE_SECONDS` is **120**, which is ~310 words, which is **~400
+  tokens**. A fifth of the budget. The longest utterance this product can make
+  does not come close, confirmed 2026-08-25 by a 120.183 s dictation that
+  transcribed complete with a six-word tripwire intact.
+
+  Two things follow. **The hazard is latent, not absent**: raising the capture
+  ceiling makes it reachable, and `capture_wizard.rs` already records wanting
+  thirty minutes — which is ~4,600 tokens and would truncate silently at about
+  nine minutes. Nothing in the tree ties the two constants together, so **raise
+  `max_new_tokens` with any ceiling increase**. And **do the division before
+  inheriting a risk**: the reasoning that carried this entry cited "a 4-minute
+  dictation would have lost roughly a third of itself" alongside the correct
+  ~400-tokens-per-120 s figure, and a four-minute dictation cannot be recorded.
+  Both numbers were right; nobody divided one by the other for months.
 - **Assert whole transcripts for ASR, never a prefix or substring.** A
   `contains("ever tried")` assertion went green here on a transcript missing a
   third of the utterance. This is also why the installer's engine smoke test
@@ -448,6 +474,19 @@ Every one of these produced a plausible, wrong result rather than an error.
   and verified by name in the window title, never just a window owned by the
   right process.
 
+  **And the pid you launch is not the pid that owns the window.** Notepad is a
+  packaged app: `Start-Process notepad.exe -PassThru` returned pid 68176, which
+  **exited immediately** after handing off to pid 44992, so
+  `$np.MainWindowTitle` read empty and `$np.MainWindowHandle` read 0 — which is
+  indistinguishable from a window that failed to open, and defeats the title
+  check the rule above depends on. Enumerate `Get-Process notepad` and match on
+  the title instead. Two related details from 2026-08-25: create the file with
+  `[IO.File]::WriteAllText($p, '')` rather than `Set-Content -Value ''`, which
+  writes a newline and leaves a leading CRLF that reads as the app prepending
+  one to the transcript; and check the foreground **before** synthesising
+  `Ctrl+S`, because `SetForegroundWindow` fails silently from a background
+  process and the keystroke then lands in whatever the user is actually using.
+
 - **A safety rule can outlive the danger it was written for, and then it only
   does harm.** `proof/` was emptied *selectively* — this installer's own files by
   name, everything else spared — on the recorded argument that an unrecognised
@@ -547,6 +586,18 @@ Every one of these produced a plausible, wrong result rather than an error.
   it now go through `readWithRetry` (2026-08-20). When an answer "did not
   arrive", check the disk *and* the window; they are two different failures with
   one symptom.
+
+  **The sweep stopped at one file, and the next occurrence is worse.** Only
+  `Transcription.tsx` was converted, so `readWithRetry.ts` has exactly one
+  importer — and `General.tsx` still reads `hotkey_status` with a bare `invoke`,
+  no rejection handler, rendering `hotkey?.registration ?? "pending"`. Found
+  2026-08-25: Settings reported **"Shortcut not registered yet"** for the life of
+  the process while `hotkey_status`, invoked directly against that same window,
+  returned `registration: "registered"` and dictation worked twice. An empty list
+  is a passive wrong answer; this one tells the user a working feature is broken,
+  in the panel they opened *because* it seemed broken, and the remedy it implies
+  — press "Save hotkey" to re-register — fixes a problem they do not have. When
+  fixing a race in one reader, grep for every other reader of the same shape.
 - **A merge keyed on positional ids fails closed on the whole batch.** Setup's
   words become dictionary entries named `installer-0`, `installer-1`, … *by
   position*, and an uninstall run with `--keep-user-data` keeps
@@ -672,6 +723,17 @@ Every one of these produced a plausible, wrong result rather than an error.
   reads the device; the disclosure used to read the pack. Measured on an RTX 5090: Granite
   Q4 resident run 1,571.9 ms on CPU versus 156.4 ms on CUDA, RTF 0.158 versus
   0.0157, holding ~3.27 GiB of VRAM.
+- **On real speech the card is 9.34x the processor, and inference is 98% of the
+  latency.** The first non-harness numbers this product has, measured 2026-08-25
+  on an installed release build, RTX 4070 Laptop: a 105.2 s dictation was
+  **4,171 ms** of inference (RTF 0.0396) and **4,246 ms** press-to-paste, against
+  **44,493 ms** (RTF 0.3702) for a 120.2 s dictation on the processor. The 6.42 s
+  fixture predicted 8.1x, so it is a fair guide and errs optimistically about the
+  processor. Press-to-paste is 54 ms of queueing, then inference, then 21 ms to
+  inspect the foreground and paste — so **no latency argument that is not about
+  inference is worth having**. Two caveats that keep this honest: the two runs are
+  different recordings, so only RTF compares across them, and this says nothing
+  about the byte-identical claim, which needs one WAV through both workers.
 - **Q4_K_M is the shipped quantization**, chosen on measurement rather than by
   decision: ~21% faster than Q8_0 on a 120 s utterance with an identical
   transcript but for one punctuation choice. Q8_0 stays in the catalog as the

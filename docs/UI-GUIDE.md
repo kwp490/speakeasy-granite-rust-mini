@@ -345,6 +345,18 @@ is where the claims are easiest to overstate:
   on the delivering branch, so a capture that ended in failure ended in silence
   and the user kept talking to a microphone that had stopped listening.
 
+  **Confirmed by ear on 2026-08-25**, on a real ceiling stop at 120,183 ms in an
+  installed release build — the first time anyone had heard it rather than
+  asserted it. The **notice window is still unconfirmed**: it auto-dismisses
+  after 15 s and nobody was watching for it when the ceiling fired.
+
+  What that run also showed is that the cue arrives a long way ahead of the
+  text. On the processor, inference on a full-length dictation is ~44 s, so the
+  sequence a user experiences is cue, notice, then three quarters of a minute of
+  nothing before the transcript lands. A stop press in that gap is not a no-op —
+  it starts a new dictation, which then queues behind the first. Observed 490 ms
+  after the ceiling fired, which is where a habitual second press falls.
+
   The **notice is its own window** (`notice`, 360x172 logical, always on top,
   `focus: false`, placed beside the dock). It is not a dock glyph because the
   dock is 62 px wide and cannot hold a sentence; it is not a Windows toast

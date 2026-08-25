@@ -5,16 +5,24 @@ cost you an afternoon if you rediscover them yourself.
 
 Read `CLAUDE.md` first. This file assumes it.
 
-> **Picking this up cold?** Items 0, 0b, 8, 9 and 10 are all **done** — read them
-> for what they found, not for what to do. Every open item left needs the owner
-> rather than an agent: **item 3** (publishing the CUDA worker, deliberately
-> deferred past 1.5.0) and **item 1b** (a real dictation on an installed release
-> build, which needs a person and a microphone). Item 2b is the release itself.
+> **Picking this up cold?** Items 0, 0b, 1b, 8, 9 and 10 are all **done** — read
+> them for what they found, not for what to do. The one open item left needs the
+> owner rather than an agent: **item 3** (publishing the CUDA worker,
+> deliberately deferred past 1.5.0). Item 2b is the release itself.
 >
 > The three findings item 0 produced were all closed on 2026-08-21, and two of
 > them were closed by *measuring* rather than reasoning: `cudart64_13.dll` is
 > genuinely never loaded and `cublasLt64_13.dll` genuinely is, both proved by
 > deleting them.
+>
+> **Item 1b closed on 2026-08-25 and produced six findings of its own** — items
+> 11 to 16, of which **14 is the only outright defect** and the rest are a
+> retired risk, two documentation errors and two honest behaviours nobody had
+> written down. The single most
+> useful thing it settled is arithmetic rather than a measurement: the
+> `max_new_tokens` truncation this repository has been hunting since the fork is
+> **unreachable through the hotkey path**, because the capture ceiling caps a
+> dictation at roughly a fifth of the token budget. Item 11.
 
 ## Start here
 
@@ -40,6 +48,7 @@ predicted:
 | --- | --- |
 | Full gate | passes end to end |
 | A real dictation | delivered, `hotkey_delivery result=committed` (2026-08-18) |
+| **A real dictation, measured** | **done 2026-08-25, both providers.** Card: 105.2 s of speech, press-to-paste **4,246 ms**, RTF 0.0396. Processor: a 120.183 s ceiling stop, inference 44.5 s, RTF 0.3702 — **9.34x** the card. No truncation either run; the ceiling cue confirmed by ear |
 | Installer lifecycle | `Test-InstallerLifecycle.ps1` passes, including the single-file path |
 | **The wizard, end to end** | `Test-SetupWizard.ps1` passes: eight pages, real install, engine check, launched app |
 | Setup's engine check | transcribes the bundled clip through the real worker in ~5 s |
@@ -936,6 +945,113 @@ unaffected. `chunks_exact_to_as_chunks` is new in 1.98 and applied to four PCM
 decoders; `Enter-DevEnvironment.ps1`, `Invoke-ScaffoldChecks.ps1`, `Cargo.toml`,
 `CONTRIBUTING.md` and `TESTING-ON-WINDOWS.md` all moved with it.
 
+## What happened on 2026-08-25 (sixth session)
+
+A person read a prepared passage into an installed release build, twice — once
+on the graphics card, once on the processor. That had never been done. Every
+latency figure in this repository came from a test harness until this session,
+and the two things everybody expected to find were both absent while four
+things nobody was looking for turned up instead.
+
+### The numbers, on real speech
+
+Both runs read the same 230-word passage, deliberately invented so that a
+fluent transcript could not pass by reciting something the model already knew —
+the detached-audio-projector failure presents exactly as confident, unrelated
+prose. Reading a famous text would have made a correct-looking transcript
+worthless as evidence.
+
+| | Card | Processor |
+| --- | --- | --- |
+| Audio captured | 105.248 s | 120.183 s (ceiling) |
+| Inference | **4,171 ms** | **44,493 ms** |
+| RTF | **0.0396** | **0.3702** |
+| Press-to-paste | **4,246 ms** | n/a — the ceiling ended it |
+| Delivery | `committed`, into the intended target | `committed`, into the *wrong window* — item 13 |
+
+**The processor is 9.34x slower than the card**, against the 8.1x the 6.42 s
+fixture predicted. Close enough that the fixture is a fair guide, and the
+direction of the error is worth knowing: the fixture was optimistic about the
+processor. RTF is the only figure here that survives the two runs having
+different audio, because it normalises for duration.
+
+The full decomposition of the card's press-to-paste, which is the first
+end-to-end number this product has ever had: 54 ms from the stop press to the
+finalisation job starting, 4,171 ms of inference, 21 ms to inspect the
+foreground window and paste. Inference is 98% of it. Nothing else is worth
+optimising until that is.
+
+### Neither expected failure happened
+
+**No truncation, either run.** The passage ended in six arbitrary words —
+`pelican, brickwork, Tuesday, ninety-one, verdigris, and stop` — as a tripwire,
+because a truncation is *precise* and plausible and the plausibility gate only
+looks for transcripts that are too long. All six words arrived both times. See
+item 11 for why this was never going to fail, which is the finding.
+
+**Granite did not answer the prompt.** The passage contained a direct question
+(*"Does any of that sound plausible to you?"*) as bait for the one failure
+`is_plausible` still guards. Both runs transcribed the question. The guard was
+never exercised, so it remains untested against a real occurrence.
+
+### The transcripts, judged
+
+90.0% (card) and 91.3% (processor) exact word match, but the raw figure
+understates the result badly, because most of the difference is **normalisation
+that a dictation product should do**: `twenty-fifth` to `25th`, `forty-two` to
+`42`, `ninety-one` to `91`. The card turned "one thousand six hundred pounds"
+into `£1,600`, inferring the currency and moving it to a prefix symbol.
+
+The real errors fall into three classes, and the third is the one that matters.
+
+- **Invented proper nouns**, expected and uninteresting: `Halloway` became
+  `Holloway` both times.
+- **Punctuation and structure.** A spoken comma-separated list came back with
+  its items capitalised like proper nouns and its commas missing — entirely on
+  the card, partly on the processor. The card also moved a sentence boundary in
+  a way that changes the meaning: "to build a causeway instead. It was never
+  built" became "to build Causeway. Instead, it was never built". A reader
+  cannot detect that as an error, because both readings are grammatical.
+- **A corrupted number.** The processor rendered "one thousand six hundred
+  pounds" as **`£1,1600`**. This is the most dangerous single error either run
+  produced and it is a different kind from the others: a wrong *figure* wearing
+  valid formatting. Fluency review cannot catch it, `is_plausible` cannot catch
+  it, and the user has no reason to doubt it. Nothing in this product guards a
+  number.
+
+### What this session cannot claim, and why it is worth writing down
+
+The two providers agreed on 94.7% of words, and **that number must not be read
+as a determinism comparison.** The passage was read twice by a person, so the
+audio differed — 105.2 s against 120.2 s — and some differences plainly track
+the speech rather than the hardware ("gives *us* the cost" is most likely what
+was said). `ARCHITECTURE.md`'s **byte-identical on both devices** claim was
+established by pushing one fixed WAV through both workers, which is a different
+and still-valid experiment. This session neither confirms nor contradicts it,
+and a future reader finding two provider transcripts side by side in this file
+would be entitled to think otherwise unless told.
+
+Doing it properly needs the same audio through both providers, which is what
+the fixture test already does. There is no way to get it from a microphone.
+
+### The ceiling fired for real, and the cue was heard
+
+The processor run overran two minutes. `dictation_ceiling_stop result=delivering
+state=captured code=none **quality=none**` at 120,183 ms — 183 ms past the
+ceiling, matching the 176 ms of the original user report closely enough to
+confirm the same path.
+
+That line is the 1.5.1 fix confirmed against reality rather than against a test.
+This was a genuine maximum-length dictation; under 1.5.0 it would have read
+`quality=capture_byte_limit`, `capture` would have returned `Err`, and the whole
+two minutes would have been destroyed. The byte limit at 128 MiB now binds at
+~233 s, far outside a ceiling it used to bind 3.5 s inside.
+
+**The stop cue was confirmed by ear** — owner report, 2026-08-25. That closes
+the one thing the fifth session shipped without being able to verify. The notice
+window was *not* confirmed either way and stays unverified; it auto-dismisses
+after 15 s and nobody was watching for it.
+
 ## What is outstanding
 
 Ordered by what unblocks the most.
@@ -1215,12 +1331,38 @@ logged `granite_warm result=ok`. What still has not happened on one is a
 this file is therefore still from a dev build. The pinned log window and a long
 dictation remain from this item too.
 
-### 1b. A real dictation on an installed build — needs the owner
+### 1b. A real dictation on an installed build — done 2026-08-25
 
-> **A ready-made opening message for this task is in
-> `docs/handoff/NEXT-SESSION-PROMPT.md`.** Paste it into a fresh session rather
-> than re-deriving the setup; it carries the machine state, the traps and the
-> watch-list.
+**Done, both providers.** The measurements, the transcript judgement and the six
+findings are in "What happened on 2026-08-25 (sixth session)" above; the four
+that are defects are items 11 to 14. The short version: press-to-paste on the
+card is **4,246 ms** for 105 s of speech, of which inference is 98%; the
+processor is **9.34x** slower; no truncation and no prompt-answering in either
+run; the ceiling fired for real with `quality=none` and its cue was heard.
+
+**Still unverified after this session**, stated plainly because the temptation is
+to read a successful run as covering more than it did:
+
+- **The notice window.** Never seen by anybody. It auto-dismisses after 15 s and
+  nobody was watching for it when the ceiling fired. The cue is confirmed; the
+  window is not.
+- **`is_plausible` against a real occurrence.** The bait question was
+  transcribed rather than answered, so the only guard left has still never had
+  to fire on real speech.
+- **Provider determinism on identical audio.** Not testable from a microphone at
+  all — see the caveat in the session section. The fixture test is the instrument
+  for this and it already exists.
+- **Any dictation on a machine that is not this one.** One rig, one microphone,
+  one voice, one accent, one passage.
+- **A dictation whose transcript contains a number the user relies on.** The
+  `£1,1600` error says this is the sharpest untested edge, and there is no guard
+  for it.
+
+The procedure below is left in place because it is the thing to repeat on the
+next machine, not because it is outstanding here.
+
+<details>
+<summary>The original procedure, for repeating this on another machine</summary>
 
 Nobody has spoken into an installed release build. Setup's engine check
 transcribes a bundled clip through the real worker, and the app warms and logs
@@ -1286,6 +1428,20 @@ A transcript that ends mid-clause is the one everybody is looking for and nobody
 has been able to produce. A transcript that is fluent, confident and *unrelated*
 to what you said is Granite answering the prompt instead of transcribing, which
 `is_plausible` is supposed to catch and which is the only guard left.
+
+</details>
+
+**Two corrections to the procedure above**, both found by running it on
+2026-08-25 and both left in place rather than edited out, because the reasoning
+that produced them is the interesting part:
+
+- **"Two to three minutes, continuously" cannot be done.** The capture ceiling
+  is 120 s, so a three-minute dictation is not a long recording — it is a
+  120 s recording plus a minute of talking to a stopped microphone. Aim at
+  ~115 s and size the passage for the reader's actual pace. Item 11 has the rest.
+- **Step 3's "with no integrity line beneath it" is unreachable.** Re-proving the
+  marker does not clear `running_beyond_record` and cannot, because the published
+  gate fails on every machine until item 3 ships. Item 12.
 
 ### 2. Finish the installer (`apps/bootstrapper`) — done 2026-08-19
 Everything this entry listed exists and is proven: the hardware probe, the
@@ -1655,6 +1811,193 @@ argued for it in their comments** — "an installation that now cannot prove it 
 one whose card stopped being used" — and both were rewritten to say why that
 argument is wrong: what stopped is the query. All three were made to fail by
 restoring the collapsed arm.
+
+### 11. The truncation everyone is hunting is unreachable — found 2026-08-25
+
+**Not a defect. A retired risk, and a warning about how it survived.**
+
+`max_new_tokens` is 2048 and the generation loop stops on reaching it with no
+error and no end-of-generation token, which is all true and is why this has been
+carried as a live hazard since the fork. What nobody did was compare it against
+the *other* limit. `MAX_CAPTURE_SECONDS` is 120. Two minutes of speech is around
+310 words, which is roughly **400 tokens** — a fifth of the budget. There is no
+utterance the hotkey path can produce that reaches the ceiling, because the
+thing that would have to be long is capped five times lower.
+
+Confirmed empirically as far as one run can: a 120.183 s capture, the longest
+this product can make, transcribed complete with a six-word tripwire intact.
+
+Two things follow, and the second is the reason this is written down rather than
+deleted.
+
+- **The hazard is real but latent.** It becomes reachable the moment
+  `MAX_CAPTURE_SECONDS` is raised, and `capture_wizard.rs` already documents
+  wanting thirty minutes once per-sample metadata stops being retained. Thirty
+  minutes is ~4,600 tokens and would truncate silently at about the nine-minute
+  mark. **Anyone raising the ceiling has to raise `max_new_tokens` with it**, and
+  nothing in the tree connects the two — no test, no comment, no assertion. That
+  is the actual finding.
+- **It survived because the arithmetic was never done.** The handoff prompt for
+  this session asked for "two to three minutes" of speech to approach a limit
+  that two minutes cannot reach, and reproduced the correct token estimate
+  (~400 tokens for a 120 s clip) directly above the claim, in the same
+  paragraph. Both numbers were right and nobody divided one by the other. A risk
+  register inherits its entries by copying; it does not re-derive them.
+
+### 12. `running_beyond_record` cannot be cleared on any machine — found 2026-08-25
+
+A locally staged CUDA worker reports `provider=running_beyond_record` **forever**,
+and re-proving the marker does not change it. `--verify-provider` answers
+`device=cpu evidence=gpu_worker_not_published`, because the first of the three
+gates asks whether a CUDA worker is *published* in the trusted manifest and
+`granite_gpu.rs` says of that variant, correctly, "Today this is every machine's
+answer."
+
+Nothing here is behaving wrongly — the disclosure is honest and is displayed as
+not-a-fault, which is exactly the design. What is wrong is the **documentation**,
+in two places that both told this session to expect an outcome the code cannot
+produce: item 1b step 3 offered "no integrity line beneath it if the marker was
+re-proved", and `Enable-GraniteCuda.ps1`'s own header says skipping the re-prove
+"is not neutral" and leaves the marker at `cpu` — implying that running it does
+not. It re-proves `cpu` either way.
+
+The re-prove is still worth doing, for the opposite reason: on `-Revert` it is
+what stops the marker manufacturing `gpu_install_not_operational`. That half of
+the script's reasoning holds. **Closing this is item 3**, and it closes on its
+own the moment a CUDA worker is published.
+
+### 13. Delivery follows the foreground at *completion*, and inference is long — found 2026-08-25
+
+Both processor transcripts were delivered into a window that was not the target,
+with `integrity=Equal` and `result=committed`. The app did nothing wrong: the
+target is whatever Windows reports as the foreground window at the moment a
+dictation *finishes*, which `ARCHITECTURE.md` states plainly.
+
+The finding is the size of the window that opens. On the processor, inference on
+a full-length dictation is **44.5 s**, so there are forty-four seconds between
+the user stopping speaking and the paste landing, and every window they touch in
+that time is a candidate delivery target. On the card the same exposure is
+4.2 s. This is not the `target_inspect_refused` hazard the traps list already
+covers — that is SpeakEasy Mini hijacking its own dictation, is detected, and
+falls back to the clipboard. This is a *successful* delivery into the wrong
+application, indistinguishable in the log from a correct one.
+
+It bit the session that was measuring it, which is the point: the owner stopped
+speaking, moved to another window to report back, and the transcript arrived
+there. On a CPU-only install this is the normal case rather than an edge one —
+44 s is long enough that moving on is the *reasonable* thing for a user to do.
+
+Nothing is proposed here. The behaviour may well be correct and the alternatives
+are worse (pasting into a window that has since closed, or holding text
+hostage). But it is not currently written down as a consequence of slow
+inference, and the two facts live in different documents.
+
+### 14. Settings permanently reports the shortcut as unregistered — found 2026-08-25
+
+`Settings -> General` reads **"Shortcut not registered yet"** while the shortcut
+is registered and working. Confirmed both ways on 2026-08-25: the panel said it
+for the life of the process, and `hotkey_status` invoked directly against the
+same window returned `binding: "Ctrl+Alt+P", registration: "registered",
+enabled: true`. Dictation then worked twice.
+
+`General.tsx` reads it with a bare `invoke<HotkeyStatus>("hotkey_status")` — no
+rejection handler, no retry — and renders
+`formatShortcutState(hotkey?.registration ?? "pending")`. Every window's webview
+loads while `setup` is still managing coordinators, so that read can be refused
+with "state not managed for field `state` on command …", and `hotkey` then stays
+`null` for the life of the process.
+
+**This is the 2026-08-20 defect in a second location.** That one was
+`personalization_status` showing an empty dictionary with three words on disk,
+and the fix was `readWithRetry`. Only `Transcription.tsx` was converted —
+`model_hardware` and `personalization_status` — and the sweep stopped there.
+`readWithRetry.ts` has exactly one importer.
+
+It is worse than the original in one respect and that is why it is written up
+rather than merely listed. An empty list says "you have no protected terms",
+which is wrong but passive. This says a working feature is broken, in the one
+panel a user opens *because* their shortcut appears not to work — and the
+remedy it implies, pressing "Save hotkey" to re-register, is a fix for a problem
+they do not have.
+
+The fix is a one-line change to the import and the call. It was deliberately not
+made in the session that found it, because that session's job was to measure a
+dictation and a UI change would have invalidated the build under test. **Check
+every other status read for the same shape while fixing it** — the lesson of the
+first occurrence was that one reader had carried a retry since the day the race
+was found and nothing else did.
+
+### 15. The habitual stop press after a ceiling stop starts a new dictation — found 2026-08-25
+
+Observed on the processor run. The ceiling stopped the capture at 120,183 ms;
+the owner pressed `Ctrl+Alt+P` **490 ms later** — the second press of a normal
+dictation, for a recording that had already ended — and that press opened a new
+one. It ran 6.875 s, was queued behind the first, waited **36.6 s** for it, and
+delivered its own transcript.
+
+```text
+event=dictation_ceiling_stop result=delivering state=captured code=none quality=none
+event=hotkey_capture_device_selected                <- 490 ms later, the user's stop press
+event=dictation_start result=ok                     <- a second dictation
+```
+
+Everything here is working as built. `on_event` toggles, the queue serialises so
+utterances cannot race, and both transcripts were delivered. There is no error to
+report and none was reported.
+
+What makes it worth an entry is the interaction with the timings above. The user
+who reaches the ceiling is by definition the user who was still talking, so a
+stop press is the *expected* next input, and it now costs them a spurious
+recording whose transcript is pasted wherever they happen to be up to a minute
+later. The notice window says the recording stopped, but it appears while the
+first transcript is still 44 s from arriving, so on the processor the sequence a
+user actually experiences is: cue, notice, silence, an unexpected second
+recording, then two pastes.
+
+Whether a press shortly after an automatic stop should be swallowed is an owner
+decision and is not proposed here. It is recorded because one run surfaced it
+immediately, which suggests most ceiling stops will hit it.
+
+### 16. Three true sentences that read as a contradiction — found 2026-08-25
+
+With the CUDA worker staged and NVML confirming a live compute context, Settings
+-> Transcription displayed, in this order:
+
+> Dictation runs on: Graphics card (GPU)
+>
+> This computer's graphics card is supported, but this installation includes only
+> the processor model.
+>
+> Dictation is running on the graphics card, which is more than this installation
+> was recorded as providing. Nothing is wrong — the graphics-card engine was
+> staged after setup ran.
+>
+> **The graphics-card engine is detected but has not passed its local execution
+> check yet.**
+
+Every sentence is true and the last one is deliberate, not stale.
+`GpuQualification::Admissible` means "clears the capability floor, nothing has
+been executed on it", `Qualified` means an execution test ran, and
+`is_qualified` exists precisely so that "should work" is never advertised as
+"has worked" — a distinction this codebase is right to draw and has drawn
+carefully. `coordinators.rs` records that the promotion from one to the other
+was removed rather than kept as something nothing could trigger, and that it
+"comes back with the CUDA worker, not before".
+
+The finding is only about the stack. A user reading four sentences, the first of
+which says dictation runs on the graphics card and the last of which says the
+graphics-card engine has not passed its check, is being asked to hold an
+internal distinction the panel never explains — and the honest middle sentence
+already told them nothing is wrong, which the last one then appears to withdraw.
+Granite *had* just executed on that card for 4.2 s, so the sentence is
+defensible only under a definition of "execution check" that means a formal
+smoke test rather than a dictation.
+
+Cheapest correct fix is probably to suppress the qualification line whenever the
+device line already reports `cuda`, since the two are then answering the same
+question with different vocabularies. Also item 3's dependency: a published
+worker restores the promotion and the sentence stops being reachable in this
+combination.
 
 ## Decisions already made — do not re-open without new evidence
 

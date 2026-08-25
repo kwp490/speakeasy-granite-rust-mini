@@ -1,123 +1,145 @@
-# Prompt for the next session — the first real dictation
+# Prompt for the next session — the status reads that lose their race
 
 Copy everything below the line into a new Claude Code session in
 `C:\Coding Projects\speakeasy-granite-rust-mini`.
+
+> **Superseded.** The previous version of this file staged the first real human
+> dictation (item 1b). That was done on 2026-08-25 on both providers and is
+> closed; its measurements and its six findings are in
+> `docs/handoff/CURRENT.md`. The task below is the one defect it turned up.
 
 ---
 
 You are picking up work on SpeakEasy Mini, a local-only Windows dictation app
 (Rust + Tauri 2 + React, all inference on-device) at
-`C:\Coding Projects\speakeasy-granite-rust-mini`, branch `main`, HEAD `a7e82e6`,
-released version **1.5.1**.
+`C:\Coding Projects\speakeasy-granite-rust-mini`, branch `main`, released
+version **1.5.1**.
 
-**This session is one task: get a real human dictation through an installed
-release build, on the graphics card, and write down what actually happens.**
-It needs me at a microphone, so you cannot do it alone — you are running the
-instruments and I am the voice.
+**This session is one task: fix the status reads that lose the startup race, and
+find every one of them.** It needs no microphone and no owner — unlike the last
+three sessions, you can finish this alone.
 
 ## Read first, in this order
 
 1. `CLAUDE.md` — orientation. "Traps that fail silently" and "Settled decisions"
-   are not optional; four traps were added on 2026-08-25.
-2. `docs/handoff/CURRENT.md` — start at the banner, then **item 1b**, which is
-   this task and already carries the procedure, the watch-list and the warnings.
-   Read "What happened on 2026-08-25 (fifth session)" too: the capture path
-   changed underneath this task and you need to know how.
-3. `docs/UI-GUIDE.md` § "The two-minute ceiling ends the recording out loud" and
-   § "Imperfect audio is delivered with a warning, never discarded".
+   are not optional.
+2. `docs/handoff/CURRENT.md` — the banner, then **item 14**, which is this task.
+   Read **item 11** too: it is the clearest example in the file of a wrong belief
+   surviving for months because nobody did the arithmetic, and this task has the
+   same shape.
+3. The trap in `CLAUDE.md` beginning "**An answer can reach disk and never reach
+   the screen**" — that is the first occurrence of this bug, from 2026-08-20.
 
-## Why this matters, and what is genuinely unknown
+## The defect
 
-Every latency figure in this repository comes from a test harness. A person has
-never spoken into an installed release build. Three things are unverified and
-only a real dictation can settle them:
+`Settings -> General` reports **"Shortcut not registered yet"** while the
+shortcut is registered and working. Confirmed both ways on 2026-08-25: the panel
+said it for the life of the process, and `hotkey_status` invoked directly against
+that same window returned `binding: "Ctrl+Alt+P", registration: "registered",
+enabled: true`. Two dictations then ran fine.
 
-- **Truncation.** Granite's `max_new_tokens` is 2048 and the generation loop
-  stops on reaching it with no error, no end-of-generation token, and nothing
-  that distinguishes "the model finished" from "the model was cut off
-  mid-clause". A 120 s clip needs roughly 400 tokens for 312 words, so a
-  full-length dictation is the first thing anyone will have run that gets within
-  sight of the ceiling. **Nothing downstream catches a truncation** — the
-  plausibility gate only rejects transcripts that are too *long*. I am the only
-  instrument, which is why I have to be reading along.
-- **Real end-to-end latency on the card.** Press-to-paste, on real speech, in
-  release. The only comparable numbers are a 6.42 s fixture (2,928 ms processor
-  vs 361 ms CUDA) and an RTX 5090 figure from a different machine.
-- **Whether the transcript is any good.** Punctuation and casing come from the
-  same single pass. Nobody has judged them on natural speech.
+`apps/desktop/src/settings/General.tsx` reads it with a bare
+`invoke<HotkeyStatus>("hotkey_status")` — no rejection handler, no retry — and
+renders `formatShortcutState(hotkey?.registration ?? "pending")`. Every window's
+webview loads while `setup` is still managing coordinators, so that read can be
+refused with "state not managed for field `state` on command …", and `hotkey`
+then stays `null` forever.
 
-## What changed on 2026-08-25 that you must not assume away
+This is the 2026-08-20 `personalization_status` defect in a second location. The
+fix there was `readWithRetry`, and **`readWithRetry.ts` still has exactly one
+importer** — `Transcription.tsx`, for two of its reads. The sweep stopped there.
 
-A user hit the two-minute ceiling and the recording was destroyed. Fixed in
-1.5.1, and the fix is what makes a long dictation worth attempting now:
+## Why this one matters more than the first
 
-- The buffer's byte limit used to bind at 116.5 s inside a 120 s ceiling, so
-  **every** maximum-length recording was discarded. `max_buffered_bytes` is
-  128 MiB now and a full-length capture reports `quality=none`.
-- Five of the six capture outcomes are annotations, not failures; only
-  `frames_buffered == 0` discards.
-- Reaching the ceiling now sounds the stop cue and shows a `notice` window.
-  **The audible cue has never been confirmed by ear** — that is a thing for me
-  to listen for, and worth capturing in this session.
+An empty dictionary list is a passive wrong answer: it says "you have no
+protected terms". This says a **working feature is broken**, in the one panel a
+user opens *because* their shortcut appears not to work — and the remedy it
+implies, pressing "Save hotkey" to re-register, fixes a problem they do not have.
+
+## What the task actually is
+
+The one-line fix is not the task. **Finding the others is.**
+
+1. Convert `General.tsx`'s read, matching how `Transcription.tsx` does it.
+2. **Enumerate every mount-time `invoke` in `apps/desktop/src` that reads state
+   from a coordinator**, and decide for each whether it can lose the race. The
+   lesson of the first occurrence was recorded as "one reader had carried a retry
+   since the day it was found and nothing else did" — and then the fix for the
+   second occurrence repeated it. Do not fix two and leave four.
+3. Consider whether a test can assert this shape rather than leaving it to
+   review. The scaffold suite already asserts invariants against source (the
+   window allowlist, the IPC schema, the non-focusable rule), and
+   `every_capture_annotation_has_catalog_copy` reads `catalog.ts` as text — so a
+   check that no settings page calls a status command without a rejection path is
+   in keeping with what is already there. **This is the part that stops a third
+   occurrence**, and it is worth more than the fix.
+4. A `?? "pending"` fallback that renders as a *claim about the system* is the
+   deeper problem. "Shortcut not registered yet" is a statement of fact;
+   `undefined` means "not known yet". Consider whether the unresolved state
+   should say so instead, here and anywhere else the same pattern renders a
+   default as an assertion.
+
+## How to verify it, and the trap in verifying it
+
+**The rendered string cannot tell you whether the backend is wrong or the read
+was refused** — that is what cost time on 2026-08-25. Ask the backend directly.
+Start the installed app with the debugging port open and invoke the command
+through the webview, which needs no focus and cannot hijack a dictation:
+
+```powershell
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9222'
+```
+
+Then, with the app running, a two-step probe (the expression is evaluated
+synchronously, so stash the promise result and read it back):
+
+```powershell
+.\scripts\Invoke-WebviewProbe.ps1 -Window settings -Expression 'window.__p=null; window.__TAURI_INTERNALS__.invoke("hotkey_status").then(r=>window.__p={ok:r}).catch(e=>window.__p={err:String(e)}); "fired"'
+.\scripts\Invoke-WebviewProbe.ps1 -Window settings -Expression 'JSON.stringify(window.__p)'
+```
+
+`window.__TAURI__` is undefined; `window.__TAURI_INTERNALS__` is the bridge.
+
+**Reproducing it at all needs a release frontend.** The race is structurally
+invisible under `npm run tauri -- dev` — Vite is slow enough that `setup` wins —
+which is the same reason the first occurrence was found only on an installed
+build. Do not conclude it is fixed because dev looks right.
 
 ## State of the machine
 
 - Installed at `%LOCALAPPDATA%\SpeakEasy Mini`, **1.5.1**, with the **CUDA worker
-  staged**. Resting state is
+  staged** (54.4 MB, all three CUDA 13 libraries beside it). Resting state is
   `granite_warm result=ok engine=cpu_gpu_pack_not_installed device=cuda
-  installed=cpu provider=running_beyond_record` — `running_beyond_record` is
-  disclosed as *not a fault* and is correct here.
+  installed=cpu provider=running_beyond_record`. That last field is correct and
+  **cannot be cleared on any machine** — see item 12 before treating it as a bug.
 - Toolchain **Rust 1.98.0** (pinned). Cargo/rustc are **not on PATH** — dot-source
   `. .\scripts\Enter-DevEnvironment.ps1` in every new shell.
-- Malwarebytes quarantined the old 1.97.1 toolchain's `clippy-driver.exe` and
-  `rustdoc.exe` as `Malware.AI.3172041259` (a false positive; the owner excluded
-  that exact versioned directory). If a build suddenly fails with
-  `could not execute process ... (never executed)`, look for a missing `.exe`
-  beside a surviving `.pdb` before believing anything else.
+- `Get-Process SpeakEasy*` before launching anything: the single-instance lock
+  silently absorbs a second launch and you then test the old binary. You have
+  standing permission to stop and start SpeakEasy Mini's own processes.
 - Hardware: RTX 4070 Laptop GPU, compute 8.9.
 
-## How to run it
+## Also open, if this finishes early
 
-The full procedure is item 1b in `docs/handoff/CURRENT.md`. The short form:
+- **Item 11's latent half.** `max_new_tokens` (2048) and `MAX_CAPTURE_SECONDS`
+  (120) are unconnected, and the truncation hazard becomes real the moment the
+  ceiling is raised. A test asserting the token budget covers the ceiling's worth
+  of speech would close it permanently and is a few lines.
+- **Item 16.** Four true sentences in Settings -> Transcription that read as a
+  contradiction when stacked. Copy, not logic — read the item before changing
+  anything, because the last sentence is deliberate.
+- **Item 3** (publishing the CUDA worker) still needs the owner, and closes items
+  12 and 16 on its own.
 
-1. `Get-Process SpeakEasy*` — nothing running, or the single-instance lock
-   absorbs the launch and you test the old binary.
-2. Confirm the disclosure in Settings → Transcription reads
-   `Dictation runs on: Graphics card (GPU)` **before** I speak.
-3. Set up a delivery target **you created and verified by name in the window
-   title**. Never `Start-Process notepad` bare — Windows 11 Notepad restores its
-   previous tabs and a proof has already written into somebody's real unsaved
-   note.
-4. Tail `%APPDATA%\ai.speakeasy.mini\logs\speakeasy.log`.
-5. I speak. Ask me to read something I can compare against afterwards, and tell
-   me roughly how long — **two to three minutes**, because length is the
-   interesting variable. Check the *end* of the transcript, not the beginning.
-6. Repeat on the processor via `Enable-GraniteCuda.ps1 -Revert` if I have the
-   patience, from the same script, for the first real processor-versus-card
-   comparison on speech.
+## When you are done
 
-Standing permission: you may stop and start SpeakEasy Mini's own processes for
-testing without asking.
+Run the gate before committing:
 
-## What to capture
+```powershell
+.\scripts\Invoke-ScaffoldChecks.ps1 -SkipNpmInstall
+```
 
-`hotkey_delivery result=`, the `granite_warm` four-tuple, wall-clock from second
-press to paste, the whole transcript, and my judgement of it. A measurement that
-exists only in captured stdout is not a measurement — write the numbers down.
-
-## What would be a finding
-
-A transcript ending mid-clause (the truncation nobody has produced). A fluent,
-confident transcript unrelated to what I said (Granite answering the prompt
-instead of transcribing — `is_plausible` is the only guard left). Delivery
-landing on the clipboard instead of the target. The ceiling cue not sounding.
-
-## When we are done
-
-Update item 1b in `docs/handoff/CURRENT.md` with what was measured, replace the
-harness figures in `docs/ARCHITECTURE.md` if real speech contradicts them, and
-say plainly what is still unverified. Run the gate before committing:
-`.\scripts\Invoke-ScaffoldChecks.ps1 -SkipNpmInstall`.
-
-**Ask me before starting** whether I want the card, the processor, or both, and
-how long I am willing to talk for.
+Amend `docs/UI-GUIDE.md` in the same change if any copy moves — it is a living
+spec, not a record. Update item 14 in `docs/handoff/CURRENT.md` with what the
+sweep found, including the reads you checked and cleared, because the next
+occurrence will be in whichever file nobody listed.

@@ -257,6 +257,42 @@ pinned ground truth, so a CUDA path that changed the greedy decode by a single
 mark would fail that check on every graphics-card machine, and nothing would have
 found out until one existed.
 
+That claim rests on **one fixed WAV** through both workers, and it can only be
+made that way. The real-speech figures below are a different experiment and do
+not bear on it in either direction — a reader comparing the two transcripts a
+person produced would be comparing two different recordings.
+
+### Measured on real speech, 2026-08-25
+
+The first figures in this document that are not from a harness. A person read a
+prepared 230-word passage into an installed release build on the same RTX 4070
+Laptop rig, once per provider.
+
+| | Card | Processor |
+| --- | --- | --- |
+| Audio | 105.248 s | 120.183 s (capture ceiling) |
+| Inference | **4,171 ms** | **44,493 ms** |
+| RTF | **0.0396** | **0.3702** |
+| Press-to-paste | **4,246 ms** | n/a — ended by the ceiling |
+
+**The processor is 9.34x the card**, against the 8.1x the 6.42 s fixture
+predicted; the fixture is a fair guide and errs in the optimistic direction for
+the processor. RTF is the only figure comparable across the two runs, because the
+two recordings differ in length.
+
+Press-to-paste decomposes as 54 ms from the stop press to the finalisation job
+starting, 4,171 ms of inference, and 21 ms to inspect the foreground window and
+paste. **Inference is 98% of the user-visible latency**, so nothing else in this
+path is worth optimising.
+
+One consequence belongs here rather than in the handoff, because it follows from
+the delivery rule stated in the next section: on the processor there are ~44
+seconds between the user stopping speaking and the paste, and the target is
+resolved at the *end* of that. Every window the user touches in the interval is
+a candidate. This is not the hijack hazard below — that is detected and falls
+back to the clipboard — but a successful delivery into an application the user
+had moved on to, which the log cannot distinguish from a correct one.
+
 ## Delivery safety
 
 **The target is whatever Windows reports as the foreground window** at the
