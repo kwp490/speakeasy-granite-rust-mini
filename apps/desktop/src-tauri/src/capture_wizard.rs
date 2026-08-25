@@ -52,6 +52,38 @@ pub struct CaptureDeviceView {
     pub supported: bool,
 }
 
+/// What one finished capture produced: the audio, and anything worth saying
+/// about how it was captured.
+///
+/// The two annotations are deliberately not errors. Before 2026-08-25 both
+/// arrived as `Err` and cost the user the recording; see the note at the end of
+/// [`capture`] for what that did to long dictations.
+struct CapturedUtterance {
+    audio: UtteranceAudio,
+    /// A `capture_*` code describing an imperfection in audio that still
+    /// exists -- a dropped block, a processing overrun, a buffer limit. `None`
+    /// when the capture was clean.
+    quality_note: Option<&'static str>,
+    /// Whether the safety ceiling ended this capture rather than the user.
+    ///
+    /// Its own fact rather than a `quality_note`, because it is the one the
+    /// user has to be *told*: the recording is complete up to the limit and
+    /// everything after it was never heard, which is a thing to know before
+    /// starting the next one.
+    reached_ceiling: bool,
+}
+
+/// The capture's whole state, as the frontend sees it.
+///
+/// The four booleans are an IPC contract, not a modelling choice: each is read
+/// by a different control in a different window, and the shape is pinned by
+/// `src/ipc/phase9.schema.json` and by the settings and dock components.
+/// Collapsing them into a sub-struct or an enum would change the wire format
+/// for a lint about readability.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "an IPC DTO whose shape is pinned by the schema and two frontends"
+)]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CaptureWizardView {
     pub state: String,
@@ -60,6 +92,11 @@ pub struct CaptureWizardView {
     pub nonzero_samples: Option<usize>,
     pub peak_magnitude: Option<i16>,
     pub error_code: Option<String>,
+    /// An imperfection in audio that was still delivered. Never a failure --
+    /// `error_code` is for those, and the two are never both set.
+    pub quality_note: Option<String>,
+    /// Whether the safety ceiling ended the capture rather than the user.
+    pub reached_ceiling: bool,
     pub can_stop: bool,
     pub can_transcribe: bool,
     pub can_retry: bool,
@@ -241,33 +278,9 @@ impl CaptureWizardCoordinator {
                 return;
             }
             match outcome {
-                Ok(audio) => {
-                    let sample_count = audio.samples.len();
-                    let nonzero_samples =
-                        audio.samples.iter().filter(|sample| **sample != 0).count();
-                    let peak_magnitude = audio
-                        .samples
-                        .iter()
-                        .map(|sample| sample.saturating_abs())
-                        .max()
-                        .unwrap_or_default();
-                    if let Ok(mut slot) = retained.lock() {
-                        *slot = Some(audio);
-                    }
-                    set_status(
-                        &status,
-                        CaptureWizardView {
-                            state: "captured".to_owned(),
-                            device_name: Some(descriptor.display_name),
-                            captured_samples: Some(sample_count),
-                            nonzero_samples: Some(nonzero_samples),
-                            peak_magnitude: Some(peak_magnitude),
-                            error_code: None,
-                            can_stop: false,
-                            can_transcribe: true,
-                            can_retry: true,
-                        },
-                    );
+                Ok(captured) => {
+                    let view = retain_captured(&retained, &descriptor.display_name, captured);
+                    set_status(&status, view);
                 }
                 Err(code) => set_status(&status, CaptureWizardView::failed(code)),
             }
@@ -306,6 +319,11 @@ impl CaptureWizardCoordinator {
                     nonzero_samples: None,
                     peak_magnitude: None,
                     error_code: None,
+                    quality_note: None,
+                    // A user stop, by definition: this method is what sets
+                    // `stop_requested`. The capture thread overwrites both of
+                    // these when it finishes anyway.
+                    reached_ceiling: false,
                     can_stop: false,
                     can_transcribe: false,
                     can_retry: false,
@@ -395,6 +413,11 @@ impl CaptureWizardCoordinator {
             let captured_samples = current.captured_samples;
             let nonzero_samples = current.nonzero_samples;
             let peak_magnitude = current.peak_magnitude;
+            // Carried forward rather than cleared. Delivery reads them after
+            // the state has moved on, and a note that disappeared the moment
+            // transcription started would be a note nothing could report.
+            let quality_note = current.quality_note.clone();
+            let reached_ceiling = current.reached_ceiling;
             drop(current);
             set_status(
                 &self.status,
@@ -405,6 +428,8 @@ impl CaptureWizardCoordinator {
                     nonzero_samples,
                     peak_magnitude,
                     error_code: None,
+                    quality_note,
+                    reached_ceiling,
                     can_stop: false,
                     can_transcribe: false,
                     can_retry: false,
@@ -419,6 +444,8 @@ impl CaptureWizardCoordinator {
             let captured_samples = current.captured_samples;
             let nonzero_samples = current.nonzero_samples;
             let peak_magnitude = current.peak_magnitude;
+            let quality_note = current.quality_note.clone();
+            let reached_ceiling = current.reached_ceiling;
             drop(current);
             set_status(
                 &self.status,
@@ -434,6 +461,8 @@ impl CaptureWizardCoordinator {
                     nonzero_samples,
                     peak_magnitude,
                     error_code: error_code.map(str::to_owned),
+                    quality_note,
+                    reached_ceiling,
                     can_stop: false,
                     can_transcribe: false,
                     can_retry: true,
@@ -452,6 +481,8 @@ impl CaptureWizardView {
             nonzero_samples: None,
             peak_magnitude: None,
             error_code: None,
+            quality_note: None,
+            reached_ceiling: false,
             can_stop: false,
             can_transcribe: false,
             can_retry: false,
@@ -466,6 +497,8 @@ impl CaptureWizardView {
             nonzero_samples: None,
             peak_magnitude: None,
             error_code: None,
+            quality_note: None,
+            reached_ceiling: false,
             can_stop,
             can_transcribe: false,
             can_retry: false,
@@ -480,6 +513,9 @@ impl CaptureWizardView {
             nonzero_samples: None,
             peak_magnitude: None,
             error_code: Some(code.to_owned()),
+            // Never both. A failure has no transcript to annotate.
+            quality_note: None,
+            reached_ceiling: false,
             can_stop: false,
             can_transcribe: false,
             can_retry: false,
@@ -510,7 +546,7 @@ fn capture(
     elapsed_ms: &AtomicU64,
     level: &AtomicU32,
     audio_overflow_count: &AtomicU64,
-) -> Result<UtteranceAudio, &'static str> {
+) -> Result<CapturedUtterance, &'static str> {
     audio_overflow_count.store(0, Ordering::Release);
     let (callback, mut worker) =
         build_audio_pipeline(pipeline_config(native, identity, maximum_seconds)?)
@@ -564,6 +600,13 @@ fn capture(
         }
         thread::yield_now();
     }
+    // Which of the two loop conditions ended it, read before anything else can
+    // change. `stop` is the user; anything else is the ceiling. This is the
+    // reliable ceiling signal and `UtteranceIssues::DURATION_LIMIT` is not --
+    // that one is only raised if the utterance buffer actually *rejects*
+    // samples, and the buffer holds one second more than the ceiling allows, so
+    // a capture can run the full two minutes without ever setting it.
+    let reached_ceiling = !stop.load(Ordering::Acquire);
     session.stop();
     elapsed_ms.store(
         u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
@@ -580,22 +623,61 @@ fn capture(
         worker.callback_counters().queue_overflows,
         Ordering::Release,
     );
-    if completion.frames_buffered == 0 {
+    let quality_note = judge_completion(completion.frames_buffered, completion.issues)?;
+    Ok(CapturedUtterance {
+        audio: UtteranceAudio {
+            session_id: identity.session_id,
+            sample_rate_hz: TARGET_RATE_HZ,
+            samples: worker
+                .utterance_samples()
+                .iter()
+                .copied()
+                .map(quantize_sample)
+                .collect(),
+        },
+        quality_note,
+        reached_ceiling,
+    })
+}
+
+/// Whether a finished capture is a failure, and what to say about it if not.
+///
+/// `Err` means there is nothing to transcribe. `Ok(Some(code))` means there is,
+/// and something about how it was captured is worth reporting alongside it.
+///
+/// # This was the two-minute bug
+///
+/// Until 2026-08-25 every one of `issue_code`'s five conditions was an `Err`
+/// here, and returning `Err` discards the recording. Only one of the six
+/// conditions actually means the audio is unusable -- `frames_buffered == 0`.
+/// The other five annotate audio that exists and would transcribe.
+///
+/// **What that actually cost**, measured rather than reasoned about: the byte
+/// limit bound at 116.5 s against a 120 s ceiling (see `pipeline_config`), so
+/// **every** maximum-length dictation filled its buffer, raised `BYTE_LIMIT`,
+/// and was discarded. Not intermittently -- deterministically, which is exactly
+/// why a long recording failed every time while a short one always worked. The
+/// user was shown "The operation stopped safely", because four of the five
+/// codes had no catalog entry either, and the log said only
+/// `dictation_ceiling_stop result=no_audio`.
+///
+/// The byte limit is fixed now, so that particular annotation should not recur.
+/// The other four remain reachable and stay annotations: two of them
+/// (`DISCONTINUITY`, `CALLBACK_QUEUE_OVERFLOW`) are single events that latch
+/// for the whole utterance, so a long recording is exposed to them far more
+/// often than a short one -- which is a reason to report them, not to throw the
+/// recording away.
+///
+/// A pure function taking the two facts, rather than a branch inside `capture`,
+/// so the decision is reachable from a test on a machine with no microphone.
+fn judge_completion(
+    frames_buffered: usize,
+    issues: UtteranceIssues,
+) -> Result<Option<&'static str>, &'static str> {
+    if frames_buffered == 0 {
         return Err("capture_empty");
     }
-    if let Some(code) = issue_code(completion.issues) {
-        return Err(code);
-    }
-    Ok(UtteranceAudio {
-        session_id: identity.session_id,
-        sample_rate_hz: TARGET_RATE_HZ,
-        samples: worker
-            .utterance_samples()
-            .iter()
-            .copied()
-            .map(quantize_sample)
-            .collect(),
-    })
+    Ok(issue_code(issues))
 }
 
 fn pipeline_config(
@@ -623,7 +705,21 @@ fn pipeline_config(
             .ok_or("capture_capacity_overflow")?,
         max_utterance_ms: NonZeroU32::new(maximum_seconds.saturating_add(1).saturating_mul(1_000))
             .ok_or("capture_duration_out_of_range")?,
-        max_buffered_bytes: NonZeroUsize::new(64 * 1_024 * 1_024)
+        // 128 MiB, and the figure is load-bearing. It was 64 MiB, which is
+        // **less than the ceiling needs**: the retained utterance costs 36
+        // bytes per frame -- an `f32` plus a 32-byte `ProcessedSampleMetadata`
+        // -- so 64 MiB is 1,864,135 frames, or 116.5 s at 16 kHz, against a
+        // 121 s capacity and a 120 s ceiling. The byte limit therefore bound
+        // 3.5 s *before* the ceiling: every maximum-length dictation filled the
+        // buffer, began rejecting samples, and raised `BYTE_LIMIT`.
+        //
+        // Until 2026-08-25 that was returned as an `Err` and the whole
+        // recording was discarded, which is what made a two-minute dictation
+        // fail every time while a short one worked. Measured on this machine as
+        // `dictation_ceiling_stop ... quality=capture_byte_limit`. 121 s needs
+        // 66.5 MiB, so this is comfortable rather than exact, and nothing
+        // allocates it -- `utterance_capacity_frames` is what is reserved.
+        max_buffered_bytes: NonZeroUsize::new(128 * 1_024 * 1_024)
             .expect("byte capacity is non-zero"),
     })
 }
@@ -657,6 +753,49 @@ fn finish_tap_detached(tap: Option<Box<dyn CaptureTap>>, monotonic_ns: u64) {
 /// the streaming frames' producer timestamp.
 fn elapsed_ns(started: Instant) -> u64 {
     u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
+}
+
+/// Stores the finished utterance and describes it for the frontend.
+///
+/// Split out of `start_with_identity` because that function crossed the
+/// hundred-line lint when the capture began carrying annotations. The grouping
+/// is the right one anyway: everything here is about turning one finished
+/// capture into the two things the rest of the app reads from it -- the
+/// retained audio, and the view that says what is in it.
+fn retain_captured(
+    retained: &Mutex<Option<UtteranceAudio>>,
+    device_name: &str,
+    captured: CapturedUtterance,
+) -> CaptureWizardView {
+    let CapturedUtterance {
+        audio,
+        quality_note,
+        reached_ceiling,
+    } = captured;
+    let sample_count = audio.samples.len();
+    let nonzero_samples = audio.samples.iter().filter(|sample| **sample != 0).count();
+    let peak_magnitude = audio
+        .samples
+        .iter()
+        .map(|sample| sample.saturating_abs())
+        .max()
+        .unwrap_or_default();
+    if let Ok(mut slot) = retained.lock() {
+        *slot = Some(audio);
+    }
+    CaptureWizardView {
+        state: "captured".to_owned(),
+        device_name: Some(device_name.to_owned()),
+        captured_samples: Some(sample_count),
+        nonzero_samples: Some(nonzero_samples),
+        peak_magnitude: Some(peak_magnitude),
+        error_code: None,
+        quality_note: quality_note.map(str::to_owned),
+        reached_ceiling,
+        can_stop: false,
+        can_transcribe: true,
+        can_retry: true,
+    }
 }
 
 /// Peak absolute amplitude of one processed block, clamped to 0..1.
@@ -742,22 +881,41 @@ mod tests {
             config.utterance_capacity_frames.get(),
             (MAX_CAPTURE_SECONDS as usize + 1) * TARGET_RATE_HZ as usize
         );
-        assert_eq!(config.max_buffered_bytes.get(), 64 * 1_024 * 1_024);
+        // 128 MiB since 2026-08-25. At 64 MiB the byte limit bound at 116.5 s
+        // -- inside the 120 s ceiling -- so the tail of every maximum-length
+        // dictation was rejected and the recording discarded.
+        assert_eq!(config.max_buffered_bytes.get(), 128 * 1_024 * 1_024);
     }
 
     #[test]
     fn the_ceiling_stays_inside_the_pipeline_byte_limit() {
         // The retained utterance costs 36 bytes per sample, not 4: alongside
         // each `f32` the pipeline keeps a 32-byte `ProcessedSampleMetadata`.
-        // A ceiling that outgrows `max_buffered_bytes` would silently truncate
-        // the recording instead of capturing it, so the relationship is pinned
-        // here rather than left to be rediscovered.
-        let samples = (MAX_CAPTURE_SECONDS as usize + 1) * TARGET_RATE_HZ as usize;
-        let retained_bytes = samples * (size_of::<f32>() + size_of::<ProcessedSampleMetadata>());
+        // A ceiling that outgrows `max_buffered_bytes` truncates the recording
+        // instead of capturing it, so the relationship is pinned here.
+        //
+        // **Compared against the configured value, not a written-down copy of
+        // it.** This assertion used a hardcoded 128 MiB while `pipeline_config`
+        // was built with 64 MiB, so it passed at 66.5 MiB with the real limit
+        // already exceeded -- and the last 3.5 s of every maximum-length
+        // dictation was being rejected, which then discarded the whole
+        // recording. An instrument holding its own copy of a constant cannot
+        // see that constant change.
+        let native = NativeStreamConfig::new(
+            NativeSampleFormat::F32,
+            NonZeroU32::new(48_000).expect("native rate is non-zero"),
+            NonZeroU16::new(1).expect("channel count is non-zero"),
+        );
+        let identity = capture_identity(11, SessionId::from_bytes([11; 16]));
+        let config =
+            pipeline_config(native, identity, MAX_CAPTURE_SECONDS).expect("config must build");
+        let bytes_per_frame = size_of::<f32>() + size_of::<ProcessedSampleMetadata>();
+        let byte_limit_frames = config.max_buffered_bytes.get() / bytes_per_frame;
+        let capacity_frames = config.utterance_capacity_frames.get();
         assert!(
-            retained_bytes < 128 * 1_024 * 1_024,
-            "a {MAX_CAPTURE_SECONDS}s ceiling retains {retained_bytes} bytes per dictation, \
-             which is allocated up front on every start"
+            byte_limit_frames >= capacity_frames,
+            "the byte limit binds at {} s, before the {MAX_CAPTURE_SECONDS} s ceiling:              the tail of every long dictation is rejected",
+            byte_limit_frames / TARGET_RATE_HZ as usize
         );
     }
 
@@ -794,6 +952,77 @@ mod tests {
     /// Cancel is pressed from a transcriber that polls at 10 Hz, so it routinely
     /// arrives after the capture it meant to stop has already ended with audio
     /// retained and ready to transcribe. Discarding that audio is the whole job:
+    /// A capture with nothing in it is the only capture that fails.
+    ///
+    /// The regression test for the defect that cost a user two minutes of
+    /// speech on 2026-08-25: every one of these five conditions used to return
+    /// `Err` from `capture`, and an `Err` there discards the recording. They
+    /// annotate audio that exists. Only an empty buffer means there is nothing
+    /// to transcribe.
+    #[test]
+    fn an_imperfect_capture_is_annotated_and_an_empty_one_fails() {
+        // `capture_byte_limit` is the one that actually bit: it bound at
+        // 116.5 s against a 120 s ceiling, so every maximum-length dictation
+        // raised it and was discarded. The limit is raised now, but the arm has
+        // to stay an annotation -- the next thing to bind will be something
+        // else, and a recording is not worth less because its buffer filled.
+        for (issue, expected) in [
+            (
+                UtteranceIssues::CALLBACK_QUEUE_OVERFLOW,
+                "capture_queue_overflow",
+            ),
+            (UtteranceIssues::DISCONTINUITY, "capture_discontinuity"),
+            (UtteranceIssues::DURATION_LIMIT, "capture_duration_limit"),
+            (UtteranceIssues::BYTE_LIMIT, "capture_byte_limit"),
+            (UtteranceIssues::BUFFER_CAPACITY, "capture_buffer_limit"),
+        ] {
+            assert_eq!(
+                judge_completion(16_000, issue),
+                Ok(Some(expected)),
+                "{expected} must annotate the capture, not discard it"
+            );
+        }
+
+        // A clean capture says nothing at all.
+        assert_eq!(judge_completion(16_000, UtteranceIssues::NONE), Ok(None));
+
+        // The one real failure, and it is checked before the annotations: a
+        // buffer with no frames in it has nothing for Granite to read.
+        assert_eq!(
+            judge_completion(0, UtteranceIssues::NONE),
+            Err("capture_empty")
+        );
+        assert_eq!(
+            judge_completion(0, UtteranceIssues::DISCONTINUITY),
+            Err("capture_empty")
+        );
+    }
+
+    /// Every code this can produce has copy a user can act on.
+    ///
+    /// Four of the five had none until 2026-08-25 and fell through to
+    /// `errorUnknown` -- "The operation stopped safely" -- which is what the
+    /// user was shown after losing a two-minute dictation. Asserted against the
+    /// catalog source because the rule is a product rule: a reason code with no
+    /// instruction is not a reason.
+    #[test]
+    fn every_capture_annotation_has_catalog_copy() {
+        let catalog = include_str!("../../src/catalog.ts");
+        for issue in [
+            UtteranceIssues::CALLBACK_QUEUE_OVERFLOW,
+            UtteranceIssues::DISCONTINUITY,
+            UtteranceIssues::DURATION_LIMIT,
+            UtteranceIssues::BYTE_LIMIT,
+            UtteranceIssues::BUFFER_CAPACITY,
+        ] {
+            let code = issue_code(issue).expect("each issue maps to a code");
+            assert!(
+                catalog.contains(&format!("{code}:")),
+                "{code} needs catalog copy or it renders as errorUnknown"
+            );
+        }
+    }
+
     /// leaving it behind is what let a cancelled dictation still be delivered.
     #[test]
     fn cancelling_after_capture_ended_discards_the_retained_audio() {
@@ -812,6 +1041,8 @@ mod tests {
                 nonzero_samples: Some(3),
                 peak_magnitude: Some(1),
                 error_code: None,
+                quality_note: None,
+                reached_ceiling: false,
                 can_stop: false,
                 can_transcribe: true,
                 can_retry: true,

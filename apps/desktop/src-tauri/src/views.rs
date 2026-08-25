@@ -70,6 +70,7 @@ use speakeasy_windows::{
     append_diagnostics_line, confirm_destructive_action, migrate_legacy_startup,
     redact_diagnostic_text, set_startup_with_windows, startup_status,
 };
+use tauri::Emitter;
 use tauri::Manager;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -924,6 +925,95 @@ fn stop_dictation(app: &tauri::AppHandle) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Shows the notice that says the safety ceiling ended the recording.
+///
+/// # Why a window, on a product that rejected toasts
+///
+/// The dock is 62 px wide: it holds a glyph and a hover tooltip, and neither
+/// tells somebody who is not looking at it that their next two minutes were
+/// never heard. A Windows toast was specified and rejected — the `WinRT` route
+/// needs an AUMID from an installed Start Menu shortcut and otherwise displays
+/// nothing while reporting success, which is the silent-success shape this
+/// product exists to avoid. So the notice is one of the app's own windows.
+///
+/// # Why showing it here is safe
+///
+/// It is shown while a dictation is being delivered, and `deliver_final_text`
+/// decides where the transcript goes by inspecting the foreground window — so a
+/// window of the app's own arriving now is precisely the hazard that has
+/// hijacked three dictations already. It is safe for one reason and it must
+/// stay true: `notice` declares `focus: false` and `configure_hud` calls
+/// `set_focusable(false)` on it, so showing it does not activate it.
+/// **Never call `set_focus` on this window**, and never give it a control that
+/// wants the keyboard.
+///
+/// Failure to show is deliberately silent. The transcript is already being
+/// delivered and a notice is the smaller half of that; turning "the window
+/// would not open" into a second error would make the delivery look like the
+/// thing that failed.
+fn show_capture_limit_notice(app: &tauri::AppHandle) {
+    let Some(notice) = app.get_webview_window("notice") else {
+        return;
+    };
+    place_notice_beside_dock(app, &notice);
+    // Emitted before the show so a notice that is *already* up re-arms its
+    // dismissal timer rather than inheriting the tail of the previous one's.
+    let _ = notice.emit("capture-limit-reached", ());
+    let _ = notice.show();
+}
+
+/// Puts the notice next to the dock, on the side with room for it.
+///
+/// The dock is the thing the user associates with dictation and they have moved
+/// it wherever they want it, so the notice follows rather than appearing at
+/// whatever position Windows would choose — which for a `decorations: false`
+/// window is the top-left of the primary display, potentially several monitors
+/// away from the dock and from what the user is doing.
+///
+/// Physical pixels throughout: `outer_position` and `outer_size` report them,
+/// and mixing them with the logical sizes in `tauri.conf.json` is how a window
+/// ends up correct at 100% and off-screen at 250%.
+///
+/// Every step is best-effort. A notice in the wrong place is worth having; a
+/// notice suppressed because a monitor query failed is not.
+fn place_notice_beside_dock(app: &tauri::AppHandle, notice: &tauri::WebviewWindow) {
+    let Some(dock) = app.get_webview_window("hud-dock") else {
+        return;
+    };
+    let (Ok(dock_position), Ok(dock_size), Ok(notice_size)) =
+        (dock.outer_position(), dock.outer_size(), notice.outer_size())
+    else {
+        return;
+    };
+    let Ok(Some(monitor)) = dock.current_monitor() else {
+        return;
+    };
+    let screen = monitor.size();
+    let origin = monitor.position();
+    let gap = 12_i32;
+    // Right of the dock by default, left of it when the dock is close enough to
+    // the right edge that the notice would hang off the screen. The dock lives
+    // against an edge by design, so this is the ordinary case rather than the
+    // corner case.
+    let to_the_right = dock_position.x + i32::try_from(dock_size.width).unwrap_or(0) + gap;
+    let notice_width = i32::try_from(notice_size.width).unwrap_or(0);
+    let right_edge = origin.x + i32::try_from(screen.width).unwrap_or(i32::MAX);
+    let x = if to_the_right + notice_width <= right_edge {
+        to_the_right
+    } else {
+        dock_position.x - notice_width - gap
+    };
+    // Vertically centred on the dock, then clamped so a dock near the top or
+    // bottom edge cannot push the notice off the screen.
+    let notice_height = i32::try_from(notice_size.height).unwrap_or(0);
+    let dock_height = i32::try_from(dock_size.height).unwrap_or(0);
+    let bottom_edge = origin.y + i32::try_from(screen.height).unwrap_or(i32::MAX);
+    let y = (dock_position.y + (dock_height - notice_height) / 2)
+        .max(origin.y)
+        .min(bottom_edge - notice_height);
+    let _ = notice.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
 fn announce_capture_stopped(app: &tauri::AppHandle) {
     if app
         .state::<ProfileCoordinator>()
@@ -1058,6 +1148,14 @@ fn watch_for_unattended_capture_end(app: &tauri::AppHandle, session_id: SessionI
                 hotkey.abandon_active_session();
             }
             let delivered = view.can_transcribe;
+            // **The cue sounds either way**, and before anything else. It
+            // answers "did the recording stop?", which is a question about the
+            // microphone rather than about the transcript -- and the ceiling is
+            // the one ending the user did not ask for, so it is the ending they
+            // are least prepared for. It used to sound only on the delivering
+            // branch, so a capture that ended in failure ended in silence too:
+            // the user kept talking to a microphone that had stopped listening.
+            announce_capture_stopped(&app);
             log_event_for_session(
                 &app,
                 session_id,
@@ -1065,10 +1163,39 @@ fn watch_for_unattended_capture_end(app: &tauri::AppHandle, session_id: SessionI
                 &[
                     ("result", if delivered { "delivering" } else { "no_audio" }),
                     ("state", view.state.as_str()),
+                    // The specific code, which this line did not carry until
+                    // 2026-08-25. A two-minute dictation was discarded here and
+                    // the only record of it was `result=no_audio state=failed`
+                    // -- three fields, none of them naming the condition, on
+                    // the one path that destroys the user's recording. The view
+                    // had held the code the whole time.
+                    (
+                        "code",
+                        view.error_code.as_deref().unwrap_or("none"),
+                    ),
+                    (
+                        "quality",
+                        view.quality_note.as_deref().unwrap_or("none"),
+                    ),
                 ],
             );
             if delivered {
-                announce_capture_stopped(&app);
+                // Told, not merely marked. The ceiling is the one outcome the
+                // user has to carry into their *next* dictation -- everything
+                // said after the limit was never heard -- so it earns a window
+                // rather than a glyph in a 62 px dock.
+                //
+                // Gated on the capture thread's own answer rather than on this
+                // watcher's inference. Reaching here means "capture ended and
+                // nobody asked", which is *nearly* the same thing but not
+                // quite: `reached_ceiling` is set by comparing the loop's two
+                // exit conditions, so it stays correct if some future way of
+                // ending a capture produces audio without being the ceiling.
+                // Claiming a two-minute limit was hit when it was not is the
+                // same class of error as the rest of this session's work.
+                if view.reached_ceiling {
+                    show_capture_limit_notice(&app);
+                }
                 transcribe_and_deliver(&app);
             } else {
                 app.state::<OperationCoordinator>().finish_dictation();

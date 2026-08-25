@@ -451,6 +451,24 @@ export const messages = {
   installationFailed: "Installation stopped safely:",
   packNotDownloadable:
     "This model is not published for download yet, so it cannot be installed from here.",
+  /**
+   * The notice shown when the safety ceiling ends a recording.
+   *
+   * Owner-approved wording, 2026-08-25. **It leads with the transcript being
+   * safe**, because that is the question a user asks first when a recording
+   * stops without them asking it to — and because the honest answer is
+   * reassuring, which the previous behaviour's answer was not: the ceiling used
+   * to discard the recording outright.
+   *
+   * The number is named rather than called "the limit", so the sentence is
+   * usable the *next* time the user starts dictating, which is the whole point
+   * of telling them at all. The last clause says what to do, because "you hit a
+   * limit" with no next step is a complaint rather than an instruction.
+   */
+  captureLimitNoticeTitle: "Recording reached the 2-minute maximum",
+  captureLimitNoticeBody:
+    "Recording stopped automatically and your transcript was delivered. Anything said after the 2-minute mark was not recorded — start another dictation to continue.",
+  captureLimitNoticeDismiss: "Got it",
   engineDisclosure: "Dictation runs on:",
   /**
    * Whether what setup recorded still describes what is running.
@@ -565,7 +583,29 @@ export const messages = {
     capture_already_active: "A recording is already active. Stop it before starting another.",
     capture_not_active: "No active recording could be stopped.",
     capture_empty: "No usable audio was captured. Check mute and the Windows input meter, then retry.",
-    capture_queue_overflow: "Audio processing could not keep up. The recording stopped without switching devices.",
+    // The five conditions below annotate audio that **was** delivered, and the
+    // wording has to match that. Until 2026-08-25 every one of them made
+    // `run_capture` return `Err`, which discarded the recording -- and the
+    // buffer's byte limit bound 3.5 s inside the two-minute ceiling, so every
+    // maximum-length dictation raised one and was destroyed. Only the first of
+    // them had copy at all; the other four fell through to `errorUnknown`
+    // ("The operation stopped safely"), which is how a user came to lose two
+    // minutes of speech and be told nothing about why.
+    capture_queue_overflow:
+      "Audio processing could not keep up, so parts of the recording may be missing from the transcript.",
+    capture_discontinuity:
+      "The audio stream was interrupted, so a moment of the recording may be missing from the transcript.",
+    capture_duration_limit:
+      "The recording filled its audio buffer, so the last part of it may be missing from the transcript.",
+    capture_byte_limit:
+      "The recording filled its audio buffer, so the last part of it may be missing from the transcript.",
+    capture_buffer_limit:
+      "The recording filled its audio buffer, so the last part of it may be missing from the transcript.",
+    // Genuine failures: nothing was delivered.
+    capture_device_fault:
+      "The microphone stopped responding during recording. Reconnect it or choose another device, then retry.",
+    capture_finish_failed:
+      "The recording could not be finished. Retry, and choose another microphone if it happens again.",
     capture_duration_out_of_range:
       "Recording reached the 2-minute safety limit. It stopped and is being transcribed now.",
     // Absent until 2026-08-10, so this fell through to `errorUnknown` — a
