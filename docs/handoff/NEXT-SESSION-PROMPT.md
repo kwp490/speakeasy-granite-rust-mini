@@ -121,6 +121,14 @@ build. Do not conclude it is fixed because dev looks right.
 
 ## Also open, if this finishes early
 
+- **Item 17, and take this one first — it is the smallest real fix in the file.**
+  The `notice` window declares 360x172 and its content needs 188 CSS px, so the
+  dismiss button is 16 px below the fold behind a scrollbar. Raise `height` and
+  `minHeight` to 192 in `tauri.conf.json` and **measure the running window
+  afterwards**, because a stylesheet reading `height: 100vh` cannot show you
+  this. Editing `tauri.conf.json` does not invalidate the cargo build — touch
+  `src-tauri/build.rs` or you will test the old config and see no change. Item 17
+  records the measurement and the two plausible-sounding causes it disproved.
 - **Item 11's latent half.** `max_new_tokens` (2048) and `MAX_CAPTURE_SECONDS`
   (120) are unconnected, and the truncation hazard becomes real the moment the
   ceiling is raised. A test asserting the token budget covers the ceiling's worth

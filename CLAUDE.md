@@ -822,7 +822,13 @@ Every one of these produced a plausible, wrong result rather than an error.
 - **Measure the running window, not the stylesheet.**
   `getBoundingClientRect()` accounts for the cascade you did not know was
   there; several layout bugs here were invisible in the CSS and obvious in the
-  window.
+  window. **`height: 100vh` with `justify-content: space-between` is the worst
+  case**, because it describes a box that always looks correctly filled no matter
+  how much content is in it — the `notice` window read fine in CSS while needing
+  188 px in a 172 px window, and its only control sat 16 px below the fold from
+  the day it shipped. `scrollHeight - clientHeight` is the reading; anything
+  above zero is a clip. Do it for any window that is `resizable: false`, which is
+  all of them but the log.
 - **UI copy is honest about what happened.** Delivery is never claimed unless
   insertion succeeded; colour is never the only signal. New error codes get
   their own catalog entry with a real instruction.

@@ -15,10 +15,11 @@ Read `CLAUDE.md` first. This file assumes it.
 > genuinely never loaded and `cublasLt64_13.dll` genuinely is, both proved by
 > deleting them.
 >
-> **Item 1b closed on 2026-08-25 and produced six findings of its own** — items
-> 11 to 16, of which **14 is the only outright defect** and the rest are a
-> retired risk, two documentation errors and two honest behaviours nobody had
-> written down. The single most
+> **Item 1b closed on 2026-08-25 and produced seven findings of its own** — items
+> 11 to 17, of which **14 and 17 are defects** and the rest are a retired risk,
+> two documentation errors and two honest behaviours nobody had written down.
+> Item 17 is the cheapest fix in this file and was found by *looking at a window
+> for the first time*. The single most
 > useful thing it settled is arithmetic rather than a measurement: the
 > `max_new_tokens` truncation this repository has been hunting since the fork is
 > **unreachable through the hotkey path**, because the capture ceiling caps a
@@ -49,6 +50,7 @@ predicted:
 | Full gate | passes end to end |
 | A real dictation | delivered, `hotkey_delivery result=committed` (2026-08-18) |
 | **A real dictation, measured** | **done 2026-08-25, both providers.** Card: 105.2 s of speech, press-to-paste **4,246 ms**, RTF 0.0396. Processor: a 120.183 s ceiling stop, inference 44.5 s, RTF 0.3702 — **9.34x** the card. No truncation either run; the ceiling cue confirmed by ear |
+| The ceiling's notice window | **seen for the first time, and 16 px too short for its own copy** — item 17 |
 | Installer lifecycle | `Test-InstallerLifecycle.ps1` passes, including the single-file path |
 | **The wizard, end to end** | `Test-SetupWizard.ps1` passes: eight pages, real install, engine check, launched app |
 | Setup's engine check | transcribes the bundled clip through the real worker in ~5 s |
@@ -1047,10 +1049,18 @@ This was a genuine maximum-length dictation; under 1.5.0 it would have read
 two minutes would have been destroyed. The byte limit at 128 MiB now binds at
 ~233 s, far outside a ceiling it used to bind 3.5 s inside.
 
-**The stop cue was confirmed by ear** — owner report, 2026-08-25. That closes
-the one thing the fifth session shipped without being able to verify. The notice
-window was *not* confirmed either way and stays unverified; it auto-dismisses
-after 15 s and nobody was watching for it.
+**The stop cue was confirmed by ear** — owner report, 2026-08-25. That closes the
+one thing the fifth session shipped without being able to verify.
+
+**The notice window was seen, and it is broken** — item 17. Its content needs
+188 CSS px against a declared 172, so the dismiss button sits 16 px below the
+fold behind a scrollbar. It has clipped on every machine since it shipped, and
+nothing found it for the same reason nothing found anything else about it: the
+window had never been looked at. A feature whose first observation is a defect is
+an argument about coverage, not about that window — a `notice` that only appears
+after two minutes of continuous speech is not reachable by any test in this
+repository, and the two proof scripts that drive real UI (`Test-SetupWizard.ps1`,
+`Test-InstallerLifecycle.ps1`) never see the app's own windows at all.
 
 ## What is outstanding
 
@@ -1343,9 +1353,9 @@ run; the ceiling fired for real with `quality=none` and its cue was heard.
 **Still unverified after this session**, stated plainly because the temptation is
 to read a successful run as covering more than it did:
 
-- **The notice window.** Never seen by anybody. It auto-dismisses after 15 s and
-  nobody was watching for it when the ceiling fired. The cue is confirmed; the
-  window is not.
+- ~~**The notice window.**~~ Seen, and it is **16 px too short for its own copy**
+  — item 17. Both halves of the ceiling's feedback are now verified rather than
+  asserted, and one of them was broken.
 - **`is_plausible` against a real occurrence.** The bait question was
   transcribed rather than answered, so the only guard left has still never had
   to fire on real speech.
@@ -1998,6 +2008,59 @@ device line already reports `cuda`, since the two are then answering the same
 question with different vocabularies. Also item 3's dependency: a published
 worker restores the promotion and the sentence stops being reachable in this
 combination.
+
+### 17. The notice window is 16 px too short for its own copy — found 2026-08-25
+
+Found the first time anybody saw the window, minutes after item 1b closed. The
+`notice` window declares **360x172** and its content needs **188 CSS px**, so the
+dismiss button — its only control — sits **16 px below the fold** behind a
+scrollbar.
+
+Measured through CDP against the running release build, which is the only
+instrument that can answer it (the stylesheet cannot: `height: 100vh` and
+`justify-content: space-between` describe a box that always looks full):
+
+```text
+viewport (CSS px)     : 360 x 172      <- declared size holds; enforce_declared_size is fine
+.capture-notice       : client 311x170   scroll 311x188
+  VERTICAL OVERFLOW   : 18 px
+  title               : 279x40   (2 lines at line-height 19.76)
+  body                : 279x76   (4 lines at line-height 19.02)
+  button              : 61x40  top=148 bottom=188
+  button below fold by: 16 px
+```
+
+**It is not DPI-dependent, which was the first guess and was wrong.** Every
+metric derives from a 16 px root in CSS px — title `0.95rem` is 15.2 px, body
+`0.82rem` is 13.12 px — so the wrap is identical at every scale. It was found on
+a 250% display but it clips on every machine. The second guess was also wrong and
+is worth recording because it sounded mechanical: the scrollbar narrows the
+content box from 326 px to 311 px, so it *looked* like the classic overflow ->
+scrollbar -> narrower -> more wrapping loop. Suppressing the scrollbar and
+re-measuring left the title at 40 px and the body at 76 px unchanged. The text
+wraps the same either way and the shortfall is 16 px regardless. **A plausible
+mechanism is not a measured one**, and both wrong guesses cost one CDP call each
+to kill.
+
+The severity is narrower than the numbers suggest, and both halves matter:
+
+- The **informational copy fits**. What happened, that the transcript is safe,
+  and what to do next are all readable, so the window discharges its actual
+  obligation. This is not a user losing information.
+- The **clipped part is the only control**, in a window that deliberately never
+  takes keyboard focus, so it is reachable only by mouse-wheeling a window nobody
+  has a reason to think scrolls. The 15 s auto-dismiss is what keeps this from
+  mattering — the button is a convenience, not the exit.
+
+Raising the declared height to **192** clears it with 4 px spare, measured rather
+than estimated: with no overflow the content box is 326 px wide, the text still
+wraps to 2 and 4 lines, and 188 px is still what it needs. That is the smaller
+change and it keeps the copy, which was an owner decision. Trimming the body to
+three lines is the alternative and re-opens a settled decision to save 19 px.
+
+`minHeight` is 172 as well and would have to move with it. Whatever changes,
+**measure the running window afterwards** — this entry exists because a
+stylesheet that reads correctly described a window that clipped.
 
 ## Decisions already made — do not re-open without new evidence
 

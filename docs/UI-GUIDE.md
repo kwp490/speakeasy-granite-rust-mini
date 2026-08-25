@@ -347,8 +347,13 @@ is where the claims are easiest to overstate:
 
   **Confirmed by ear on 2026-08-25**, on a real ceiling stop at 120,183 ms in an
   installed release build — the first time anyone had heard it rather than
-  asserted it. The **notice window is still unconfirmed**: it auto-dismisses
-  after 15 s and nobody was watching for it when the ceiling fired.
+  asserted it. The notice window was seen on the same run, and seeing it found a
+  defect: **its content needs 188 CSS px against a declared 172**, so the dismiss
+  button sits 16 px below the fold behind a scrollbar. The copy fits and reads;
+  the only control does not. Not DPI-dependent — the wrap is identical at every
+  scale — so it has clipped on every machine since the window shipped. 192
+  clears it with 4 px spare, `minHeight` included. Item 17 in the handoff has the
+  measurement and the two wrong guesses it killed.
 
   What that run also showed is that the cue arrives a long way ahead of the
   text. On the processor, inference on a full-length dictation is ~44 s, so the
