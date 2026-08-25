@@ -1071,11 +1071,16 @@ provider=running_beyond_record`, disclosed as not-a-fault. That is the honest
 resting state for a machine carrying a worker no release publishes.
 
 Reached the hard way on 2026-08-21: uninstalled for real (weights included),
-reinstalled by `Test-SetupWizard.ps1` from the 1.5.0 installer, then re-staged
-with `Enable-GraniteCuda.ps1`, which re-proves through `--verify-provider` and
+reinstalled by `Test-SetupWizard.ps1`, then re-staged with
+`Enable-GraniteCuda.ps1`, which re-proves through `--verify-provider` and
 recorded `device=cpu evidence=gpu_worker_not_published`. The last warm reads
 `engine=cpu_gpu_pack_not_installed device=cuda installed=cpu
 provider=running_beyond_record`.
+
+**Now on 1.5.1** (2026-08-25), same shape: the release proofs uninstalled and
+reinstalled it, and `Enable-GraniteCuda.ps1` was re-run afterwards as it always
+must be. The toolchain is **Rust 1.98.0**; 1.97.1 was reinstalled through rustup
+after the Malwarebytes quarantine and is intact and unused.
 
 
 ### 0b. Uninstall leaves nothing — done 2026-08-21
@@ -1212,6 +1217,11 @@ dictation remain from this item too.
 
 ### 1b. A real dictation on an installed build — needs the owner
 
+> **A ready-made opening message for this task is in
+> `docs/handoff/NEXT-SESSION-PROMPT.md`.** Paste it into a fresh session rather
+> than re-deriving the setup; it carries the machine state, the traps and the
+> watch-list.
+
 Nobody has spoken into an installed release build. Setup's engine check
 transcribes a bundled clip through the real worker, and the app warms and logs
 `granite_warm result=ok`, but a *dictation* needs a person and a microphone — so
@@ -1320,6 +1330,13 @@ they are reachable by pointing `SPEAKEASY_GRANITE_MODEL_ROOT` at an empty
 directory, which is how the unit-test controls were run.
 
 ### 2b. Distribution — the release, and what it costs to cut another
+
+**1.5.1 was cut on 2026-08-25** — a fix release, because 1.5.0 destroys every
+dictation that reaches the two-minute ceiling. All three proofs pass against its
+artifacts, and the install/uninstall cycle also confirmed the registry-residue
+fix: `HKCU:\Software\SpeakEasy Mini` is now gone after an uninstall rather than
+left empty. Published with `SHA256SUMS`; setup is
+`53995ba86d61619b1f3ad0b4de5b799d8bce49f9623ff680357d8f4a24bfe159`.
 
 **1.5.0 was cut on 2026-08-21** and all three proofs pass against its artifacts:
 the gate, `Test-InstallerLifecycle.ps1`, and `Test-SetupWizard.ps1` end to end
