@@ -467,8 +467,10 @@ fn read_fixture_samples(bytes: &[u8]) -> Result<Vec<f32>, &'static str> {
         if id == b"data" {
             let end = body.saturating_add(size).min(bytes.len());
             return Ok(bytes[body..end]
-                .chunks_exact(2)
-                .map(|pair| f32::from(i16::from_le_bytes([pair[0], pair[1]])) / 32_768.0)
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| f32::from(i16::from_le_bytes(*pair)) / 32_768.0)
                 .collect());
         }
         offset = body + size + (size & 1);

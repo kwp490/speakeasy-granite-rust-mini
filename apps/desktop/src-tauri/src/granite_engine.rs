@@ -1733,8 +1733,10 @@ mod tests {
         }
         let (body, end) = data.unwrap_or_else(|| panic!("no data chunk in {}", path.display()));
         bytes[body..end]
-            .chunks_exact(2)
-            .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| i16::from_le_bytes(*pair))
             .collect()
     }
 

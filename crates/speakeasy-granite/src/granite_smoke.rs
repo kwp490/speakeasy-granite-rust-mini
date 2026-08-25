@@ -193,8 +193,10 @@ fn read_wave_samples(path: &Path) -> Vec<f32> {
     }
     let (body, end) = data.unwrap_or_else(|| panic!("no data chunk in {}", path.display()));
     bytes[body..end]
-        .chunks_exact(2)
-        .map(|pair| f32::from(i16::from_le_bytes([pair[0], pair[1]])) / 32_768.0)
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| f32::from(i16::from_le_bytes(*pair)) / 32_768.0)
         .collect()
 }
 

@@ -33,7 +33,7 @@ $toolsRoot = Join-Path $repositoryRoot '.tools'
 $cargoHome = Join-Path $toolsRoot 'cargo'
 $rustupHome = Join-Path $toolsRoot 'rustup'
 
-$expectedToolchain = '1.97.1'
+$expectedToolchain = '1.98.0'
 
 # The workspace-local toolchain under .tools is how a developer machine is set
 # up (see Enter-DevEnvironment.ps1), but .tools is gitignored, so CI installs

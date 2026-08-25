@@ -92,7 +92,7 @@ Use this route when testing a code change rather than the published installer.
 Install these prerequisites first:
 
 - Windows 11 x64;
-- Rustup with the pinned Rust 1.97.1 toolchain;
+- Rustup with the pinned Rust 1.98.0 toolchain;
 - Node.js 22.16.0 and npm 10.9.2;
 - Visual Studio Build Tools with the Desktop development with C++ workload;
 - CMake and LLVM/libclang for the Granite worker build;
@@ -103,7 +103,7 @@ From PowerShell:
 ```powershell
 Set-Location C:\Coding_Projects\speakeasy-granite-rust-mini
 git switch main
-rustup toolchain install 1.97.1
+rustup toolchain install 1.98.0
 npm ci
 .\scripts\Enter-DevEnvironment.ps1
 npm run tauri -- dev

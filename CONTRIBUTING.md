@@ -14,7 +14,7 @@ enforces that policy; see [docs/LOCAL-DEVELOPMENT.md](docs/LOCAL-DEVELOPMENT.md)
 ## Prerequisites
 
 - Windows 11 x64 with Visual Studio Build Tools and the C++ workload;
-- Rust toolchain 1.97.1 from `rust-toolchain.toml`;
+- Rust toolchain 1.98.0 from `rust-toolchain.toml`;
 - Node.js 22.16.0 and npm 10.9.2, pinned by `.node-version` and
   `package.json`;
 - CMake 4.4.0 and LLVM/libclang for the Granite worker;
