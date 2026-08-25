@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.5.1 — 2026-08-25
 
-Work after 1.5.0. The version has deliberately not moved;
-`scripts/Increment-ProductVersion.ps1` moves it, the registry stamp and the
-install manifest together when a release is cut.
+A single defect, reported from use, and it was the worst kind this product can
+have: it destroyed the user's words and told them nothing. 1.5.0 ships it, so
+anyone dictating for two minutes on that build loses the recording.
 
 ### A two-minute dictation was destroyed every time — 2026-08-25
 
