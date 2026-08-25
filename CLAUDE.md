@@ -240,6 +240,39 @@ Every one of these produced a plausible, wrong result rather than an error.
   `(available_parallelism / 2).clamp(1, 8)`, and 16 threads reproducibly
   changes Granite's greedy decode — every pinned transcript was recorded at 4
   and is byte-identical at 8.
+- **A quality annotation that returns `Err` destroys the recording, and the
+  buffer's byte limit bound *inside* the capture ceiling.** Two bugs that only
+  showed up together, found 2026-08-25 from a user report of "long dictation
+  errored, short one worked". The retained utterance costs **36 bytes per
+  frame** — an `f32` plus a 32-byte `ProcessedSampleMetadata` — so a 64 MiB
+  `max_buffered_bytes` was 116.5 s at 16 kHz against a **120 s** ceiling. Every
+  maximum-length dictation therefore filled its buffer, rejected its last ~3.5 s,
+  raised `BYTE_LIMIT`, and `capture` turned that into `Err` — which discarded
+  the whole two minutes and logged `dictation_ceiling_stop result=no_audio`.
+  Deterministic, not intermittent, which is why the symptom was so clean. Only
+  `frames_buffered == 0` means there is nothing to transcribe; the other five
+  `issue_code` conditions annotate audio that exists and are delivered with a
+  warning now. The byte limit is 128 MiB.
+- **`the_ceiling_stays_inside_the_pipeline_byte_limit` compared against its own
+  copy of the constant.** It asserted the retained bytes were under
+  `128 * 1_024 * 1_024` while `pipeline_config` was built with **64 MiB**, so it
+  passed at 66.5 MiB with the real limit already exceeded — the exact
+  relationship it exists to protect, unprotected. A test holding a hand-written
+  copy of a value cannot see that value change; read it from the config the code
+  actually builds. Rewritten and then made to fail by restoring 64 MiB.
+- **Four of five capture reason codes had no catalog entry**, so a user who lost
+  a two-minute dictation was shown `errorUnknown` — "The operation stopped
+  safely". `every_capture_annotation_has_catalog_copy` now asserts every code
+  `issue_code` can produce has copy, against `catalog.ts` source.
+- **Malwarebytes quarantines Rust toolchain binaries as `Malware.AI.<number>`.**
+  On 2026-08-25 it silently deleted `clippy-driver.exe` and `rustdoc.exe` from
+  `1.97.1-x86_64-pc-windows-msvc` within ~16 s of each rustup extraction, three
+  times in a row, while leaving the byte-identical copies in the `stable`
+  toolchain alone. The gate then failed with `could not execute process
+  clippy-driver.exe ... (never executed)`, which reads as a broken checkout
+  rather than as an antivirus. Unsigned is normal for official Rust, so
+  `Get-AuthenticodeSignature` proves nothing here. Check the bin directory for a
+  missing `.exe` beside a surviving `.pdb` before believing anything else.
 - **Granite's `max_new_tokens` is a silent ceiling.** The generation loop stops
   on reaching it with no error, no end-of-generation token, and nothing that
   distinguishes "the model finished" from "the model was cut off mid-clause".

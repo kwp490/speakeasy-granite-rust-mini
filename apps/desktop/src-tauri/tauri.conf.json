@@ -41,6 +41,20 @@
         "visible": false
       },
       {
+        "label": "notice",
+        "title": "SpeakEasy Mini",
+        "width": 360,
+        "height": 172,
+        "minWidth": 360,
+        "minHeight": 172,
+        "alwaysOnTop": true,
+        "decorations": false,
+        "focus": false,
+        "resizable": false,
+        "skipTaskbar": true,
+        "visible": false
+      },
+      {
         "label": "log",
         "title": "SpeakEasy Mini transcript log",
         "width": 340,

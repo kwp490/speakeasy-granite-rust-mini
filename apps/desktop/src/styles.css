@@ -1557,3 +1557,64 @@ button:disabled {
     border-left-color: transparent;
   }
 }
+
+/* ── The capture-limit notice ───────────────────────────────────────────────
+   360x172 logical, matching the `notice` entry in `tauri.conf.json`, and not
+   resizable — so like the dock there is no size to negotiate here.
+
+   It uses the transcriber's own palette rather than the shared one, for the
+   reason that palette exists: this is an always-on-top overlay that appears
+   over whatever the user dictated into, so it has to stay legible whether
+   Windows is light or dark. The settings window follows the system; an overlay
+   that flipped underneath a light application would not.
+
+   No drag region and no close chrome beyond the button. The window is
+   non-focusable by construction — it is shown while `deliver_final_text` is
+   reading the foreground window — and it takes itself away on a timer, so
+   there is nothing here for a user to manage. */
+.capture-notice {
+  background: var(--hud-surface);
+  border: 1px solid var(--hud-border);
+  border-radius: 8px;
+  box-sizing: border-box;
+  color: var(--hud-text);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100vh;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.capture-notice-title {
+  color: var(--hud-text);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.capture-notice-body {
+  color: var(--hud-text-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 8px 0 0;
+}
+
+/* Right-aligned, because it is the only control and the eye finishes the body
+   text on the left. Sized for the pointer rather than for the word: this window
+   never takes keyboard focus, so a click is the only way to operate it. */
+.capture-notice-dismiss {
+  align-self: flex-end;
+  background: var(--hud-raised);
+  border: 1px solid var(--hud-border);
+  border-radius: 5px;
+  color: var(--hud-text);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 5px 14px;
+}
+
+.capture-notice-dismiss:hover {
+  background: var(--hud-hover);
+}

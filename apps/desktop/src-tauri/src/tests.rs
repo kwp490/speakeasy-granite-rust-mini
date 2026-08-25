@@ -713,6 +713,47 @@ mod tests {
         assert_eq!(clamp_y_to_bounds(above_primary, -9_999, 360), -200);
     }
 
+    /// Every window is named in `configure_hud`, so it can be made
+    /// non-focusable at runtime.
+    ///
+    /// `deliver_final_text` decides where a transcript goes by inspecting the
+    /// foreground window, so any window of the app's own that can activate
+    /// becomes a paste target. Three separate causes have done it, and the
+    /// `notice` window added on 2026-08-25 is the one most exposed to it: it is
+    /// shown *during* delivery, which is the exact moment the foreground window
+    /// is being read.
+    ///
+    /// **The declaration half lives in `tests/scaffold.test.mjs`** ("every
+    /// window is declared, and none of them can take the foreground"), which
+    /// asserts `focus: false` on every entry in `tauri.conf.json`. This is the
+    /// half it cannot see: a window may declare `focus: false` and still need
+    /// `set_focusable(false)` afterwards, and only Rust knows whether
+    /// `configure_hud` reached it.
+    #[test]
+    fn configure_hud_reaches_every_window_that_can_show_during_a_dictation() {
+        let config = include_str!("../tauri.conf.json");
+        let parsed: serde_json::Value =
+            serde_json::from_str(config).expect("tauri.conf.json must parse");
+        let windows = parsed["app"]["windows"]
+            .as_array()
+            .expect("the config must declare windows");
+        assert!(!windows.is_empty());
+        let composition = include_str!("composition.rs");
+        for window in windows {
+            let label = window["label"].as_str().expect("every window has a label");
+            // `main` is shown by a user action, long after any dictation, and
+            // is the one window a person deliberately types into.
+            if label == "main" {
+                continue;
+            }
+            assert!(
+                composition.contains(&format!("\"{label}\"")),
+                "configure_hud must name {label} so it can be made non-focusable"
+            );
+        }
+        assert!(composition.contains("set_focusable(false)"));
+    }
+
     #[test]
     fn the_hud_poll_never_reaches_for_state_that_can_panic() {
         // `app.state::<T>()` panics when `T` is not managed, and a panic raised

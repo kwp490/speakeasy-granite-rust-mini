@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-window",
   "description": "Presentation-only access for SpeakEasy windows.",
-  "windows": ["main", "hud", "hud-dock"],
+  "windows": ["main", "hud-dock", "log", "notice"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

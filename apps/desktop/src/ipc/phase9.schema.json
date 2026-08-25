@@ -186,6 +186,11 @@
       "window": "main",
       "mutates": false
     },
+    "capture_notice_dismiss": {
+      "response": "unit",
+      "window": "notice",
+      "mutates": false
+    },
     "app_quit": {
       "response": "unit",
       "window": "main",

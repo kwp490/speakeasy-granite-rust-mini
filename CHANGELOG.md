@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased
+
+Work after 1.5.0. The version has deliberately not moved;
+`scripts/Increment-ProductVersion.ps1` moves it, the registry stamp and the
+install manifest together when a release is cut.
+
+### A two-minute dictation was destroyed every time — 2026-08-25
+
+Reported from use: a long dictation errored, a short one immediately after
+worked. It was two defects that only showed together.
+
+- **The safety ceiling worked perfectly and the recording was thrown away
+  afterwards.** Capture stopped at 120.2 s, exactly as designed. What followed
+  discarded it: a finished capture reported six possible conditions and all six
+  were treated as failures, when only one — "no audio frames at all" — actually
+  means there is nothing to transcribe. The other five describe audio that
+  exists and transcribes fine. They are now delivered with a warning.
+- **The audio buffer's byte limit ran out before the ceiling did.** Each second
+  of retained audio costs more than the raw samples, and the limit worked out at
+  116.5 s against a 120 s ceiling — so every maximum-length recording overran
+  its buffer, lost its last few seconds, and (per the defect above) was
+  destroyed. That is why long recordings failed *every* time while short ones
+  never did. The limit is now comfortably clear of the ceiling, and a
+  full-length recording is captured whole.
+- **The error said nothing.** Four of the five conditions had no message at all
+  and displayed as "The operation stopped safely". The diagnostic log recorded
+  only `result=no_audio`, without the code it already had in hand. All five now
+  have copy that says the transcript was delivered and what may be missing, and
+  the log names the condition.
+- **Reaching the limit now tells you.** The stop cue sounds — it previously
+  stayed silent on exactly the ending the user did not ask for — and a notice
+  appears saying the recording stopped at the two-minute maximum, that the
+  transcript was delivered, and that anything said afterwards was not recorded.
+
+### Toolchain — 2026-08-25
+
+- **Rust 1.98.0.** Moved from the pinned 1.97.1 after Malwarebytes began
+  quarantining that toolchain's `clippy-driver.exe` and `rustdoc.exe` as a
+  generic AI detection, which silently broke the quality gate. Byte-identical
+  copies of the same files in another toolchain were untouched, and the 1.98.0
+  build is unaffected. One new lint (`chunks_exact_to_as_chunks`) applied across
+  four PCM decoders.
+
 ## 1.5.0 — 2026-08-21
 
 Three sessions of work behind 1.4.2, and one theme runs through all of it: the

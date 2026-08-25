@@ -853,6 +853,89 @@ alive. The pre-flight guard then refuses every retry -- correctly, it will not
 terminate a process it does not own -- but the orphan is the script's own, and
 it cost three runs to notice. Kill `ai-speakeasy-mini` before re-running.
 
+## What happened on 2026-08-25 (fifth session)
+
+A user report: "I ran a long transcription and it errored out. Then ran a short
+one and it worked fine. I would expect the transcription process to automatically
+end at the max time limit."
+
+**The ceiling was working.** It fired at 120,176 ms, 176 ms past two minutes.
+Everything after it was wrong.
+
+### One failure, five annotations
+
+`capture` ended with `if let Some(code) = issue_code(...) { return Err(code) }`,
+and an `Err` there discards the recording. Six conditions could arrive; exactly
+one of them — `frames_buffered == 0` — means there is nothing to transcribe. The
+other five describe audio that exists. `judge_completion` is now a pure function
+returning `Ok(Some(code))` for those, and `CapturedUtterance` carries the note
+alongside the audio.
+
+### Why it was *every* long dictation, not some of them
+
+The first theory was the two single-event latches — one dropped callback block
+or one processing overrun, latching for the whole utterance, so exposure scales
+with duration. Plausible, and not what was happening. Measured:
+
+```text
+dictation_ceiling_stop result=delivering state=captured code=none quality=capture_byte_limit
+```
+
+The retained utterance costs **36 bytes per frame** — an `f32` plus a 32-byte
+`ProcessedSampleMetadata`. `max_buffered_bytes` was 64 MiB, which is 1,864,135
+frames, or **116.5 s** at 16 kHz, against a 121 s capacity and a **120 s**
+ceiling. The byte limit bound 3.5 s inside the ceiling, so every maximum-length
+recording rejected its tail, raised `BYTE_LIMIT`, and was destroyed.
+Deterministic — which is exactly why the symptom was so clean.
+
+Raised to 128 MiB. The same test now reads:
+
+```text
+dictation_ceiling_stop result=delivering state=captured code=none quality=none
+```
+
+### The test that should have caught it
+
+`the_ceiling_stays_inside_the_pipeline_byte_limit` asserted the retained bytes
+were under a hardcoded `128 * 1_024 * 1_024` while `pipeline_config` was built
+with **64 MiB**. It passed at 66.5 MiB with the real limit already exceeded — an
+instrument holding its own copy of the constant it exists to check. It now reads
+`max_buffered_bytes` out of the config the code builds, and was made to fail by
+restoring 64 MiB: *"the byte limit binds at 116 s, before the 120 s ceiling"*.
+
+### What the user was shown
+
+`errorUnknown` — "The operation stopped safely." Four of the five codes had no
+catalog entry, and the `dictation_ceiling_stop` line logged `result` and `state`
+but not the `error_code` the view was already holding. Both fixed;
+`every_capture_annotation_has_catalog_copy` asserts the first against
+`catalog.ts` source.
+
+### Reaching the limit now says so
+
+Owner decisions, taken during the session. The stop cue sounds whether or not
+there is a transcript — it previously sounded only on the delivering branch, so
+the one ending the user did not ask for was also the one that ended in silence.
+And a `notice` window (360x172, always on top, `focus: false`, beside the dock,
+15 s auto-dismiss) says the recording stopped at the maximum, the transcript was
+delivered, and anything said afterwards was not recorded. It is **not** a dock
+glyph (62 px) and **not** a toast (rejected: no AUMID, displays nothing while
+reporting success). Shown while `deliver_final_text` is reading the foreground
+window, so it must never take focus.
+
+### Malwarebytes ate the toolchain, and the pin moved
+
+Mid-session the gate began failing with `could not execute process
+clippy-driver.exe ... (never executed)`. Malwarebytes was quarantining
+`clippy-driver.exe` and `rustdoc.exe` out of `1.97.1-x86_64-pc-windows-msvc` as
+`Malware.AI.3172041259`, within ~16 s of each rustup extraction, three times.
+Byte-identical copies in the `stable` toolchain were untouched. Unsigned is
+normal for official Rust, so the signature says nothing. Owner excluded the exact
+versioned toolchain directory and moved the pin to **1.98.0**, which is
+unaffected. `chunks_exact_to_as_chunks` is new in 1.98 and applied to four PCM
+decoders; `Enter-DevEnvironment.ps1`, `Invoke-ScaffoldChecks.ps1`, `Cargo.toml`,
+`CONTRIBUTING.md` and `TESTING-ON-WINDOWS.md` all moved with it.
+
 ## What is outstanding
 
 Ordered by what unblocks the most.

@@ -497,7 +497,14 @@ test("single instance is registered first and the WebView has no shortcut permis
       "utf8",
     ),
   );
-  assert.deepEqual(capability.windows, ["main", "hud", "hud-dock"]);
+  // `hud` left with the large transcriber and `log` was never added, so this
+  // list named a window that does not exist and omitted one that does. In
+  // Tauri v2 a window matched by no capability gets no permissions at all, so
+  // the pinned log's own close button was calling `transcript_log_unpin`
+  // against a capability that did not cover it. Corrected 2026-08-25 alongside
+  // `notice`, which needs `core:default` to receive its event and to call its
+  // dismiss command.
+  assert.deepEqual(capability.windows, ["main", "hud-dock", "log", "notice"]);
   assert.equal(capability.permissions.includes("global-shortcut:default"), false);
 });
 
@@ -508,11 +515,16 @@ test("every window is declared, and none of them can take the foreground", async
   const hudComponents = await readHudComponents();
   const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
 
-  // Three windows, and the `hud` transcriber is not among them. It showed words
+  // Four windows, and the `hud` transcriber is not among them. It showed words
   // as they were spoken; nothing is spoken into a transcript any more.
+  //
+  // `notice` joined on 2026-08-25: the dock is 62 px wide and cannot say
+  // "your recording hit the two-minute maximum", and a Windows toast was
+  // specified and rejected because it displays nothing while reporting success
+  // when it has no AUMID.
   assert.deepEqual(
     config.app.windows.map((window) => window.label).sort(),
-    ["hud-dock", "log", "main"],
+    ["hud-dock", "log", "main", "notice"],
   );
 
   // Anything SpeakEasy puts in the foreground becomes the delivery target, so
@@ -532,6 +544,16 @@ test("every window is declared, and none of them can take the foreground", async
   assert.equal(log.alwaysOnTop, true);
   assert.equal(log.skipTaskbar, true);
   assert.equal(log.visible, false, "the log is shown by pinning, not at launch");
+
+  // The notice is shown *while a transcript is being delivered*, which is the
+  // one moment `deliver_final_text` is reading the foreground window. Its
+  // `focus: false` is asserted with every other window above; these are the
+  // rest of the properties that keep it out of the way.
+  const notice = config.app.windows.find((window) => window.label === "notice");
+  assert.equal(notice.alwaysOnTop, true);
+  assert.equal(notice.skipTaskbar, true);
+  assert.equal(notice.resizable, false);
+  assert.equal(notice.visible, false, "the notice is shown by the ceiling, not at launch");
 
   // Still absolute (decision 3): no OS-input or delivery command from a
   // no-activate window.
@@ -554,6 +576,10 @@ test("every window is declared, and none of them can take the foreground", async
   assert.deepEqual([...new Set(invoked)], [
     "capture_devices",
     "capture_hud_status",
+    // Added 2026-08-25 with the notice window. It takes a warning off the
+    // user's screen and does nothing else -- no delivery, no OS input, no
+    // transcript -- and the Rust side refuses it from any window but `notice`.
+    "capture_notice_dismiss",
     "capture_transcribe_cancel",
     "dictation_start",
     "dictation_stop",

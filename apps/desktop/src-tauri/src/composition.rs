@@ -228,6 +228,7 @@ pub fn run() {
         hud_dock_context_menu,
         transcript_log_pin,
         transcript_log_unpin,
+        capture_notice_dismiss,
         capture_transcribe_cancel,
         runtime_recover,
         result_status,
@@ -265,17 +266,25 @@ fn configure_hud(app: &mut tauri::App) -> tauri::Result<()> {
     let Some(dock) = app.get_webview_window("hud-dock") else {
         return Ok(());
     };
-    // Both of the app's on-top windows are non-focusable, and this is not
+    // Every one of the app's on-top windows is non-focusable, and this is not
     // cosmetic. `deliver_final_text` inspects the foreground window to decide
     // where a transcript goes, so any window of SpeakEasy's own that lands
     // there hijacks the dictation — it does not error, it refuses with
     // `target_inspect_refused` and falls back to the clipboard, which reads as
     // a delivery bug somewhere else entirely.
+    //
+    // `notice` joined them on 2026-08-25 and is the one that would have found
+    // this out the hard way: it is shown *during* a dictation's delivery, which
+    // is the exact moment the foreground window is being read.
+    // `every_declared_window_is_non_focusable` pins the list against the config
+    // so a fourth window cannot be added without arriving here.
     dock.set_focusable(false)?;
     enforce_declared_size(app, &dock, "hud-dock");
-    if let Some(log) = app.get_webview_window("log") {
-        log.set_focusable(false)?;
-        enforce_declared_size(app, &log, "log");
+    for label in ["log", "notice"] {
+        if let Some(window) = app.get_webview_window(label) {
+            window.set_focusable(false)?;
+            enforce_declared_size(app, &window, label);
+        }
     }
     let saved = app
         .state::<ProfileCoordinator>()

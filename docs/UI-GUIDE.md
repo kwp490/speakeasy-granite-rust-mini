@@ -334,6 +334,40 @@ is where the claims are easiest to overstate:
   becomes. Measured on this machine at 250%, the page is 480x398 logical and
   every control fits its box, the models row reading
   `Downloaded speech models (2.3 GB)`.
+- **The two-minute ceiling ends the recording out loud, and says so.** Reaching
+  it is not a failure and never costs the user their words. Three things happen,
+  in this order (owner decision, 2026-08-25): the stop cue sounds, a notice
+  window appears, and the transcript is delivered normally.
+
+  The **cue sounds whether or not there is a transcript**. It answers "did the
+  microphone stop?", which is a different question from "did I get my text", and
+  the ceiling is the one ending the user did not ask for. It used to sound only
+  on the delivering branch, so a capture that ended in failure ended in silence
+  and the user kept talking to a microphone that had stopped listening.
+
+  The **notice is its own window** (`notice`, 360x172 logical, always on top,
+  `focus: false`, placed beside the dock). It is not a dock glyph because the
+  dock is 62 px wide and cannot hold a sentence; it is not a Windows toast
+  because that route needs an AUMID from an installed Start Menu shortcut and
+  otherwise displays nothing while reporting success. It says what happened,
+  that the transcript is safe, and what to do next — in that order, because the
+  first thing a user asks when a recording stops by itself is whether they lost
+  anything. It dismisses itself after 15 seconds and has one button.
+
+  **Never call `set_focus` on it.** It is shown while `deliver_final_text` is
+  inspecting the foreground window to choose a paste target, which is the exact
+  hazard that has hijacked three dictations.
+- **Imperfect audio is delivered with a warning, never discarded.** Of the six
+  conditions a finished capture can report, only "no frames at all"
+  (`capture_empty`) means there is nothing to transcribe. The other five — a
+  dropped block, a processing overrun, and the three buffer limits — describe
+  audio that exists and will transcribe, so they annotate the result instead of
+  replacing it. Until 2026-08-25 every one of them was an error that threw the
+  recording away, and because the buffer's byte limit bound 3.5 s inside the
+  two-minute ceiling, that destroyed **every** maximum-length dictation while
+  short ones worked perfectly. All five now carry copy that says the transcript
+  was delivered and what may be missing from it; four of them had none and
+  rendered as "The operation stopped safely".
 - **A progress bar that is not moving must say why it is not moving.** The
   download step has three phases and only one of them advances a bar:
   transferring, re-checking a file that was already downloaded, and unpacking.

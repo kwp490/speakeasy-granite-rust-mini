@@ -843,6 +843,30 @@ fn apply_final_personalization(
 }
 
 
+/// Hides the capture-limit notice.
+///
+/// Callable only from the notice itself, which is the only window that has a
+/// reason to: it dismisses on its own timer and on its own button, and nothing
+/// else should be able to take a warning off the user's screen.
+///
+/// Hidden rather than closed, for the reason every window here is: a closed
+/// window has to be rebuilt to be shown again, and building one from a command
+/// handler deadlocks the whole app's IPC.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn capture_notice_dismiss(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<(), &'static str> {
+    (window.label() == "notice")
+        .then_some(())
+        .ok_or("window_not_authorized")?;
+    let notice = app
+        .get_webview_window("notice")
+        .ok_or("capture_notice_window_unavailable")?;
+    notice.hide().map_err(|_| "window_operation_refused")
+}
+
 /// Shows the pinned transcript-log window.
 ///
 /// Declared in `tauri.conf.json` and shown here, never built on demand: a

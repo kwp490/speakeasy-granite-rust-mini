@@ -44,7 +44,26 @@ length-prefixed JSON stdio protocol.
 Capture endpointing is intentionally manual: the hotkey or the dock's Stop
 button ends a dictation. There is no VAD. Every recording has a hard two-minute
 safety ceiling; reaching it auto-stops capture and sends the retained audio
-through the normal transcription and delivery path.
+through the normal transcription and delivery path, sounds the stop cue, and
+shows the `notice` window so the user knows the limit was reached.
+
+**The buffer has to outlast the ceiling, and for a long time it did not.** The
+retained utterance costs 36 bytes per frame — an `f32` plus a 32-byte
+`ProcessedSampleMetadata` — so `max_buffered_bytes` of 64 MiB was 1,864,135
+frames, or 116.5 s at 16 kHz, against a 121 s capacity and a 120 s ceiling. The
+byte limit bound first: every maximum-length dictation rejected its last ~3.5 s,
+raised `UtteranceIssues::BYTE_LIMIT`, and — because that was returned as an
+error — had the whole recording discarded. It is 128 MiB now, and
+`the_ceiling_stays_inside_the_pipeline_byte_limit` reads the limit out of the
+config the code actually builds rather than holding its own copy of the number,
+which is how it passed through the entire period the relationship was broken.
+
+**A finished capture reports one failure and five annotations.** Only
+`frames_buffered == 0` means there is nothing to transcribe. A dropped callback
+block, a processing overrun and the three buffer limits all describe audio that
+exists, so `judge_completion` returns them alongside the transcript instead of
+in place of it, and the user is told what may be missing rather than losing the
+recording.
 
 ## Crate map
 
