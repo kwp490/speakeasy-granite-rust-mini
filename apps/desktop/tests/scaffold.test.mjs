@@ -1226,6 +1226,39 @@ test("settings carries no capture controls and no second start path", async () =
   // the user has today, and nothing is silently dropped.
   assert.match(app, /invoke\("dictation_retry"\)/);
   // And it must not deliver — settings is the focused app while the user reads it.
+
+  // One dictation at a time, stated once. The dock's `can_start` refused a press
+  // while the previous dictation was still finishing and the global shortcut did
+  // not, so the same key was accepted by one controller and declined by the
+  // other — observed 490 ms after a ceiling stop, which opened a second
+  // recording that queued 36.6 s and pasted wherever the user had moved on to.
+  // Both paths converge on `start_dictation`, so the guard lives there, and the
+  // definition of "still finishing" lives in one function both readers call.
+  const rust = new Map(await readAllRustSources());
+  const views = rust.get("apps/desktop/src-tauri/src/views.rs");
+  const capture = rust.get("apps/desktop/src-tauri/src/commands/capture.rs");
+  const coordinators = rust.get("apps/desktop/src-tauri/src/coordinators.rs");
+
+  assert.match(coordinators, /fn hud_session_with_delivery\(/);
+  assert.match(coordinators, /fn dictation_is_finishing\(/);
+  assert.match(views, /if dictation_is_finishing\(app\) \{/);
+  assert.match(views, /"dictation_still_finishing"/);
+  assert.match(capture, /hud_session_with_delivery\(capture_view\.state\.as_str\(\)/);
+
+  // No second statement of the promotion. `capture_hud_status` held its own copy
+  // — `session == "complete" && delivery_pending` — and a copy is what let the
+  // two controllers disagree in the first place.
+  assert.doesNotMatch(
+    capture,
+    /session == "complete"/,
+    "capture_hud_status must not re-implement the delivery promotion",
+  );
+
+  // The refusal is logged and has copy. "The shortcut did nothing" is
+  // indistinguishable from a broken shortcut, so the log is what separates them
+  // and the catalog entry is what a user gets instead of `errorUnknown`.
+  assert.match(views, /\("result", "dictation_still_finishing"\)/);
+  assert.match(catalog, /\n\s*dictation_still_finishing:/);
 });
 
 test("the session transcript log copies text and writes nothing to disk", async () => {

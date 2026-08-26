@@ -5,11 +5,11 @@ cost you an afternoon if you rediscover them yourself.
 
 Read `CLAUDE.md` first. This file assumes it.
 
-> **Picking this up cold?** Items 0, 0b, 1b, 8, 9, 10, 11, 14 and 17 are all
-> **done** — read them for what they found, not for what to do. The one open item
-> left needs the owner rather than an agent: **item 3** (publishing the CUDA
-> worker, deliberately deferred past 1.5.0). Item 2b is the release itself, and
-> item 16 is four sentences of copy anyone can take.
+> **Picking this up cold?** Items 0, 0b, 1b, 8, 9, 10, 11, 14, 15 and 17 are all
+> **done** — read them for what they found, not for what to do. **Item 3 is the
+> live one**: publishing the CUDA worker, started 2026-08-26 and part-way through.
+> Item 2b is the release, and item 16 is four sentences of copy that item 3 closes
+> on its own.
 >
 > The three findings item 0 produced were all closed on 2026-08-21, and two of
 > them were closed by *measuring* rather than reasoning: `cudart64_13.dll` is
@@ -38,8 +38,19 @@ Read `CLAUDE.md` first. This file assumes it.
 > the capture ceiling caps a dictation at roughly a fifth of the token budget —
 > arithmetic nobody did for months. Item 11.
 >
-> **The one open item left needs the owner: item 3**, publishing the CUDA worker,
-> which closes items 12 and 16 on its own.
+> **Item 15 closed 2026-08-26** on an owner decision: one dictation at a time,
+> refused rather than queued. The fix is small; the finding is that the dock had
+> refused that press all along and the global shortcut had not, so two controllers
+> disagreed about one key because the rule was stated twice.
+>
+> **Item 3 is under way and is the only thing left that matters.** The CUDA worker
+> is built from `67c9498` and **proven on the card** (361.2 ms resident, both
+> hardware tests green against that exact binary). The publish is blocked on one
+> human step — `hf auth login` — and then on a gap item 3 did not anticipate:
+> pinning the artifact does **not** enable the wizard's option, because
+> `inspect_gpu_payload` requires the worker to be on disk already and a first
+> install has not extracted it yet. Read item 3 before touching any of it; this
+> machine cannot see that bug, because it has a worker staged.
 
 ## Start here
 
@@ -1575,6 +1586,92 @@ answering `Ok(())` on its own, which is what the id being a named constant buys.
 Until then a GPU machine gets the CPU worker, the option is disabled with the
 reason, no installation may record `cuda`, and the app says so honestly.
 
+#### Started 2026-08-26: the worker is built and proven, the publish is not done
+
+Owner decision 2026-08-26: do it. Three sub-decisions were taken with it.
+
+- **Hugging Face carries the worker only.** The three CUDA DLLs stay fetched from
+  NVIDIA's own CDN, where the manifest already pins both archives by digest and
+  `required_cuda_runtime_files` already reads them. That is ~54 MB uploaded
+  instead of ~450 MB, no new plumbing for the libraries, and no question about
+  re-distributing NVIDIA binaries under the CUDA EULA from a personal repo. It
+  **reverses** the "one artifact" intention written above; the atomicity that
+  intention was protecting is provided by `inspect_gpu_payload` refusing until
+  every file is present, not by the transport.
+- **Repo under whichever account the token belongs to**, named
+  `speakeasy-mini-runtime`. The `orangeblue39/...` above was never confirmed.
+- **Upload, then fix the gap below, then pin.** Nothing user-visible changes
+  until the whole path works.
+
+**The worker exists and is proven on the card.** Built from `67c9498` with
+`--features cuda`:
+
+```text
+target\release\speakeasy-granite-worker.exe
+  57,052,672 bytes
+  sha256 1d4a3ad57e72acaaa55a507f88733ac18f77909349c4bf7c7bc017269499170a
+  image names cublas64_13.dll and nvcuda.dll; not cublasLt64_13.dll, not cudart64_13.dll
+```
+
+That import table is the expected one and matches what `granite_gpu.rs` measured
+on 2026-08-21, which is the cheapest available check that a binary is genuinely a
+CUDA build. Both hardware tests pass against **this** binary, staged into
+`target\debug\proof\` with the three libraries beside it:
+`a_cuda_worker_reports_the_device_its_context_probe_can_prove`, and
+`granite_final_pass_transcribes_the_fixture_through_the_real_worker_process` with
+`worker=cuda first=41.1286058s second=361.2019ms` — **361.2 ms resident on CUDA**,
+matching the 2026-08-21 figure to the millisecond.
+
+Three things learned doing it, all of which cost something to find:
+
+- **A CUDA worker's digest is not reproducible, and its size is not a fingerprint.**
+  Three CUDA workers on this machine — the one staged in the installed app, the
+  one in `target\debug\proof\`, and this fresh build — have **three different
+  SHA-256s**, and two of them have the *identical* 57,052,672-byte size. MSVC
+  embeds a timestamp and a PDB path. So "same size" proves nothing about "same
+  build", the digest that gets pinned pins one specific build, and a rebuild will
+  not reproduce it. Publish the bytes that were tested, not a rebuild of them.
+- **`--verify-provider` cannot prove the card until the worker is published.**
+  Staging this worker and re-proving reported `provider_recorded device=cpu
+  evidence=gpu_worker_not_published` — correct, and item 12 exactly: the first of
+  the three gates asks whether a worker is *published*, so the proof is circular
+  until the manifest names one. The instrument that works before publication is
+  the two hardware tests above.
+- **Publishing does not break the installer build.** `Invoke-ProofPackage.ps1`
+  builds the worker with default (CPU) features and `Assert-GraniteWorkerPayload
+  IsCoherent` only refuses a *staged* CUDA worker with no libraries beside it. The
+  "packager begins refusing payloads" warning above is about staging, not pinning.
+
+#### The gap: pinning the artifact is not enough, and this machine cannot see it
+
+Item 3 says every layer below "starts answering `true` without a second edit".
+**That is wrong**, and the reason is worth more than the correction.
+
+The wizard gates its graphics-card radio on
+`download::graphics_card_configuration_available()`, which calls
+`inspect_gpu_payload` against `%LOCALAPPDATA%\SpeakEasy Mini\proof\granite-worker.exe`.
+On a **first install that file does not exist yet** — setup has not extracted the
+payload when the provider page is shown. So pinning the artifact alone leaves the
+option disabled on every fresh machine, now reporting `WorkerNotInstalled` where
+it used to report `WorkerNotPublished`.
+
+`inspect_gpu_payload` conflates two questions that were always different:
+
+| Question | Who asks it | What it needs |
+| --- | --- | --- |
+| Is a graphics-card configuration **installable**? | the wizard's provider page | published, and fetchable |
+| Is one **installed here**? | the app's warm path, `--verify-provider`, `smoke::gpu_payload_rejection` | the files present in `proof/` |
+
+Splitting them is the second edit. `download::plan` also still needs its second
+item — it takes `provider` and deliberately ignores it, with a comment saying it
+is for exactly this.
+
+**And this machine is the worst possible place to notice**, which is why it is
+written down rather than merely fixed. It has the CUDA worker and all three
+libraries staged, so with the artifact pinned the option would light up *here* and
+look correct. The wizard that only offers the graphics card to machines that
+already have it would have shipped, and every test on this rig would have agreed.
+
 ### 4. The rebrand tail — done 2026-08-18, and it was not cosmetic
 The remaining "SpeakEasy" strings were filed as naming. Three of them were
 correctness bugs, each one this product writing into the *parent* product's
@@ -2102,7 +2199,7 @@ being unread is reported — a null profile renders unchecked boxes and a delive
 preference nobody chose, across three pages, which the old comment acknowledged
 and nothing said out loud.
 
-### 15. The habitual stop press after a ceiling stop starts a new dictation — found 2026-08-25
+### 15. A press between recording and paste started a second dictation — found 2026-08-25, closed 2026-08-26
 
 Observed on the processor run. The ceiling stopped the capture at 120,183 ms;
 the owner pressed `Ctrl+Alt+P` **490 ms later** — the second press of a normal
@@ -2116,22 +2213,49 @@ event=hotkey_capture_device_selected                <- 490 ms later, the user's 
 event=dictation_start result=ok                     <- a second dictation
 ```
 
-Everything here is working as built. `on_event` toggles, the queue serialises so
-utterances cannot race, and both transcripts were delivered. There is no error to
-report and none was reported.
+Everything there was working as built. `on_event` toggles, the queue serialises so
+utterances cannot race, and both transcripts were delivered. There was no error to
+report and none was reported — which is why only a rule could catch it.
 
-What makes it worth an entry is the interaction with the timings above. The user
-who reaches the ceiling is by definition the user who was still talking, so a
-stop press is the *expected* next input, and it now costs them a spurious
-recording whose transcript is pasted wherever they happen to be up to a minute
-later. The notice window says the recording stopped, but it appears while the
-first transcript is still 44 s from arriving, so on the processor the sequence a
-user actually experiences is: cue, notice, silence, an unexpected second
-recording, then two pastes.
+**Owner decision 2026-08-26: one dictation at a time.** A press in the window
+between recording ending and the transcript landing is **refused, not queued**,
+because the user pressing it is ending a recording that has already ended rather
+than asking for another one.
 
-Whether a press shortly after an automatic stop should be swallowed is an owner
-decision and is not proposed here. It is recorded because one run surfaced it
-immediately, which suggests most ceiling stops will hit it.
+#### The two controllers already disagreed, and that is where the fix went
+
+The dock's Start button had refused this press all along. `can_start` is
+`setup.is_none() && !running`, and `running` includes `finalizing` — which
+`capture_hud_status` reaches by promoting `complete` to `finalizing` while
+delivery is unresolved. The **global shortcut had no such rule**. So the same key
+was declined by one controller and accepted by the other, on a codebase whose
+stated single-controller principle says "a button press and a shortcut press are
+competing for one session rather than opening two".
+
+So the guard is in **`start_dictation`**, which is the one function both paths
+converge on and whose own doc says there is deliberately no second start path.
+Three parts, and the middle one is the reason this can stay fixed:
+
+- `hud_session_with_delivery` holds the promotion, and both readers call it.
+  `capture_hud_status` had its own copy (`session == "complete" &&
+  delivery_pending`), and a copy is exactly what let the two disagree. A scaffold
+  assertion refuses a second statement of it, proved able to fail by restoring
+  the copy.
+- `dictation_is_finishing` is the question, answered once. It **fails open** —
+  `false` when a coordinator is absent or a lock is poisoned — on purpose: this
+  guard exists to suppress an unwanted dictation, and a broken read must never
+  suppress a wanted one.
+- The refusal is **logged** (`dictation_start result=dictation_still_finishing`)
+  and has catalog copy. "The shortcut did nothing" is indistinguishable from a
+  broken shortcut, so the log is the only thing that separates them, and the copy
+  is what a user gets instead of `errorUnknown`.
+
+The window matters more than it looks: inference alone is 4.2 s on the card and
+44.5 s on the processor, and the promotion is what stops the guard opening the
+moment inference ends but before the paste. `a_dictation_is_still_finishing_until_
+its_transcript_is_delivered` pins that, including that `arming` and `capturing`
+are **never** refused — a guard reaching those would stop the shortcut being able
+to end a dictation.
 
 ### 16. Three true sentences that read as a contradiction — found 2026-08-25
 

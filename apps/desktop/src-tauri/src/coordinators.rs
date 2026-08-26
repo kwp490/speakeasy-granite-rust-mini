@@ -508,6 +508,69 @@ fn hud_session_of(capture_state: &str) -> &'static str {
     }
 }
 
+/// The session state the user is shown, with delivery folded in.
+///
+/// Split out of `capture_hud_status` so the dock and the shortcut cannot
+/// disagree about when a dictation is over. They did: `can_start` has always
+/// refused while a dictation was still finishing, and the global shortcut had no
+/// such rule, so the same press the dock declined started a second recording.
+///
+/// The promotion is the load-bearing half. Transcription being finished is not
+/// the text having arrived somewhere, so `complete` with delivery unresolved is
+/// reported as `finalizing` -- a completion the user cannot act on is not a
+/// completion.
+fn hud_session_with_delivery(capture_state: &str, delivery_pending: bool) -> &'static str {
+    let session = hud_session_of(capture_state);
+    if session == "complete" && delivery_pending {
+        "finalizing"
+    } else {
+        session
+    }
+}
+
+/// Whether a dictation has stopped recording but not yet finished with the
+/// transcript.
+///
+/// The window this covers is long and the user cannot see into it: measured
+/// 2026-08-25 on an installed release build, inference alone is 4.2 s on the
+/// card and 44.5 s on the processor. Nothing is on screen saying "still
+/// working" except the dock, which the user has usually looked away from.
+///
+/// So the press that arrives here is the ordinary second press of a toggle --
+/// especially after a ceiling stop, where the recording ended without being
+/// asked to and the user was by definition still talking. Observed 490 ms after
+/// a ceiling fired at 120,183 ms: it opened a second dictation, which queued
+/// behind the first, waited 36.6 s, and pasted its own transcript wherever the
+/// user had got to. Nothing errored; both transcripts were delivered.
+///
+/// Owner decision 2026-08-26: one at a time. A press in this window is refused
+/// rather than queued, because the user pressing it is ending a recording that
+/// has already ended, not asking for another one.
+///
+/// `false` when either coordinator is absent or its lock is poisoned. That is
+/// the fail-open direction on purpose: this guard exists to suppress an
+/// *unwanted* dictation, and a broken read must never be able to suppress a
+/// wanted one.
+fn dictation_is_finishing(app: &tauri::AppHandle) -> bool {
+    let (Some(capture), Some(hud)) = (
+        app.try_state::<CaptureWizardCoordinator>(),
+        app.try_state::<CaptureHudCoordinator>(),
+    ) else {
+        return false;
+    };
+    let Ok(view) = capture.view() else {
+        return false;
+    };
+    let delivery_pending = hud
+        .live
+        .lock()
+        .is_ok_and(|live| live.delivery_outcome.is_none());
+    matches!(
+        hud_session_with_delivery(view.state.as_str(), delivery_pending),
+        "stopping" | "finalizing"
+    )
+}
+
 /// Starts the resident Granite worker in the background at app launch.
 ///
 /// Granite runs on every dictation, so the ~2 GB model load is paid once here

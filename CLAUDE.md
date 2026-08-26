@@ -747,6 +747,19 @@ Every one of these produced a plausible, wrong result rather than an error.
 - **The dock never takes keyboard focus**, so it is deliberately not keyboard
   operable. Every action it offers must have a keyboard path elsewhere — the
   shortcut, or the settings window.
+- **One dictation at a time, refused rather than queued.** Owner decision
+  2026-08-26. A press between a recording ending and its transcript landing is
+  the second press of a toggle for a dictation that is already over — commonly
+  after a ceiling stop, where the recording ended without being asked to and the
+  user was by definition still talking. It used to open a second dictation that
+  queued behind the first and pasted up to a minute later, wherever the user had
+  moved on to; nothing errored, because everything was working as built. The
+  guard is in `start_dictation`, the single implementation behind both the
+  shortcut and the dock's button, and `hud_session_with_delivery` is the one
+  statement of when a dictation is over — the dock's `can_start` had refused this
+  press all along while the shortcut accepted it, and the cause was a second copy
+  of that rule. It **fails open**: a poisoned lock or an absent coordinator must
+  never be able to suppress a dictation the user wanted.
 - **Granite's GPU support is a build feature, not a downloadable pack**, so
   there is no provider-override setting: no setting can conjure a CUDA-capable
   worker binary. The installer fetches one when the hardware warrants it;

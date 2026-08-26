@@ -406,9 +406,20 @@ is where the claims are easiest to overstate:
   What that run also showed is that the cue arrives a long way ahead of the
   text. On the processor, inference on a full-length dictation is ~44 s, so the
   sequence a user experiences is cue, notice, then three quarters of a minute of
-  nothing before the transcript lands. A stop press in that gap is not a no-op —
-  it starts a new dictation, which then queues behind the first. Observed 490 ms
-  after the ceiling fired, which is where a habitual second press falls.
+  nothing before the transcript lands. A stop press in that gap used to start a
+  new dictation, which then queued behind the first — observed 490 ms after the
+  ceiling fired, which is where a habitual second press falls.
+
+  **One dictation at a time** since 2026-08-26 (owner decision). A press between
+  recording ending and the transcript landing is **refused, not queued**: the
+  user pressing it is ending a recording that has already ended. The dock's
+  `can_start` had always refused it and the global shortcut had not, so the same
+  key was declined by one controller and accepted by the other — on a product
+  whose single-controller rule exists to stop exactly that. The guard is in
+  `start_dictation`, the one function both paths converge on, and the refusal is
+  logged (`dictation_start result=dictation_still_finishing`) with its own catalog
+  copy, because "the shortcut did nothing" is otherwise indistinguishable from a
+  broken shortcut.
 
   The **notice is its own window** (`notice`, 360x192 logical, always on top,
   `focus: false`, placed beside the dock). It is not a dock glyph because the

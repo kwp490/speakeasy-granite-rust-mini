@@ -593,6 +593,14 @@ export const messages = {
     capture_device_format_unsupported: "The selected microphone format is not supported. Choose another input device.",
     capture_start_failed: "Recording could not start. Check Windows microphone permission and the selected device.",
     capture_already_active: "A recording is already active. Stop it before starting another.",
+    // The press that lands between a recording ending and its transcript
+    // arriving -- most often the habitual second press of a toggle after the
+    // two-minute maximum stopped the recording on its own. One dictation at a
+    // time, so it is refused rather than queued. The copy has to say the earlier
+    // transcript is safe, because the visible effect is a shortcut that did
+    // nothing, which reads as a broken shortcut.
+    dictation_still_finishing:
+      "The previous recording is still being transcribed. Its text is on its way — wait for it to arrive, then start the next one.",
     capture_not_active: "No active recording could be stopped.",
     capture_empty: "No usable audio was captured. Check mute and the Windows input meter, then retry.",
     // The five conditions below annotate audio that **was** delivered, and the

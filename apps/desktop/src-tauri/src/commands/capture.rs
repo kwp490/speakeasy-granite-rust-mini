@@ -52,13 +52,12 @@ fn capture_hud_status(app: tauri::AppHandle) -> Result<CaptureHudView, &'static 
         .delivery_outcome
         .is_none();
 
-    let mut session = hud_session_of(capture_view.state.as_str());
-    // Transcription being over is not the same as the text having arrived
-    // somewhere. Until delivery resolves, the honest report is still
-    // "transcribing" rather than a completion the user cannot act on.
-    if session == "complete" && delivery_pending {
-        session = "finalizing";
-    }
+    // Through the shared helper, not a local copy of the promotion. The rule
+    // that `complete` with delivery unresolved is still `finalizing` is now also
+    // what stops the shortcut opening a second dictation, and two statements of
+    // it would be two answers to one question -- which is how `can_start` came
+    // to refuse a press the shortcut accepted.
+    let session = hud_session_with_delivery(capture_view.state.as_str(), delivery_pending);
     let running = matches!(
         session,
         "starting" | "streaming" | "stopping" | "finalizing"

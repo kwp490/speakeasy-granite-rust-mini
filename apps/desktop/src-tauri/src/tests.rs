@@ -384,6 +384,56 @@ mod tests {
         }
     }
 
+    /// The window a second press must not be able to start a dictation in.
+    ///
+    /// Pure, so it can be asserted without a Tauri app: `dictation_is_finishing`
+    /// is this function plus two coordinator reads, and this is the half that
+    /// decides. What it protects is a real observed sequence -- a ceiling stop at
+    /// 120,183 ms, a press 490 ms later, a second dictation queued behind the
+    /// first for 36.6 s, and its transcript pasted wherever the user had moved on
+    /// to. Nothing errored, which is why only a rule can catch it.
+    #[test]
+    fn a_dictation_is_still_finishing_until_its_transcript_is_delivered() {
+        // Recording over, transcript not delivered: every one of these is a
+        // window where the next press is a *new* dictation rather than a stop.
+        for state in ["draining", "captured", "finalizing"] {
+            assert_eq!(
+                hud_session_with_delivery(state, true),
+                if state == "finalizing" { "finalizing" } else { "stopping" },
+                "{state} is still finishing"
+            );
+        }
+
+        // The promotion, which is the load-bearing half. Transcription being
+        // finished is not the text having arrived: `complete` with delivery
+        // unresolved has to read as `finalizing`, or the guard opens exactly at
+        // the moment inference ends -- 4.2 s in on the card, 44.5 s on the
+        // processor, and still before the paste.
+        assert_eq!(hud_session_with_delivery("complete", true), "finalizing");
+        assert_eq!(hud_session_with_delivery("complete", false), "complete");
+
+        // Recording, and a press here is a stop. The guard must never reach
+        // these, or the shortcut stops being able to end a dictation.
+        assert_eq!(hud_session_with_delivery("arming", true), "starting");
+        assert_eq!(hud_session_with_delivery("capturing", true), "streaming");
+
+        // Nothing in flight. A refusal here would be a shortcut that does
+        // nothing, for no reason the user could discover.
+        for state in ["idle", "ready", "unknown"] {
+            assert!(
+                !matches!(
+                    hud_session_with_delivery(state, true),
+                    "stopping" | "finalizing"
+                ),
+                "{state} must not refuse a press"
+            );
+        }
+        assert!(!matches!(
+            hud_session_with_delivery("failed", true),
+            "stopping" | "finalizing"
+        ));
+    }
+
     #[test]
     fn delivery_outcome_is_reported_as_it_happened() {
         let hud = CaptureHudCoordinator::default();

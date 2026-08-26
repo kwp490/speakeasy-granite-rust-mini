@@ -873,7 +873,33 @@ fn hotkey_capture_device(app: &tauri::AppHandle) -> Result<String, &'static str>
 /// There is deliberately no second start path: `capture_start` stops and does
 /// not deliver, so a dictation begun through it would silently skip the paste
 /// that the identical action from the shortcut performs.
+///
+/// # One at a time
+///
+/// The guard below is here, rather than in either caller, for the reason this
+/// function exists: the dock's `can_start` refused a press while the previous
+/// dictation was still finishing and the shortcut did not, so the two disagreed
+/// about the same key. Both converge here, so the rule can only be stated once.
 fn start_dictation(app: &tauri::AppHandle, session_id: SessionId) -> Result<(), &'static str> {
+    // Refused, not queued. Recording has stopped and the transcript has not
+    // landed, so a press now is the second press of a toggle for a dictation
+    // that has already ended -- most often after a ceiling stop, where the
+    // recording ended without being asked to. Queueing it cost the user a
+    // spurious recording pasted up to a minute later, wherever they had moved
+    // on to. Owner decision 2026-08-26.
+    //
+    // Logged rather than silent, because "the shortcut did nothing" is
+    // indistinguishable from a broken shortcut, and this is the only record that
+    // separates them.
+    if dictation_is_finishing(app) {
+        log_event_for_session(
+            app,
+            session_id,
+            "dictation_start",
+            &[("result", "dictation_still_finishing")],
+        );
+        return Err("dictation_still_finishing");
+    }
     let device_id = hotkey_capture_device(app)?;
     let capture = app.state::<CaptureWizardCoordinator>();
     let operations = app.state::<OperationCoordinator>();
