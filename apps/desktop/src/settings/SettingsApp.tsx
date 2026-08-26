@@ -111,6 +111,15 @@ export function SettingsApp() {
         </nav>
 
         <div className="settings-content">
+          {/*
+            One banner for the whole workspace, because the profile feeds three
+            pages and a null one renders every control fed from it at its own
+            default -- unchecked boxes and a delivery preference nobody chose. Put
+            here rather than on each page so it is seen whichever page is open,
+            and so it says the *profile* is unread rather than implying six
+            separate settings are off.
+          */}
+          {profile.unavailable && <p className="warning">{messages.profileUnavailable}</p>}
           <section
             aria-labelledby="settings-tab-general"
             hidden={activeGroup !== "general"}

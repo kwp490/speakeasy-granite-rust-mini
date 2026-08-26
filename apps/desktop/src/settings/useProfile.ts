@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import { readWithRetry } from "./readWithRetry";
 import type { ProfileStatus, SafeDeliveryPreference } from "./types";
 
 /**
@@ -13,6 +14,15 @@ import type { ProfileStatus, SafeDeliveryPreference } from "./types";
  */
 export type ProfileController = {
   profile: ProfileStatus | null;
+  /**
+   * The profile could not be read, so every control fed from it is showing its
+   * own default rather than the user's setting.
+   *
+   * Reported rather than merely tolerated. A null profile renders unchecked boxes
+   * and a delivery preference nobody chose, across three pages — settings that
+   * are not the user's, presented as though they were.
+   */
+  unavailable: boolean;
   reload: () => void;
   setStartup: (enabled: boolean) => Promise<void>;
   setRecordingFeedback: (enabled: boolean) => Promise<void>;
@@ -26,53 +36,42 @@ export type ProfileController = {
   replace: (next: ProfileStatus) => void;
 };
 
-/** Attempts before giving up on the profile. 20 x 250 ms covers a slow cold start. */
-const PROFILE_LOAD_ATTEMPTS = 20;
-
 export function useProfile(): ProfileController {
   const [profile, setProfile] = useState<ProfileStatus | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
-
-  const reload = useCallback(() => {
-    void invoke<ProfileStatus>("profile_status")
-      .then((status) => {
-        setProfile(status);
-        setLoadFailed(false);
-      })
-      .catch(() => {
-        setLoadFailed(true);
-      });
-  }, []);
-
-  useEffect(reload, [reload]);
+  const [unavailable, setUnavailable] = useState(false);
 
   /**
-   * Retries a profile load that lost its race with app startup.
+   * Loads the profile through the shared retry.
    *
    * Both windows' webviews load while Tauri's `setup` is still running, so an
    * immediate `profile_status` can arrive before `ProfileCoordinator` is managed
    * and be refused outright — observed on a cold start as "state not managed for
    * field `state` on command `profile_status`". Without a retry the page keeps a
-   * null profile forever and renders defaults: unchecked boxes and no setup
-   * stepper, for a profile that has neither of those things. Nothing is written
-   * from that state, but showing a user settings that are not theirs is its own
-   * failure.
+   * null profile forever and renders defaults: unchecked boxes and a delivery
+   * preference nobody chose. Nothing is written from that state, but showing a
+   * user settings that are not theirs is its own failure — so it is now also
+   * *said*, through `unavailable`.
+   *
+   * This is `readWithRetry` rather than the hand-rolled interval it used to be.
+   * The two carried the same 20 x 250 ms by hand, in two files, and
+   * `readWithRetry`'s own comment named the risk: one page recovering from a
+   * startup the other reported as broken. Two implementations of one race is a
+   * second source of truth, which is the shape of defect this whole sweep exists
+   * to remove.
    */
-  useEffect(() => {
-    if (!loadFailed) return;
-    let attempts = 0;
-    const timer = window.setInterval(() => {
-      attempts += 1;
-      if (attempts >= PROFILE_LOAD_ATTEMPTS) {
-        window.clearInterval(timer);
-        return;
-      }
-      reload();
-    }, 250);
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [loadFailed, reload]);
+  const reload = useCallback(() => {
+    void readWithRetry<ProfileStatus>("profile_status").then(
+      (status) => {
+        setProfile(status);
+        setUnavailable(false);
+      },
+      () => {
+        setUnavailable(true);
+      },
+    );
+  }, []);
+
+  useEffect(reload, [reload]);
 
   const setStartup = useCallback(async (enabled: boolean) => {
     setProfile(await invoke<ProfileStatus>("startup_configure", { enabled }));
@@ -105,6 +104,7 @@ export function useProfile(): ProfileController {
 
   return {
     profile,
+    unavailable,
     reload,
     setStartup,
     setRecordingFeedback,

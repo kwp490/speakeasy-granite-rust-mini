@@ -1559,8 +1559,20 @@ button:disabled {
 }
 
 /* ── The capture-limit notice ───────────────────────────────────────────────
-   360x172 logical, matching the `notice` entry in `tauri.conf.json`, and not
+   360x192 logical, matching the `notice` entry in `tauri.conf.json`, and not
    resizable — so like the dock there is no size to negotiate here.
+
+   It was 360x172, and the content below needs 188 CSS px: the dismiss button —
+   its only control — sat 16 px below the fold behind a scrollbar from the day
+   the window shipped, on every machine. Nothing here could show that. `height:
+   100vh` with `justify-content: space-between` describes a box that always looks
+   correctly filled however much is in it, which is why this was found by looking
+   at the running window (`scrollHeight - clientHeight`, 18 px) and not by
+   reading the rules. Two mechanical-sounding explanations were both wrong and
+   both cost a measurement to kill: it is not DPI-dependent, because every metric
+   here derives from a 16 px root in CSS px, and it is not the classic
+   scrollbar-narrows-the-box-and-wraps-more loop, because suppressing the
+   scrollbar left the title at 40 px and the body at 76 px unchanged.
 
    It uses the transcriber's own palette rather than the shared one, for the
    reason that palette exists: this is an always-on-top overlay that appears

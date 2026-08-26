@@ -110,6 +110,52 @@ Home / End** — the vertical tab pattern, declared with `aria-orientation`. A
 keyboard user can move through the entire window in visual order without a
 pointer. No feature creates a seventh top-level group.
 
+### Reads that lose the startup race
+
+Every window's webview loads while Tauri's `setup` is still managing
+coordinators, so any `#[tauri::command]` taking a `tauri::State` can be refused
+on mount — "state not managed for field `state` on command …". A window does not
+have to be visible for this: all four are declared statically and all four run
+their React tree from launch.
+
+**A refused read has to recover, and if it cannot it has to say so.** There are
+exactly two ways a settings surface is allowed to read a status command:
+
+- **Through `readWithRetry`**, which is bounded at 20 x 250 ms and still rejects,
+  so the caller has to decide what to show; or
+- **on an interval**, because a poll heals itself on the next tick and the first
+  refusal costs nothing.
+
+Five surfaces read this way: General (`hotkey_status`), Advanced
+(`diagnostics_status`, `credential_status`), Output & Privacy (`result_status`),
+Transcription (`model_hardware`, `personalization_status`, `diagnostics_status`,
+`model_catalog`, `gpu_status`) and the shared profile (`profile_status`). Each
+carries a line saying the answer did not arrive, in the place the answer would
+have been.
+
+**A default may not render as a claim about the system.** This is the half a
+retry cannot fix, and it is what made the second occurrence worse than the
+first. `hotkey?.registration ?? "pending"` looks like a harmless fallback;
+`pending` is a real backend state meaning "registration has not been attempted",
+and its copy reads "Shortcut not registered yet". So an unanswered *read* was
+rendered as an unregistered *shortcut* — and the remedy the panel implies,
+pressing Save hotkey, fixes a problem the user does not have. `undefined` means
+the page does not know; only the `unknown` codes say that. The same substitution
+was made on Output & Privacy, where `?? "empty"` claimed "No result".
+
+**And the page may not hold a value it has not read.** General's binding field
+was initialised to `Ctrl+Alt+L` — SpeakEasy's shortcut, inherited by the fork and
+never rebranded — which turned the lost read from wrong into destructive: Save
+would have rebound this app's working `Ctrl+Alt+P` to the other product's
+shortcut, on a machine where both are installed side by side. The field starts
+empty and Save is disabled until the status has actually been read.
+
+None of this is enforced by naming a command. The previous check named
+`personalization_status` in one file and was green on the day the same defect was
+found in another file with another command. The scaffold suite now derives the
+hazard from the Rust signatures and scans every `useEffect` in the tree — see
+"Automated checks".
+
 ### The active provider is the device, never the pack
 
 Settings → Transcription discloses what dictation runs on. It reads the **device
@@ -349,11 +395,13 @@ is where the claims are easiest to overstate:
   installed release build — the first time anyone had heard it rather than
   asserted it. The notice window was seen on the same run, and seeing it found a
   defect: **its content needs 188 CSS px against a declared 172**, so the dismiss
-  button sits 16 px below the fold behind a scrollbar. The copy fits and reads;
-  the only control does not. Not DPI-dependent — the wrap is identical at every
-  scale — so it has clipped on every machine since the window shipped. 192
-  clears it with 4 px spare, `minHeight` included. Item 17 in the handoff has the
-  measurement and the two wrong guesses it killed.
+  button sat 16 px below the fold behind a scrollbar. The copy fits and reads;
+  the only control did not. Not DPI-dependent — the wrap is identical at every
+  scale — so it had clipped on every machine since the window shipped. **Raised
+  to 192 on 2026-08-26**, `minHeight` with it, measured on the running window at
+  zero overflow with the button 2 px clear of the fold; the copy is unchanged,
+  which was an owner decision. Item 17 in the
+  handoff has the measurement and the two wrong guesses it killed.
 
   What that run also showed is that the cue arrives a long way ahead of the
   text. On the processor, inference on a full-length dictation is ~44 s, so the
@@ -362,7 +410,7 @@ is where the claims are easiest to overstate:
   it starts a new dictation, which then queues behind the first. Observed 490 ms
   after the ceiling fired, which is where a habitual second press falls.
 
-  The **notice is its own window** (`notice`, 360x172 logical, always on top,
+  The **notice is its own window** (`notice`, 360x192 logical, always on top,
   `focus: false`, placed beside the dock). It is not a dock glyph because the
   dock is 62 px wide and cannot hold a sentence; it is not a Windows toast
   because that route needs an AUMID from an installed Start Menu shortcut and
@@ -482,6 +530,15 @@ version could not:
   was first observed and nothing else did. Status reads that can lose that race
   now go through `readWithRetry`, and one that never succeeds says so beside the
   list rather than rendering an empty one.
+
+  **That sweep stopped at one file, and the same defect was then found in a
+  second** — `hotkey_status`, on 2026-08-25, reporting a registered and working
+  shortcut as "Shortcut not registered yet" for the life of the process. It is
+  the worse of the two: an empty list is a passive wrong answer, and this names a
+  working feature as broken in the one panel someone opens *because* their
+  shortcut appears not to work. All five settings surfaces were converted on
+  2026-08-26 and the rule is now enforced by derivation rather than by name — see
+  "Reads that lose the startup race" below.
 - **The retention default is off, and stated as a promise rather than a
   checkbox.** Unticked means transcripts are never written to disk at all, which
   is a stronger claim than deleting them on exit and is worth making in words: a
@@ -878,6 +935,32 @@ never perform it. Rust tests assert non-allowlisted commands are refused per
 window, and the frontend suite asserts the same sets against the IPC schema — so
 widening either one in code without amending both fails the gate.
 
+Two of those rules are derived rather than listed, which is the difference
+between a check and a record of where a bug has already been seen:
+
+- **No effect may read a race-prone command without retrying or polling.** The
+  hazard is read out of the Rust signatures — every `#[tauri::command]` taking a
+  `tauri::State` — and the readers are found by scanning every `useEffect` in
+  `src/`, following one level of local function calls so a read behind a helper
+  is not missed. The rule it replaced named one command in one file, and was
+  green on the day the identical defect was found in a second file with a second
+  command. Because every assertion in it is of the form "nothing was found",
+  which is also what a broken scanner reports, it carries instrument
+  self-checks: the derived hazard must contain commands known to take a `State`
+  and exclude ones known not to, and the scan must be shown reaching through a
+  helper and reaching the poll exemption.
+- **The token budget must cover the longest dictation the capture ceiling
+  allows.** Granite's `max_new_tokens` truncates with no error and no
+  end-of-generation token, and nothing downstream can catch it, because
+  `is_plausible` only rejects transcripts that are too long. It is unreachable
+  today only because `MAX_CAPTURE_SECONDS` caps a dictation at about a fifth of
+  the budget — arithmetic nobody did for months while carrying the risk. The two
+  constants cannot be compared in Rust: they live in `speakeasy-desktop` and
+  `speakeasy-granite`, and the desktop crate deliberately does not depend on the
+  one that compiles llama.cpp. So they are compared as source, at deliberately
+  pessimistic speaking and tokenising rates, and raising the ceiling now fails
+  the gate until the budget moves with it.
+
 Four proof scripts drive the **running** app, because a green suite is not
 evidence that anything works — each of these has found a defect the suite missed:
 
@@ -891,7 +974,11 @@ evidence that anything works — each of these has found a defect the suite miss
 
 `Invoke-WebviewProbe.ps1` underlies the layout and contrast proofs: it talks to
 WebView2's debugging protocol, so layout rules are read as numbers and controls are
-clicked by selector. A click either lands on the real element or fails loudly.
+clicked by selector. A click either lands on the real element or fails loudly. It
+addresses all four windows, `notice` included since 2026-08-26 — a window
+declared `visible: false` still runs its React tree, so the notice can be
+measured without provoking a ceiling stop, and measuring it is the only way to
+see that its content overflowed its declared height.
 
 Installed high-DPI review is a manual, owner-run check. Interactive
 assistive-technology review is **no longer performed** — see the scope limitation

@@ -81,6 +81,127 @@ function readAllSources() {
 }
 
 /**
+ * Every `.ts` and `.tsx` under `src/` as `[src-relative path, body]` pairs.
+ *
+ * Pairs rather than one concatenation because the startup-race rule below is
+ * about *where* a read lives: a command read through the retry in one file and
+ * bare in another is the exact state that let one defect recur in a second
+ * location, and a concatenation cannot tell the two apart.
+ */
+async function readFrontendSources() {
+  const root = fileURLToPath(new URL("../src/", import.meta.url));
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  const files = entries
+    .filter(
+      (entry) => entry.isFile() && (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")),
+    )
+    .map((entry) => join(entry.parentPath, entry.name));
+  return Promise.all(
+    files.map(async (file) => [
+      file.slice(root.length).replace(/\\/g, "/"),
+      await readFile(file, "utf8"),
+    ]),
+  );
+}
+
+/**
+ * The source between the delimiter at `start` and its match, exclusive.
+ *
+ * Counts delimiters without lexing strings or comments, which is sound only
+ * because every construct it is pointed at is balanced. The instrument
+ * self-checks in the startup-race test exist to notice if that stops being true,
+ * rather than to assume it: a scanner that silently stops matching reads exactly
+ * like a tree with nothing left to find.
+ */
+function balancedFrom(source, start, open, close) {
+  let depth = 0;
+  for (let index = start; index < source.length; index += 1) {
+    if (source[index] === open) depth += 1;
+    else if (source[index] === close) {
+      depth -= 1;
+      if (depth === 0) return source.slice(start + 1, index);
+    }
+  }
+  return null;
+}
+
+/** The argument list of every `useEffect(...)` call in one file. */
+function effectBodies(source) {
+  const bodies = [];
+  const marker = /useEffect\(/g;
+  let match;
+  while ((match = marker.exec(source)) !== null) {
+    const body = balancedFrom(source, match.index + "useEffect".length, "(", ")");
+    if (body !== null) bodies.push(body);
+  }
+  return bodies;
+}
+
+/**
+ * The body of a function declared in this file, by name.
+ *
+ * Covers the three forms this tree uses — `function f()`, `const f = () =>` and
+ * `const f = useCallback(() =>` — because the read that mattered most was behind
+ * one: `refreshCatalog` holds `model_catalog` and `gpu_status`, and the mount
+ * effect only calls it. A rule that read effect bodies alone would have passed
+ * the page that renders "no models exist" out of an error path.
+ */
+function localFunctionBody(source, name) {
+  const declaration = new RegExp(String.raw`(?:async\s+function|function|const)\s+${name}\b`).exec(
+    source,
+  );
+  if (declaration === null) return null;
+  const brace = source.indexOf("{", declaration.index);
+  if (brace === -1) return null;
+  return balancedFrom(source, brace, "{", "}");
+}
+
+/** Command names passed to `invoke` or to `readWithRetry` inside one snippet. */
+function commandsIn(snippet, caller) {
+  const names = [];
+  const marker = new RegExp(String.raw`${caller}(?:<[^>(]*>)?\(\s*"([a-z_0-9]+)"`, "g");
+  let match;
+  while ((match = marker.exec(snippet)) !== null) names.push(match[1]);
+  return names;
+}
+
+/** Identifiers called as bare functions inside one snippet. */
+function calleesIn(snippet) {
+  const names = new Set();
+  const marker = /(?:^|[^.\w$])([a-zA-Z_$][\w$]*)\s*\(/g;
+  let match;
+  while ((match = marker.exec(snippet)) !== null) names.add(match[1]);
+  return [...names];
+}
+
+/**
+ * Every `#[tauri::command]` whose signature takes a `tauri::State`, read out of
+ * the Rust source rather than listed here.
+ *
+ * Derived, because the previous version of the startup-race rule named one
+ * command in one file — and the defect it was written for then recurred in a
+ * second file, with a second command, while the test stayed green. A `State`
+ * parameter is precisely what Tauri refuses when the coordinator behind it is
+ * not managed yet ("state not managed for field `state` on command …"), so this
+ * list is the hazard itself rather than a record of where it has been seen.
+ */
+async function raceProneCommands() {
+  const root = new URL("../src-tauri/src/commands/", import.meta.url);
+  const names = await readdir(root);
+  const commands = new Set();
+  for (const name of names.filter((file) => file.endsWith(".rs"))) {
+    const source = await readFile(new URL(name, root), "utf8");
+    const marker = /#\[tauri::command\]\s*\n(?:#\[[^\]]*\]\s*\n)*fn\s+(\w+)\s*\(/g;
+    let match;
+    while ((match = marker.exec(source)) !== null) {
+      const signature = balancedFrom(source, marker.lastIndex - 1, "(", ")");
+      if (signature !== null && signature.includes("tauri::State<")) commands.add(match[1]);
+    }
+  }
+  return commands;
+}
+
+/**
  * Everything the compact transcriber runs: its own components plus the status
  * hook, which is where its session-control commands are invoked from.
  */
@@ -514,6 +635,7 @@ test("every window is declared, and none of them can take the foreground", async
   );
   const hudComponents = await readHudComponents();
   const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
 
   // Four windows, and the `hud` transcriber is not among them. It showed words
   // as they were spoken; nothing is spoken into a transcript any more.
@@ -554,6 +676,26 @@ test("every window is declared, and none of them can take the foreground", async
   assert.equal(notice.skipTaskbar, true);
   assert.equal(notice.resizable, false);
   assert.equal(notice.visible, false, "the notice is shown by the ceiling, not at launch");
+
+  // The declared size and the stylesheet's account of it, compared. The notice
+  // shipped at 360x172 needing 188 CSS px, so its only control sat 16 px below
+  // the fold behind a scrollbar, on every machine, and nothing could see it:
+  // `height: 100vh` with `justify-content: space-between` describes a box that
+  // looks correctly filled at any content height. This cannot measure the running
+  // window -- only CDP can, and item 17 in the handoff records that reading -- but
+  // it can stop the stylesheet's own comment from drifting away from the config
+  // it claims to match, which is how the wrong number would next be believed.
+  assert.match(
+    styles,
+    new RegExp(`The capture-limit notice[\\s\\S]*?\\n   ${notice.width}x${notice.height} logical`),
+    "styles.css must name the notice's declared size, and the same one",
+  );
+  assert.equal(
+    notice.minHeight,
+    notice.height,
+    "a non-resizable window whose minimum disagrees with its size has two answers",
+  );
+  assert.equal(notice.minWidth, notice.width);
 
   // Still absolute (decision 3): no OS-input or delivery command from a
   // no-activate window.
@@ -1501,41 +1643,160 @@ test("personalization stays bounded, inert, and contacts-disabled", async () => 
   assert.doesNotMatch(app, /dangerouslySetInnerHTML|DOMParser|eval\(|new Function/);
 });
 
-test("every status read that can lose the startup race retries and reports", async () => {
-  // The failure this pins cost a user their installer vocabulary. Both windows'
-  // webviews mount while Tauri's `setup` is still managing coordinators, so a
-  // read fired on mount can be refused with "state not managed for field
-  // `state` on command ...". `useProfile.ts` retried that from the day it was
-  // found; `personalization_status` did not, and it was fired once with no
-  // rejection handler at all -- so a lost race left the dictionary list empty
-  // for the life of the process. An empty list is not a blank page anyone
-  // reports: it says "you have no protected terms", which is exactly how three
-  // words sitting correctly in `personalization.json` looked like an installer
-  // that had discarded them (2026-08-20).
-  const page = await readFile(
-    new URL("../src/settings/Transcription.tsx", import.meta.url),
-    "utf8",
-  );
-  const helper = await readFile(
-    new URL("../src/settings/readWithRetry.ts", import.meta.url),
-    "utf8",
-  );
-  const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
+test("no effect can read a race-prone command without retrying or polling", async () => {
+  // This rule replaced one that named `personalization_status` in
+  // `Transcription.tsx` and asserted it went through the retry. That test was
+  // green on the day the same defect was found in `General.tsx`, on a different
+  // command, in a different file -- reporting a registered, working shortcut as
+  // "Shortcut not registered yet" for the life of the process (2026-08-25). The
+  // recorded lesson of the first occurrence was "one reader carried a retry and
+  // nothing else did", and the fix for it repeated exactly that, because the
+  // check was a record of where the bug had been seen rather than a rule about
+  // where it can happen.
+  //
+  // So nothing here is named by hand. The hazard is derived from the Rust
+  // signatures, the readers are found by scanning every `useEffect` in the tree,
+  // and a command is only cleared two ways:
+  //
+  // - **retried**, through `readWithRetry`, which bounds the attempts and still
+  //   rejects so the caller has to say something; or
+  // - **polled**, because an effect that re-reads on an interval heals itself on
+  //   the next tick and the first refusal costs nothing.
+  //
+  // A read that is neither is the defect, whichever file it is in.
+  const racy = await raceProneCommands();
+  const sources = await readFrontendSources();
 
-  // Read through the retry, and never as a bare mount-time `invoke` again.
-  assert.match(page, /readWithRetry<PersonalizationStatus>\("personalization_status"\)/);
-  assert.doesNotMatch(page, /invoke<PersonalizationStatus>\("personalization_status"\)/);
+  // Instrument self-checks. Every assertion below is of the form "nothing was
+  // found", which is also what a broken scanner reports -- and two of the three
+  // components here (balanced-delimiter scanning, one-level call resolution)
+  // fail silently rather than throwing. So each has to be shown working against
+  // a case whose answer is known.
+  for (const command of ["hotkey_status", "profile_status", "personalization_status"]) {
+    assert.ok(racy.has(command), `${command} takes a State and must be derived as race-prone`);
+  }
+  for (const command of ["model_install_status", "capture_devices", "capture_hud_status"]) {
+    assert.ok(
+      !racy.has(command),
+      `${command} resolves its own state with try_state and is not refused this way`,
+    );
+  }
 
-  // A read that never succeeds says so where the missing list is, rather than
-  // rendering an empty list that means something else.
-  assert.match(page, /setPersonalizationUnavailable\(true\)/);
-  assert.match(page, /messages\.personalizationUnavailable/);
-  assert.match(catalog, /personalizationUnavailable:/);
+  const findings = [];
+  const polled = [];
+  const retried = new Set();
+  for (const [path, source] of sources) {
+    for (const command of commandsIn(source, "readWithRetry")) retried.add(command);
+    for (const effect of effectBodies(source)) {
+      // An effect that installs an interval re-reads until it succeeds. That is
+      // the same guarantee the retry gives, arrived at from the other direction.
+      const selfHealing = /setInterval\(/.test(effect);
+      const reachable = [effect];
+      for (const callee of calleesIn(effect)) {
+        const body = localFunctionBody(source, callee);
+        if (body !== null) reachable.push(body);
+      }
+      for (const snippet of reachable) {
+        for (const command of commandsIn(snippet, "invoke")) {
+          if (!racy.has(command)) continue;
+          if (selfHealing) polled.push(`${path}:${command}`);
+          else findings.push(`${path} reads ${command} on mount without a retry`);
+        }
+      }
+    }
+  }
+
+  // The scanner has to be shown reaching through a helper and reaching the poll
+  // exemption, or the two branches above are decoration.
+  assert.ok(
+    retried.has("model_catalog"),
+    "the one-level call resolution must reach refreshCatalog's reads",
+  );
+  assert.ok(
+    polled.includes("settings/TranscriptLog.tsx:session_transcript_log"),
+    "the poll exemption must be reached by the page that polls",
+  );
+  assert.deepEqual(findings, []);
+
+  // Once a command is read through the retry, no file may also read it bare.
+  // Both defects were a single unguarded call sitting beside guarded ones.
+  for (const [path, source] of sources) {
+    for (const command of commandsIn(source, "invoke")) {
+      assert.ok(
+        !retried.has(command),
+        `${path} reads ${command} with a bare invoke; it is retried elsewhere`,
+      );
+    }
+  }
+
+  // The failure the rule was first written for cost a user their installer
+  // vocabulary: three words correct in `personalization.json` and an empty
+  // dictionary list on screen. An empty list is not a blank page anyone reports
+  // -- it says "you have no protected terms" -- so a read that never succeeds
+  // has to say what actually happened, in the place the missing answer would
+  // have been.
+  const wiring = new Map(sources);
+  const catalog = wiring.get("catalog.ts");
+  for (const [path, message] of [
+    ["settings/Transcription.tsx", "personalizationUnavailable"],
+    ["settings/General.tsx", "shortcutStateUnavailable"],
+    ["settings/Advanced.tsx", "runtimeStatusUnavailable"],
+    ["settings/OutputPrivacy.tsx", "resultStatusUnavailable"],
+    ["settings/SettingsApp.tsx", "profileUnavailable"],
+  ]) {
+    assert.match(wiring.get(path), new RegExp(`messages\\.${message}`), `${path} must say so`);
+    assert.match(catalog, new RegExp(`\\n\\s*${message}:`), `${message} needs catalog prose`);
+  }
+
+  // The deeper half of the same defect, and the half a retry cannot fix. A
+  // fallback that renders as a *claim about the system* turns an unanswered read
+  // into a statement of fact: `pending` is "registration has not been attempted",
+  // whose copy reads "Shortcut not registered yet", and `empty` is "No result".
+  // Both are real backend values that mean something specific. `undefined` means
+  // the page does not know, and only the `unknown` codes say that.
+  assert.match(wiring.get("settings/General.tsx"), /registration \?\? "unknown"/);
+  assert.match(wiring.get("settings/OutputPrivacy.tsx"), /result\?\.state \?\? "unknown"/);
+
+  // General's binding field held `Ctrl+Alt+L` -- SpeakEasy's shortcut, inherited
+  // by the fork and never rebranded. That made the lost read destructive rather
+  // than merely wrong: the remedy the panel implied would have rebound this
+  // app's working `Ctrl+Alt+P` to the other product's shortcut, on a machine
+  // where both are installed. No page may hold a shortcut as a *value* -- the
+  // backend owns the default -- and Save is disabled until the status has been
+  // read. Quoted only: the comment recording this may name both shortcuts, and
+  // it has to, because the number that was wrong is the whole point.
+  assert.doesNotMatch(await readAllSources(), /"Ctrl\+Alt\+[A-Z]"/);
+  assert.match(wiring.get("settings/General.tsx"), /disabled=\{hotkey === null\}/);
+
+  // A refusal is not the only way to lose this race, and the other way is the
+  // one that reproduced on every launch. `HotkeyCoordinator` starts at
+  // `registration: "pending"` and `register_activation_hotkey` runs at the *end*
+  // of `setup`, after the tray is built -- while all three eagerly mounted pages
+  // (General, Transcription, Advanced) have already read. So the read *succeeded*
+  // and returned a value true for one moment of the process, which rendered as
+  // "Shortcut not registered yet" for the life of it. Indistinguishable from a
+  // refusal on screen; separated by reloading the window and watching the same
+  // page report "Shortcut active" from the same backend.
+  assert.match(wiring.get("settings/General.tsx"), /registration !== "pending"/);
 
   // The retry has to be bounded. Retrying forever trades a wrong answer for a
   // permanent spinner, and the rejection still has to reach the caller.
+  const helper = wiring.get("settings/readWithRetry.ts");
   assert.match(helper, /const ATTEMPTS = \d+;/);
   assert.match(helper, /throw lastError;/);
+
+  // An unsettled answer that is still unsettled after every attempt is returned,
+  // not thrown. A startup value that survives five seconds has stopped being
+  // transient and is the truth -- `pending` then really does mean the shortcut
+  // was never registered, which is the one case that copy is for. Only a refusal
+  // has nothing to report.
+  assert.match(helper, /if \(read\) return lastValue as T;/);
+
+  // One retry, not two. `useProfile.ts` carried a hand-rolled copy of the same
+  // 20 x 250 ms, and `readWithRetry`'s own comment named the risk: one page
+  // recovering from a startup the other reported as broken.
+  assert.match(wiring.get("settings/useProfile.ts"), /readWithRetry<ProfileStatus>/);
+  assert.doesNotMatch(wiring.get("settings/useProfile.ts"), /ATTEMPTS/);
 });
 
 test("the provider a machine is recorded as running on is proved, never chosen", async () => {
@@ -1618,7 +1879,11 @@ test("desktop exposes connected activation settings and friendly catalog errors"
   assert.doesNotMatch(catalog, /globalActivationUnavailable/);
   assert.doesNotMatch(app, /messages\.globalActivationUnavailable/);
   assert.match(app, /invoke\("hotkey_configure"/);
-  assert.match(app, /invoke<HotkeyStatus>\("hotkey_status"\)/);
+  // Through the retry, not bare: this read lost the startup race and reported a
+  // working shortcut as unregistered. See the startup-race rule above, which is
+  // where that is actually enforced -- this assertion only pins that the page
+  // still reads the status at all.
+  assert.match(app, /readWithRetry<HotkeyStatus>\("hotkey_status"\)/);
 
   // Registration is reported in plain language, not as a contract term
   // (UI-GUIDE "Two vocabulary registers").
@@ -1733,4 +1998,61 @@ test("setup's user-facing strings live in its catalog", async () => {
       );
     }
   }
+});
+
+test("the token budget covers the longest dictation the ceiling allows", async () => {
+  // The hazard, in full: Granite's generation loop stops on reaching
+  // `max_new_tokens` with no error and no end-of-generation token, so nothing
+  // downstream can tell "the model finished" from "the model was cut off
+  // mid-clause". `is_plausible` cannot catch it either -- the gate is one-sided
+  // and only rejects transcripts that are too *long*.
+  //
+  // It has been unreachable since the fork, and the reason is arithmetic nobody
+  // did for months: the capture ceiling caps a dictation at about a fifth of the
+  // budget. Both numbers were sitting in the tree, correct, and the risk was
+  // inherited by copying rather than re-derived. Confirmed empirically on
+  // 2026-08-25 by a 120.183 s dictation -- the longest this product can make --
+  // which transcribed complete with a six-word tripwire intact.
+  //
+  // This is what makes it stay unreachable. `capture_wizard.rs` already records
+  // wanting a thirty-minute ceiling, which is far past the budget and would
+  // truncate silently somewhere in the middle, and nothing in the tree connected
+  // the two constants. They cannot be compared in Rust: they live in
+  // `speakeasy-desktop` and `speakeasy-granite`, and the desktop crate
+  // deliberately does not depend on the one that compiles llama.cpp. So they are
+  // compared here, as source.
+  const ceilingSource = await readFile(
+    new URL("../src-tauri/src/capture_wizard.rs", import.meta.url),
+    "utf8",
+  );
+  const graniteSource = await readFile(
+    new URL("../../../crates/speakeasy-granite/src/lib.rs", import.meta.url),
+    "utf8",
+  );
+
+  const ceiling = /pub const MAX_CAPTURE_SECONDS: u32 = (\d+) \* (\d+);/.exec(ceilingSource);
+  assert.ok(ceiling !== null, "MAX_CAPTURE_SECONDS must be readable from capture_wizard.rs");
+  const seconds = Number(ceiling[1]) * Number(ceiling[2]);
+
+  const budget = /max_new_tokens: (\d[\d_]*),/.exec(graniteSource);
+  assert.ok(budget !== null, "max_new_tokens must be readable from GraniteOptions::default");
+  const tokens = Number(budget[1].replace(/_/g, ""));
+
+  // Both rates are deliberately pessimistic against the only real measurement
+  // this product has -- 312 words in 120.183 s (156 wpm) needing ~400 tokens
+  // (1.29 tokens per word), measured on an installed release build. A fast
+  // dictator reaches 200 wpm, and 1.5 tokens per word leaves room for a speaker
+  // whose vocabulary tokenises worse than that clip's. Erring high here means
+  // the check complains before a real user is truncated, which is the only
+  // useful direction for a failure that produces no error of its own.
+  const WORDS_PER_MINUTE = 200;
+  const TOKENS_PER_WORD = 1.5;
+  const needed = Math.ceil((seconds / 60) * WORDS_PER_MINUTE * TOKENS_PER_WORD);
+
+  assert.ok(
+    tokens >= needed,
+    `a ${seconds} s ceiling can need ${needed} tokens and max_new_tokens is ${tokens}; ` +
+      "raising the ceiling means raising the budget with it, or a long dictation " +
+      "is silently cut off mid-clause",
+  );
 });

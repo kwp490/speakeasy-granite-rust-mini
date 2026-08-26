@@ -32,18 +32,51 @@ const DELAY_MS = 250;
  * Rejects with the last error if every attempt fails, so a caller still has to
  * decide what to show. Retrying forever would trade a wrong answer for a
  * permanent spinner.
+ *
+ * # `settled`, and why a refusal is not the only way to lose this race
+ *
+ * A read can also **succeed** and return a value that is only true for the first
+ * moment of the process. `hotkey_status` is the case that proved it:
+ * `HotkeyCoordinator` starts at `registration: "pending"` and
+ * `register_activation_hotkey` runs at the *end* of `setup`, after the tray is
+ * built — while every window's React tree has already mounted and read. So the
+ * page held `pending` for the life of the process, rendered as "Shortcut not
+ * registered yet", with the shortcut registered and working.
+ *
+ * That symptom is **indistinguishable** from a refused read: the rendered string
+ * is the same, and the panel's own state cannot say which happened. This is the
+ * documented trap one level deeper than it was written — the rendered string
+ * cannot tell you whether the backend is wrong, the read was refused, or the
+ * answer arrived early and never changed. It was separated by reloading the
+ * window and watching the same page report "Shortcut active" from the same
+ * backend (2026-08-26, installed release frontend).
+ *
+ * So a caller may declare which answers are final. An unsettled one is retried
+ * like a refusal, and if every attempt is unsettled the **last value is
+ * returned** rather than thrown: a startup value that is still there after five
+ * seconds has stopped being transient and is the truth. Only a refusal has
+ * nothing to report.
  */
-export async function readWithRetry<T>(command: string): Promise<T> {
+export async function readWithRetry<T>(
+  command: string,
+  settled?: (value: T) => boolean,
+): Promise<T> {
   let lastError: unknown;
+  let lastValue: T | undefined;
+  let read = false;
   for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
     try {
-      return await invoke<T>(command);
+      const value = await invoke<T>(command);
+      if (settled === undefined || settled(value)) return value;
+      lastValue = value;
+      read = true;
     } catch (error) {
       lastError = error;
-      await new Promise((resolve) => {
-        window.setTimeout(resolve, DELAY_MS);
-      });
     }
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, DELAY_MS);
+    });
   }
+  if (read) return lastValue as T;
   throw lastError;
 }

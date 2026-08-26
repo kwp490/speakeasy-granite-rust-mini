@@ -149,7 +149,25 @@ $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9222'
 .\scripts\Invoke-WebviewProbe.ps1 -Window settings -Expression '...'
 ```
 
-`-Window` takes `settings`, `dock` or `log`.
+`-Window` takes `settings`, `dock`, `log` or `notice`. A window declared
+`visible: false` still runs its React tree, so all four answer without being
+shown — which is how the notice window is measured without provoking a
+two-minute dictation.
+
+**A release frontend needs `--features custom-protocol`, and without it the
+binary looks broken rather than misconfigured.** `cargo build --release -p
+speakeasy-desktop` alone embeds `devUrl`, so every window loads
+`http://localhost:1420`; with no Vite server running they all come up blank and
+the probe reports each one absent, which reads exactly like the app failing to
+start. Measured 2026-08-26: four CDP page targets, all at `localhost:1420`, no
+`data-testid` anywhere. With the feature they load `tauri.localhost` and carry
+the bundled `dist/`. This matters because **the startup race is only reproducible
+on a release frontend** — Vite is slow enough that `setup` always wins under
+`tauri dev`.
+
+```powershell
+cargo build --release -p speakeasy-desktop --features custom-protocol
+```
 
 ## Failures are the product
 
@@ -301,8 +319,13 @@ Every one of these produced a plausible, wrong result rather than an error.
   Two things follow. **The hazard is latent, not absent**: raising the capture
   ceiling makes it reachable, and `capture_wizard.rs` already records wanting
   thirty minutes — which is ~4,600 tokens and would truncate silently at about
-  nine minutes. Nothing in the tree ties the two constants together, so **raise
-  `max_new_tokens` with any ceiling increase**. And **do the division before
+  nine minutes. **Raise `max_new_tokens` with any ceiling increase**, and since
+  2026-08-26 the gate makes you: `the token budget covers the longest dictation
+  the ceiling allows` compares the two as *source*, because they live in
+  `speakeasy-desktop` and `speakeasy-granite` and the desktop crate deliberately
+  does not depend on the one that compiles llama.cpp. It binds at ~410 s of
+  ceiling, at deliberately pessimistic rates (200 wpm, 1.5 tokens per word
+  against a measured 156 wpm and 1.29). And **do the division before
   inheriting a risk**: the reasoning that carried this entry cited "a 4-minute
   dictation would have lost roughly a third of itself" alongside the correct
   ~400-tokens-per-120 s figure, and a four-minute dictation cannot be recorded.
@@ -587,10 +610,10 @@ Every one of these produced a plausible, wrong result rather than an error.
   arrive", check the disk *and* the window; they are two different failures with
   one symptom.
 
-  **The sweep stopped at one file, and the next occurrence is worse.** Only
-  `Transcription.tsx` was converted, so `readWithRetry.ts` has exactly one
-  importer — and `General.tsx` still reads `hotkey_status` with a bare `invoke`,
-  no rejection handler, rendering `hotkey?.registration ?? "pending"`. Found
+  **The sweep stopped at one file, and the next occurrence was worse.** Only
+  `Transcription.tsx` was converted, so `readWithRetry.ts` had exactly one
+  importer — and `General.tsx` read `hotkey_status` with a bare `invoke`, no
+  rejection handler, rendering `hotkey?.registration ?? "pending"`. Found
   2026-08-25: Settings reported **"Shortcut not registered yet"** for the life of
   the process while `hotkey_status`, invoked directly against that same window,
   returned `registration: "registered"` and dictation worked twice. An empty list
@@ -598,6 +621,45 @@ Every one of these produced a plausible, wrong result rather than an error.
   in the panel they opened *because* it seemed broken, and the remedy it implies
   — press "Save hotkey" to re-register — fixes a problem they do not have. When
   fixing a race in one reader, grep for every other reader of the same shape.
+
+  **And that symptom had a second cause, which is the one that reproduced.** A
+  refusal is not the only way to lose this race: a read can **succeed** and
+  return a value that is only true for the first moment of the process.
+  `HotkeyCoordinator` starts at `registration: "pending"` and
+  `register_activation_hotkey` runs at the **end** of `setup`, after the tray is
+  built — while all three eagerly mounted settings pages have already read. So
+  the fix implied by the diagnosis above would have shipped without fixing the
+  reported symptom. **Three causes, one appearance**: the backend is wrong, the
+  read was refused, or the answer arrived before it was true. The rendered string
+  separates none of them, and neither does the page's own state — `null` from a
+  refusal and a transient value both render the fallback. Reload the window
+  (`-Cdp 'Page.reload'`) and read the same page against the same backend: correct
+  after a reload is a transient, and cannot be a refusal. `readWithRetry` takes a
+  `settled` predicate for this, and an unsettled answer that survives all 20
+  attempts is *returned* rather than thrown, because a startup value still there
+  after five seconds has stopped being transient (2026-08-26).
+
+  **Which pages can lose this race is decided by `SettingsApp.tsx`, and by
+  accident.** General, Transcription and Advanced mount eagerly; Audio, Output &
+  Privacy and the transcript log mount only while their tab is active, so their
+  reads land long after `setup`. The three eager pages are exactly the three that
+  had the defect — a correlation nobody chose, since Audio's conditional mount
+  exists so a hidden page does not sample the microphone. Making one of the lazy
+  pages eager brings the race back with it, which is why the guarantee lives in
+  `no effect can read a race-prone command without retrying or polling` and not
+  in the mounting.
+
+  **The test written to prevent the recurrence is what let it happen.** It named
+  `personalization_status` in `Transcription.tsx` and was green on the day the
+  same defect was found in a second file with a second command: a record of where
+  the bug had been seen, not a rule about where it can happen. The replacement
+  derives the hazard from the Rust signatures — every `#[tauri::command]` taking
+  a `tauri::State`, 41 of the 56 — and finds the readers by scanning every
+  `useEffect` in `src/`, following one level of local function calls, which is
+  what reaches `refreshCatalog`. **Every assertion in it is of the form "nothing
+  was found", which is also what a broken scanner reports**, so it carries
+  instrument self-checks and was proved able to fail by restoring the original
+  defect in two files.
 - **A merge keyed on positional ids fails closed on the whole batch.** Setup's
   words become dictionary entries named `installer-0`, `installer-1`, … *by
   position*, and an uninstall run with `--keep-user-data` keeps
@@ -829,6 +891,14 @@ Every one of these produced a plausible, wrong result rather than an error.
   the day it shipped. `scrollHeight - clientHeight` is the reading; anything
   above zero is a clip. Do it for any window that is `resizable: false`, which is
   all of them but the log.
+
+  **Do it after the fix as well, because an estimate of the requirement is still
+  an estimate.** The notice was raised to 192 on the recorded finding that its
+  content needed 188 and that 192 would leave 4 px spare. Measured on the running
+  window: overflow 0, and the button **2 px** clear, not 4 — the real box needs
+  190. Both readings were taken the same way, the earlier one was taken with the
+  scrollbar suppressed, and it was optimistic by exactly that difference. A
+  measurement of the *problem* does not carry over to the *fix*.
 - **UI copy is honest about what happened.** Delivery is never claimed unless
   insertion succeeded; colour is never the only signal. New error codes get
   their own catalog entry with a real instruction.

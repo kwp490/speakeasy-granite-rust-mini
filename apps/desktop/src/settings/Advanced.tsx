@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Disclosure } from "../components/Disclosure";
 import { messages } from "../catalog";
 import { displayName, formatCredentialStatus, formatResetCategory } from "./format";
+import { readWithRetry } from "./readWithRetry";
 import type {
   CredentialStatus,
   DiagnosticsExport,
@@ -30,13 +31,31 @@ import type { ProfileController } from "./useProfile";
 export function Advanced({ profile }: { profile: ProfileController }) {
   const [diagnostics, setDiagnostics] = useState<DiagnosticsStatus | null>(null);
   const [credentials, setCredentials] = useState<CredentialStatus | null>(null);
+  const [statusUnavailable, setStatusUnavailable] = useState(false);
   const [exportAction, setExportAction] = useState("");
   const [resetPreview, setResetPreview] = useState<ResetPreview | null>(null);
   const [engineAction, setEngineAction] = useState("");
 
+  // Both retried, and both with a rejection handler, because neither had one:
+  // each was a bare mount-time `invoke` whose refusal became an unhandled promise
+  // rejection. Six coordinators stand behind `diagnostics_status` alone, so this
+  // is the read most exposed to the startup race, and a lost one left the runtime
+  // and credential facts *absent* -- two headings with nothing under them, for
+  // the life of the process, on the one page someone opens to find out what the
+  // app is actually running.
   useEffect(() => {
-    void invoke<DiagnosticsStatus>("diagnostics_status").then(setDiagnostics);
-    void invoke<CredentialStatus>("credential_status").then(setCredentials);
+    void readWithRetry<DiagnosticsStatus>("diagnostics_status").then(
+      (status) => {
+        setDiagnostics(status);
+        setStatusUnavailable(false);
+      },
+      () => {
+        setStatusUnavailable(true);
+      },
+    );
+    void readWithRetry<CredentialStatus>("credential_status").then(setCredentials, () => {
+      setStatusUnavailable(true);
+    });
   }, []);
 
   async function restartEngine() {
@@ -62,6 +81,12 @@ export function Advanced({ profile }: { profile: ProfileController }) {
     <>
       <section aria-labelledby="advanced-runtime">
         <h3 id="advanced-runtime">{messages.runtimeSection}</h3>
+        {/*
+          An empty section is not neutral here. This page exists to answer "what
+          is it running on", so a heading with nothing under it reads as "nothing
+          is running" rather than as "the read did not arrive".
+        */}
+        {statusUnavailable && <p className="warning">{messages.runtimeStatusUnavailable}</p>}
         {diagnostics !== null && (
           <>
             <dl className="fact-grid">

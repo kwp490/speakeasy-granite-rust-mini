@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { messages } from "../catalog";
 import { formatError, formatState } from "./format";
+import { readWithRetry } from "./readWithRetry";
 import type { RecoverableResult } from "./types";
 import type { ProfileController } from "./useProfile";
 
@@ -21,11 +22,25 @@ import type { ProfileController } from "./useProfile";
  */
 export function OutputPrivacy({ profile }: { profile: ProfileController }) {
   const [result, setResult] = useState<RecoverableResult | null>(null);
+  const [resultUnavailable, setResultUnavailable] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [retryAction, setRetryAction] = useState("");
 
+  // Retried, and with a rejection handler, because it had neither. `result_status`
+  // stands behind two coordinators, so a lost startup race left this page saying
+  // "No result" -- and "no result" is the answer someone comes here to check after
+  // a dictation they cannot find. It also disabled Retry, which is the one control
+  // that could have recovered the audio it was denying existed.
   useEffect(() => {
-    void invoke<RecoverableResult>("result_status").then(setResult);
+    void readWithRetry<RecoverableResult>("result_status").then(
+      (status) => {
+        setResult(status);
+        setResultUnavailable(false);
+      },
+      () => {
+        setResultUnavailable(true);
+      },
+    );
   }, []);
 
   async function copyResult() {
@@ -41,10 +56,10 @@ export function OutputPrivacy({ profile }: { profile: ProfileController }) {
     setRetryAction(messages.retryStarted);
     try {
       await invoke("dictation_retry");
-      setResult(await invoke<RecoverableResult>("result_status"));
+      setResult(await readWithRetry<RecoverableResult>("result_status"));
       setRetryAction("");
     } catch {
-      setResult(await invoke<RecoverableResult>("result_status"));
+      setResult(await readWithRetry<RecoverableResult>("result_status"));
       setRetryAction(messages.retryFailed);
     }
   }
@@ -103,9 +118,14 @@ export function OutputPrivacy({ profile }: { profile: ProfileController }) {
       <section aria-labelledby="output-last">
         <h3 id="output-last">{messages.lastTranscriptSection}</h3>
         <dl className="fact-grid">
+          {/*
+            `unknown` ("Not reported"), never `empty` ("No result"). Both are real
+            backend states; only one of them is a claim, and it is the wrong claim
+            to make from a read that has not answered.
+          */}
           <div>
             <dt>{messages.transcriptStatus}</dt>
-            <dd>{formatState(result?.state ?? "empty")}</dd>
+            <dd>{formatState(result?.state ?? "unknown")}</dd>
           </div>
           {result?.provenance != null && (
             <div>
@@ -114,6 +134,7 @@ export function OutputPrivacy({ profile }: { profile: ProfileController }) {
             </div>
           )}
         </dl>
+        {resultUnavailable && <p className="warning">{messages.resultStatusUnavailable}</p>}
         {result?.error_code != null && (
           <p role="alert">
             {messages.resultFailed} {formatError(result.error_code)}

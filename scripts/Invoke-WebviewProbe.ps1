@@ -29,8 +29,9 @@ neighbouring control looks identical to a broken control. `-Click` dispatches a
 real click on a real element or fails loudly because the selector matched nothing.
 
 .PARAMETER Window
-Which window to talk to: "settings", "dock" or "log". Not a title substring --
-they all share one document title -- but the root element each one renders.
+Which window to talk to: "settings", "dock", "log" or "notice". Not a title
+substring -- they all share one document title -- but the root element each one
+renders.
 
 .PARAMETER Expression
 JavaScript to evaluate. The value is returned as JSON.
@@ -86,7 +87,13 @@ function Get-DebugTarget {
         'settings' { 'desktop-scaffold' }
         'dock' { 'capture-hud-dock' }
         'log' { 'pinned-log' }
-        default { throw "Window must be 'settings', 'dock', or 'log'; got '$Window'." }
+        # `notice` joined 2026-08-25 with the window itself, and was added here
+        # the moment somebody needed to measure it: it declared 360x172 while its
+        # content needed 188 CSS px, so its only control sat below the fold, and
+        # only this instrument can see that. A window declared `visible: false`
+        # still runs its React tree, so it answers without a ceiling stop.
+        'notice' { 'capture-notice' }
+        default { throw "Window must be 'settings', 'dock', 'log', or 'notice'; got '$Window'." }
     }
 
     $check = @{

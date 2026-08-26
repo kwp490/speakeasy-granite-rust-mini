@@ -5,10 +5,11 @@ cost you an afternoon if you rediscover them yourself.
 
 Read `CLAUDE.md` first. This file assumes it.
 
-> **Picking this up cold?** Items 0, 0b, 1b, 8, 9 and 10 are all **done** — read
-> them for what they found, not for what to do. The one open item left needs the
-> owner rather than an agent: **item 3** (publishing the CUDA worker,
-> deliberately deferred past 1.5.0). Item 2b is the release itself.
+> **Picking this up cold?** Items 0, 0b, 1b, 8, 9, 10, 11, 14 and 17 are all
+> **done** — read them for what they found, not for what to do. The one open item
+> left needs the owner rather than an agent: **item 3** (publishing the CUDA
+> worker, deliberately deferred past 1.5.0). Item 2b is the release itself, and
+> item 16 is four sentences of copy anyone can take.
 >
 > The three findings item 0 produced were all closed on 2026-08-21, and two of
 > them were closed by *measuring* rather than reasoning: `cudart64_13.dll` is
@@ -16,14 +17,29 @@ Read `CLAUDE.md` first. This file assumes it.
 > deleting them.
 >
 > **Item 1b closed on 2026-08-25 and produced seven findings of its own** — items
-> 11 to 17, of which **14 and 17 are defects** and the rest are a retired risk,
+> 11 to 17, of which **14 and 17 were defects** and the rest are a retired risk,
 > two documentation errors and two honest behaviours nobody had written down.
-> Item 17 is the cheapest fix in this file and was found by *looking at a window
-> for the first time*. The single most
-> useful thing it settled is arithmetic rather than a measurement: the
-> `max_new_tokens` truncation this repository has been hunting since the fork is
-> **unreachable through the hotkey path**, because the capture ceiling caps a
-> dictation at roughly a fifth of the token budget. Item 11.
+>
+> **Items 14 and 17 are closed, and item 11's latent half with them (2026-08-26).**
+> Item 14 turned out to be **two defects on two pages with one symptom**: the
+> refused read it diagnosed, which had never actually been seen and which leaves
+> Advanced showing five headings and *no facts at all* on the shipped build; and a
+> read that succeeds and returns `registration: "pending"` because the shortcut is
+> registered at the end of `setup`, after every eager page has already read. The
+> second is the one that reproduces on every launch, and the original diagnosis
+> would have shipped without fixing the reported symptom. Both are fixed, both
+> measured on a release frontend, and the check that replaces the old one derives
+> the hazard from the Rust signatures instead of naming a command — because the
+> old one was green on the day this was found.
+>
+> Item 11's warning is now a test: raising `MAX_CAPTURE_SECONDS` past ~410 s fails
+> the gate until `max_new_tokens` moves with it. The truncation this repository has
+> been hunting since the fork is **unreachable through the hotkey path**, because
+> the capture ceiling caps a dictation at roughly a fifth of the token budget —
+> arithmetic nobody did for months. Item 11.
+>
+> **The one open item left needs the owner: item 3**, publishing the CUDA worker,
+> which closes items 12 and 16 on its own.
 
 ## Start here
 
@@ -50,7 +66,8 @@ predicted:
 | Full gate | passes end to end |
 | A real dictation | delivered, `hotkey_delivery result=committed` (2026-08-18) |
 | **A real dictation, measured** | **done 2026-08-25, both providers.** Card: 105.2 s of speech, press-to-paste **4,246 ms**, RTF 0.0396. Processor: a 120.183 s ceiling stop, inference 44.5 s, RTF 0.3702 — **9.34x** the card. No truncation either run; the ceiling cue confirmed by ear |
-| The ceiling's notice window | **seen for the first time, and 16 px too short for its own copy** — item 17 |
+| The ceiling's notice window | seen for the first time, found 16 px too short for its own copy, **raised to 192 and measured at zero overflow (2026-08-26)** — item 17 |
+| Settings' status reads | **all five surfaces converted, both causes measured (2026-08-26)** — item 14. The shipped 1.5.1 renders Advanced as five headings and zero facts |
 | Installer lifecycle | `Test-InstallerLifecycle.ps1` passes, including the single-file path |
 | **The wizard, end to end** | `Test-SetupWizard.ps1` passes: eight pages, real install, engine check, launched app |
 | Setup's engine check | transcribes the bundled clip through the real worker in ~5 s |
@@ -1845,8 +1862,20 @@ deleted.
   wanting thirty minutes once per-sample metadata stops being retained. Thirty
   minutes is ~4,600 tokens and would truncate silently at about the nine-minute
   mark. **Anyone raising the ceiling has to raise `max_new_tokens` with it**, and
-  nothing in the tree connects the two — no test, no comment, no assertion. That
-  is the actual finding.
+  nothing in the tree connected the two — no test, no comment, no assertion. That
+  was the actual finding, and it is **closed as of 2026-08-26**.
+
+  `the token budget covers the longest dictation the ceiling allows` compares the
+  two. They cannot be compared in Rust: `MAX_CAPTURE_SECONDS` is in
+  `speakeasy-desktop` and `max_new_tokens` is in `speakeasy-granite`, and the
+  desktop crate deliberately does not depend on the one that compiles llama.cpp
+  — so the scaffold suite reads both as source, which is what this repository
+  already does for cross-file invariants. The rates are deliberately pessimistic
+  against the only real measurement there is (312 words in 120.183 s, ~1.29
+  tokens per word): **200 wpm and 1.5 tokens per word**, so the check complains
+  before a real user is truncated. It binds at about **410 s** of ceiling.
+  Proved able to fail by raising the ceiling to thirty minutes, which reports "a
+  1800 s ceiling can need 9000 tokens and max_new_tokens is 2048".
 - **It survived because the arithmetic was never done.** The handoff prompt for
   this session asked for "two to three minutes" of speech to approach a limit
   that two minutes cannot reach, and reproduced the correct token estimate
@@ -1902,40 +1931,176 @@ are worse (pasting into a window that has since closed, or holding text
 hostage). But it is not currently written down as a consequence of slow
 inference, and the two facts live in different documents.
 
-### 14. Settings permanently reports the shortcut as unregistered — found 2026-08-25
+### 14. Settings permanently reported the shortcut as unregistered — found 2026-08-25, closed 2026-08-26
 
-`Settings -> General` reads **"Shortcut not registered yet"** while the shortcut
-is registered and working. Confirmed both ways on 2026-08-25: the panel said it
+`Settings → General` read **"Shortcut not registered yet"** while the shortcut
+was registered and working. Confirmed both ways on 2026-08-25: the panel said it
 for the life of the process, and `hotkey_status` invoked directly against the
 same window returned `binding: "Ctrl+Alt+P", registration: "registered",
 enabled: true`. Dictation then worked twice.
 
-`General.tsx` reads it with a bare `invoke<HotkeyStatus>("hotkey_status")` — no
-rejection handler, no retry — and renders
+`General.tsx` read it with a bare `invoke<HotkeyStatus>("hotkey_status")` — no
+rejection handler, no retry — and rendered
 `formatShortcutState(hotkey?.registration ?? "pending")`. Every window's webview
 loads while `setup` is still managing coordinators, so that read can be refused
-with "state not managed for field `state` on command …", and `hotkey` then stays
+with "state not managed for field `state` on command …", and `hotkey` then stayed
 `null` for the life of the process.
 
-**This is the 2026-08-20 defect in a second location.** That one was
-`personalization_status` showing an empty dictionary with three words on disk,
-and the fix was `readWithRetry`. Only `Transcription.tsx` was converted —
-`model_hardware` and `personalization_status` — and the sweep stopped there.
-`readWithRetry.ts` has exactly one importer.
+**This was the 2026-08-20 `personalization_status` defect in a second location**,
+and the one-line fix was never the task. The lesson recorded from the first
+occurrence was "one reader had carried a retry since the day it was found and
+nothing else did" — and the fix for it then repeated exactly that, because the
+*test* written to prevent a recurrence named one command in one file. It was
+green on the day this was found.
 
-It is worse than the original in one respect and that is why it is written up
-rather than merely listed. An empty list says "you have no protected terms",
-which is wrong but passive. This says a working feature is broken, in the one
-panel a user opens *because* their shortcut appears not to work — and the
-remedy it implies, pressing "Save hotkey" to re-register, is a fix for a problem
-they do not have.
+#### What the sweep found
 
-The fix is a one-line change to the import and the call. It was deliberately not
-made in the session that found it, because that session's job was to measure a
-dictation and a UI change would have invalidated the build under test. **Check
-every other status read for the same shape while fixing it** — the lesson of the
-first occurrence was that one reader had carried a retry since the day the race
-was found and nothing else did.
+Every mount-time read in `apps/desktop/src` was enumerated, and the hazard was
+defined rather than guessed at: a `#[tauri::command]` taking a `tauri::State` is
+what Tauri refuses when the coordinator behind it is not managed yet. **41 of the
+56 commands take one.** Of the reads that reach them from a `useEffect`:
+
+| Reader | Command | Was | Now |
+| --- | --- | --- | --- |
+| `General.tsx` | `hotkey_status` | bare, no `catch` | retried, reports |
+| `Advanced.tsx` | `diagnostics_status` | bare, no `catch` | retried, reports |
+| `Advanced.tsx` | `credential_status` | bare, no `catch` | retried, reports |
+| `OutputPrivacy.tsx` | `result_status` | bare, no `catch` | retried, reports |
+| `Transcription.tsx` | `model_catalog`, `gpu_status` | bare, behind `refreshCatalog` | retried |
+| `Transcription.tsx` | `diagnostics_status` | bare, `catch` hid the panel | retried |
+| `useProfile.ts` | `profile_status` | hand-rolled retry, silent | shared retry, reports |
+| `Transcription.tsx` | `model_hardware`, `personalization_status` | retried (2026-08-20) | unchanged |
+
+**Four had no rejection handler at all** — three of them outside `General.tsx`,
+each one an unhandled promise rejection whose only symptom was a missing answer.
+Two of those four were worse than the empty dictionary list that started all of
+this:
+
+- **`refreshCatalog` was the worst.** A refusal landed in its `catch`, which sets
+  `modelStatus` to failed and puts the **raw error string** on screen beside an
+  empty model list — "no models exist", said by an error path, about a machine
+  with 2.14 GB of weights on disk.
+- **`Advanced.tsx` lost both its sections silently.** Neither read had a
+  handler, and the page renders each block only when its value is non-null, so a
+  lost race left two headings with nothing under them on the one page someone
+  opens to find out what the app is running. Six coordinators stand behind
+  `diagnostics_status` alone, which makes it the read most exposed to the race.
+
+**Cleared, with the reason:** `session_transcript_log`, `capture_level`,
+`capture_wizard_status` and `capture_hud_status` are all read on an interval, so
+the first refusal costs one tick and the next one heals it. `capture_devices` and
+`startup_status_view` take no `State`. `model_install_status` resolves its own
+coordinator with `try_state` and returns `verifying` when it is absent, so it
+cannot be refused this way. `history_list` and `startup_status_view` are
+registered and never invoked from the frontend at all.
+
+#### The reported symptom had a second cause, and it is the one that reproduced
+
+`readWithRetry` was in place, the release frontend was bundled, the backend
+answered `registration: "registered"` — and the panel still read **"Shortcut not
+registered yet"**. The retry was not wrong; there were two causes with one
+symptom, and only one of them is a refused read.
+
+`HotkeyCoordinator` starts at `registration: "pending"` and
+`register_activation_hotkey` runs at the **end** of `setup`, after the tray is
+built. All three eagerly mounted pages have already read by then. So the read
+**succeeded** and returned a value that was true for the first moment of the
+process, and nothing ever re-read it.
+
+**That is the documented trap one level deeper than it was written.** The handoff
+warned that the rendered string cannot tell you whether the backend is wrong or
+the read was refused. It also cannot tell you whether the answer arrived early
+and never changed — same string, same null-ish page state, same everything. The
+two were separated by reloading the settings webview and watching the same page,
+with the same backend, report "Shortcut active" (2026-08-26, installed release
+frontend). Item 14's original diagnosis was structurally sound and never proved,
+and the fix it implied would have shipped without fixing the reported symptom.
+
+`readWithRetry` now takes an optional `settled` predicate: an unsettled answer is
+retried like a refusal, and if every attempt is unsettled the **last value is
+returned** rather than thrown — a startup value still there after five seconds
+has stopped being transient, and `pending` then really does mean the shortcut was
+never registered, which is the one case that copy exists for.
+
+#### Both causes reproduced on a build, and the shipped one is worse than reported
+
+Measured 2026-08-26 through CDP against release frontends. The instrument matters:
+every reading here compares what the *page rendered from its mount-time read*
+against what the *backend answers when asked directly*, because that is the only
+comparison that can tell a wrong answer from a missing one.
+
+| | installed 1.5.1 | this build |
+| --- | --- | --- |
+| Settings → General, shortcut | "Shortcut not registered yet" | **"Shortcut active"** |
+| `hotkey_status`, asked directly | `registration: "registered"` | `registration: "registered"` |
+| Advanced, fact grids rendered | **0** | **4** |
+| Advanced, headings rendered | 5 | 5 |
+| `diagnostics_status` / `credential_status`, asked directly | both answer correctly | both answer correctly |
+
+**Advanced on the shipped build renders five headings and no facts at all.**
+Runtime, Performance and Credentials are empty — every fact on the page a user
+opens to find out what the app is running — while both commands behind them
+answer correctly when invoked directly. That is the refused read, and it had
+never been seen: item 14 predicted it from the source and this is the measurement.
+So the shipped defect is two independent faults on two pages, not one.
+
+**Which pages can lose the startup race is decided by `SettingsApp.tsx`, and by
+accident.** General, Transcription and Advanced are mounted eagerly; Audio,
+Output & Privacy and the transcript log are mounted only while their tab is
+active, so their reads happen long after `setup`. The three eager pages are
+exactly the three that had the defect. That correlation is not a mitigation
+anybody chose — Audio's conditional mount exists so a hidden page does not sample
+the microphone — and making Output eager would bring the race back with it. The
+retries on the three lazy pages are therefore defence in depth rather than fixes
+for observed faults, and the enforcement lives in the test, which does not know
+or care which pages mount when.
+
+#### Two things a retry cannot fix, found while fixing it
+
+- **A default that renders as a claim about the system.** `?? "pending"` is not
+  a neutral fallback: `pending` is a real backend state meaning "registration has
+  not been attempted", and its copy is "Shortcut not registered yet". So an
+  unanswered *read* was reported as an unregistered *shortcut*, and the remedy the
+  panel implies — pressing Save hotkey — fixes a problem the user does not have.
+  It is now `?? "unknown"`, which reads "Shortcut state unknown". The same
+  substitution was needed on Output & Privacy, where `?? "empty"` claimed "No
+  result" about a read that had not answered.
+- **A page holding a value it has never read, and this one was destructive.**
+  `General.tsx` initialised its binding field to **`Ctrl+Alt+L`** — SpeakEasy's
+  shortcut, inherited by the fork and never rebranded, one of the identity items
+  item 4 missed. With the read lost, the field showed a shortcut this app does
+  not use, and the Save the panel invites would have **rebound the working
+  `Ctrl+Alt+P` to the other product's shortcut**, on a machine where both are
+  installed side by side and would then conflict. The field starts empty, Save is
+  disabled until the status has been read, and no page may hold a shortcut as a
+  value.
+
+#### The part that stops a third occurrence
+
+`no effect can read a race-prone command without retrying or polling` replaces
+the named assertion. Nothing in it is listed by hand: the hazard is derived from
+the Rust signatures, and the readers are found by scanning every `useEffect` in
+`src/`, following one level of local function calls — which is what reaches
+`refreshCatalog`, the read a body-only scan would have missed. A command is
+cleared two ways only, retried or polled, and once a command is retried anywhere
+no file may also read it bare.
+
+Every assertion in it is of the form "nothing was found", which is exactly what a
+broken scanner reports, and two of its three components (balanced-delimiter
+scanning, one-level call resolution) fail silently rather than throwing. So it
+carries **instrument self-checks**: the derived hazard must contain three commands
+known to take a `State` and exclude three known not to, and the scan must be
+shown reaching through a helper and reaching the poll exemption. It was then
+**proved able to fail** by restoring the original defect in `General.tsx` and,
+separately, in `Advanced.tsx` — two files, two commands.
+
+One deliberate consolidation came out of it. `useProfile.ts` carried a
+hand-rolled copy of `readWithRetry`'s own 20 x 250 ms, in two files, and
+`readWithRetry`'s comment already named the risk: one page recovering from a
+startup the other reported as broken. There is one retry now, and the profile
+being unread is reported — a null profile renders unchecked boxes and a delivery
+preference nobody chose, across three pages, which the old comment acknowledged
+and nothing said out loud.
 
 ### 15. The habitual stop press after a ceiling stop starts a new dictation — found 2026-08-25
 
@@ -2009,7 +2174,7 @@ question with different vocabularies. Also item 3's dependency: a published
 worker restores the promotion and the sentence stops being reachable in this
 combination.
 
-### 17. The notice window is 16 px too short for its own copy — found 2026-08-25
+### 17. The notice window was 16 px too short for its own copy — found 2026-08-25, closed 2026-08-26
 
 Found the first time anybody saw the window, minutes after item 1b closed. The
 `notice` window declares **360x172** and its content needs **188 CSS px**, so the
@@ -2061,6 +2226,42 @@ three lines is the alternative and re-opens a settled decision to save 19 px.
 `minHeight` is 172 as well and would have to move with it. Whatever changes,
 **measure the running window afterwards** — this entry exists because a
 stylesheet that reads correctly described a window that clipped.
+
+**Closed 2026-08-26** at 192, `minHeight` with it, copy unchanged. Measured
+afterwards on the running window, which is the whole point of this entry:
+
+```text
+viewport (CSS px)     : 360 x 192      <- declared size holds
+.capture-notice       : client 326x190   scroll 326x190
+  VERTICAL OVERFLOW   : 0 px
+  button              : top=148 bottom=188
+  clear of the fold by: 2 px
+```
+
+**The spare is 2 px, not the 4 px predicted above.** The prediction was made with
+the scrollbar suppressed and read the requirement as 188; the real box needs 190.
+Both readings were taken the same way and the earlier one was 2 px optimistic —
+which is a small number and the right direction to record it in, because the
+estimate that produced it was the sound kind and was still wrong. The content box
+is 326 px wide as predicted, the scrollbar is gone, and the only control is fully
+on screen.
+
+Two other things came out of doing it that are worth more than the two lines of
+JSON:
+
+- **`Invoke-WebviewProbe.ps1` could not address the window.** It knew
+  `settings`, `dock` and `log`, so the one window whose defect only a CDP
+  reading can see was the one window the instrument could not reach. It takes
+  `notice` now — and because a window declared `visible: false` still runs its
+  React tree, it answers without provoking a ceiling stop, so this is measurable
+  in seconds rather than needing two minutes of speech.
+- **The stylesheet's own account of the size is now checked against the config.**
+  `styles.css` opens the notice's rules by naming its declared size, which was
+  the number that was wrong; nothing compared the two. `every window is declared`
+  now parses both and requires them to agree, plus `minHeight == height` for a
+  window that cannot be resized. That cannot measure the running window — nothing
+  in the gate can — but it stops the wrong number being restated as though it
+  were checked.
 
 ## Decisions already made — do not re-open without new evidence
 

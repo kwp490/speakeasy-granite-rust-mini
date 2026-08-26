@@ -124,13 +124,19 @@ export function Transcription() {
     // dictation finishes, and this page is not open during one — settings never
     // has focus while the user is dictating, because taking focus would change
     // where the transcript is pasted.
-    void invoke<DiagnosticsStatus>("diagnostics_status")
-      .then((status) => setLastFailure(status.final_source_reason))
-      .catch(() => {
+    //
+    // Retried, because "read once, not polled" is exactly the shape that cannot
+    // recover from a lost startup race, and this read carries the *failure
+    // panel*: losing it hides the reason a dictation produced nothing, which is
+    // the one thing this page owes a user whose transcript vanished.
+    void readWithRetry<DiagnosticsStatus>("diagnostics_status").then(
+      (status) => setLastFailure(status.final_source_reason),
+      () => {
         // Diagnostics being unavailable is not itself a dictation failure, and
         // reporting it as one here would invent a problem. The panel stays
         // hidden; Advanced is where an unreadable diagnostics surface shows up.
-      });
+      },
+    );
   }, []);
 
   useEffect(() => {
@@ -180,8 +186,15 @@ export function Transcription() {
    */
   async function refreshCatalog() {
     try {
-      setModels(await invoke<ModelCatalogItem[]>("model_catalog"));
-      setGpu(await invoke<GpuStatus>("gpu_status"));
+      // Both through the retry, including the calls that follow an install or a
+      // removal. This is called from mount as well, and there it was the worst of
+      // the reads that could lose the startup race: a refusal landed in the
+      // `catch` below, which sets `modelStatus` to failed and puts the raw error
+      // string on screen next to an empty model list — "no models exist", said
+      // by an error path, about a machine with 2.14 GB of weights on disk. A
+      // genuine `catalog_unavailable` still reports, five seconds later.
+      setModels(await readWithRetry<ModelCatalogItem[]>("model_catalog"));
+      setGpu(await readWithRetry<GpuStatus>("gpu_status"));
     } catch (error) {
       // Leaves whatever was last read on screen rather than blanking the page.
       // A stale row is recoverable; an empty model list reads as "no models

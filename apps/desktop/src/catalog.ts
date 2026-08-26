@@ -191,6 +191,12 @@ export const messages = {
     pending: "Shortcut not registered yet",
     unknown: "Shortcut state unknown",
   },
+  // Shown only after the retried read has given up. "Shortcut state unknown" says
+  // the app does not know; this says what to do about it, and says the shortcut
+  // itself is unaffected -- because the panel someone reads this in is the one
+  // they opened believing their shortcut was broken.
+  shortcutStateUnavailable:
+    "The shortcut's state could not be read, so it is not shown above. The shortcut itself is unaffected — reopen this window to try again.",
   changeShortcut: "Change shortcut",
   shortcutDetail:
     "Press the shortcut to start dictating and press it again to stop. It works whether or not this window is open. A recording runs for up to 2 minutes, then auto-stops and transcribes.",
@@ -442,6 +448,12 @@ export const messages = {
   resetPersonalization: "Reset dictionary and snippets",
   personalizationUnavailable:
     "Your dictionary and snippets could not be read, so this list is not showing them. Nothing has been lost — reopen this window to try again.",
+  runtimeStatusUnavailable:
+    "The runtime facts could not be read, so they are not shown here. Nothing is wrong with the engine — reopen this window to try again.",
+  resultStatusUnavailable:
+    "The last transcript's status could not be read, so it is not shown above. Nothing has been lost — reopen this window to try again.",
+  profileUnavailable:
+    "Your settings could not be read, so the controls below are showing their defaults rather than your choices. Nothing has been changed — reopen this window to try again.",
   personalizationSaved: "Personalization saved.",
   personalizationRejected: "The change was rejected. Check conflicts, limits, or forbidden action placeholders.",
   confirmInstall: "Confirm download and local installation",
