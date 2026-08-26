@@ -44,23 +44,33 @@ that this closes on its own.
 - **Three decisions are already taken** (owner, 2026-08-26): Hugging Face carries
   the **worker only**, with the CUDA DLLs still fetched from NVIDIA's CDN where
   the manifest already pins both archives by digest; the repo is
-  `speakeasy-mini-runtime` under whichever account the token belongs to; and the
-  order is **upload, then close the gap, then pin** — nothing user-visible
-  changes until the whole path works.
+  `orangeblue39/speakeasy-mini-runtime`, which is the account the owner's token
+  resolved to; and the order is **upload, then close the gap, then pin** — nothing
+  user-visible changes until the whole path works. Step 3 is already done.
 
 ## Step 1 — the one human step
 
-`hf` (huggingface_hub 1.13.0) is installed and **not logged in**. Ask the owner
-to run this themselves, in their own terminal:
+`hf` (huggingface_hub 1.13.0) is installed and the owner is logged in as
+**`orangeblue39`**, which is the account the repo name in item 3 already assumed.
+But the token is **read-only** (`token role: read`, named "speakeasy token
+04.22.2026"), so it cannot create a repo or upload. Check first:
 
-```bash
-hf auth login
+```powershell
+python -c "from huggingface_hub import HfApi; print(HfApi().whoami()['auth']['accessToken']['role'])"
 ```
 
+If that is not `write`, ask the owner to make a **Write** token at
+https://huggingface.co/settings/tokens and re-run `hf auth login` (answer **n** to
+the git-credential prompt — the `hf` CLI reads its own store and we do not push
+to huggingface.co over git).
+
 **Never handle the token.** Do not ask for it, do not echo it, do not write it to
-a file or an environment variable. `hf auth login` stores it in the user's own
-credential store. Then `hf auth whoami` names the account, which is what decides
-the repo owner.
+a file or an environment variable.
+
+One thing found while looking: the account already holds a public
+`orangeblue39/nemotron-3.5-streaming-en-cuda` — the Hub-side leftover of the
+streaming engine this fork deleted. Item 7 cleared the local Nemotron material and
+nobody looked remotely. It is the owner's call; do not touch it unasked.
 
 ## Step 2 — upload
 
@@ -70,32 +80,22 @@ publishes to a public host and is not undoable by deleting the file afterwards.
 Record the resolved download URL, the byte count and the digest; those three are
 what the manifest entry needs.
 
-## Step 3 — close the gap, and this is the real work
+## Step 3 — done 2026-08-26, do not redo it
 
-Item 3 promises that pinning the artifact makes every layer answer `true` "without
-a second edit". **It does not.** The wizard gates its graphics-card radio on
-`download::graphics_card_configuration_available()`, which calls
-`inspect_gpu_payload` against
-`%LOCALAPPDATA%\SpeakEasy Mini\proof\granite-worker.exe` — a file that does not
-exist during the provider page of a **first** install, because setup has not
-extracted the payload yet. Pinning alone leaves the option disabled everywhere,
-reporting `WorkerNotInstalled` instead of `WorkerNotPublished`.
+The gap is closed. `gpu_configuration_is_installable` asks the release
+(published, and the libraries pinned) and touches no disk;
+`inspect_gpu_payload` keeps the three-gate "installed here" answer and calls it
+for gate one, so the two cannot disagree. The wizard no longer looks at
+`install_root`. Both the bug and the fix were demonstrated by temporarily pinning
+the artifact and running the suite — see item 3 in `CURRENT.md` for the table of
+what flips, which is the map for step 4.
 
-`inspect_gpu_payload` conflates two questions:
-
-| Question | Who asks | Needs |
-| --- | --- | --- |
-| Is a graphics-card configuration **installable**? | the wizard's provider page | published, and fetchable |
-| Is one **installed here**? | the app's warm path, `--verify-provider`, `smoke::gpu_payload_rejection` | files present in `proof/` |
-
-Split them, and give `download::plan` its second item — it already takes
-`provider` and ignores it, with a comment saying it is for exactly this.
-
-**This machine cannot see the bug.** It has the CUDA worker and all three
-libraries staged, so with the artifact pinned the option lights up here and looks
-right. Test the installable path against a directory that does *not* contain a
-worker, or you will ship a wizard that only offers the graphics card to machines
-that already have it.
+**What is left of item 3: `download::plan`'s second item.** It takes `provider`
+and ignores it, with a comment saying it is for exactly this. Setup has to fetch
+the worker from Hugging Face and the two NVIDIA archives from NVIDIA, and stage
+all four files into `proof/` beside each other — Windows resolves a loaded DLL's
+dependencies against the loading process's own directory first, so nowhere else
+will do.
 
 ## Step 4 — pin, then prove
 

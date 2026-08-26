@@ -174,6 +174,58 @@ pub fn required_cuda_runtime_files(manifest: &TrustedManifest) -> Vec<String> {
     files
 }
 
+/// Whether a graphics-card configuration is something an installer could
+/// install, asked of the release rather than of the machine.
+///
+/// # Why this is separate from [`inspect_gpu_payload`]
+///
+/// Those are two different questions and conflating them shipped a bug in
+/// waiting. The wizard's provider page asks this one, **before** the payload has
+/// been extracted: on a first install `proof/granite-worker.exe` does not exist
+/// yet, so an "is it present on disk" check answers `WorkerNotInstalled` for
+/// every fresh machine and the graphics-card option stays disabled no matter what
+/// the manifest says. Item 3's plan assumed pinning the artifact would be enough;
+/// it is not, and this is the second edit.
+///
+/// The reasoning that put a presence check on the wizard's path was that
+/// "published alone would re-offer the option on a machine where the runtime
+/// libraries never arrived". That case is real and is answered later and better:
+/// setup runs its engine check *after* staging the payload and records the
+/// provider from that verdict, and the app re-proves the context at every warm.
+/// Neither needs the wizard to pre-empt it, and the wizard cannot do it correctly
+/// anyway.
+///
+/// # What "installable" needs
+///
+/// Both halves of the payload pinned: the worker, and at least one CUDA
+/// redistributable for the libraries it loads. A manifest naming a worker with no
+/// libraries pinned beside it is not a publishable configuration — it is a
+/// half-written catalog, and setup would stage a worker Windows cannot resolve the
+/// imports for. `the_catalog_never_pins_a_worker_without_its_runtime` refuses that
+/// state, so the second condition here is a floor rather than a live path.
+///
+/// Deliberately touches no disk. This is a fact about the release, and asking it
+/// of a directory is what made it wrong.
+///
+/// # Errors
+///
+/// [`GpuPayloadRejection::WorkerNotPublished`] when this release carries no
+/// complete graphics-card configuration.
+pub fn gpu_configuration_is_installable(
+    manifest: &TrustedManifest,
+) -> Result<(), GpuPayloadRejection> {
+    if manifest
+        .native_runtimes()
+        .all(|runtime| runtime.id != GRANITE_CUDA_WORKER_ARTIFACT_ID)
+    {
+        return Err(GpuPayloadRejection::WorkerNotPublished);
+    }
+    if required_cuda_runtime_files(manifest).is_empty() {
+        return Err(GpuPayloadRejection::WorkerNotPublished);
+    }
+    Ok(())
+}
+
 /// Whether the graphics-card configuration is published **and** present.
 ///
 /// `worker_directory` is where the Granite worker executable lives — `proof/`
@@ -198,12 +250,9 @@ pub fn inspect_gpu_payload(
     worker_directory: &Path,
     worker_file_name: &str,
 ) -> Result<(), GpuPayloadRejection> {
-    if manifest
-        .native_runtimes()
-        .all(|runtime| runtime.id != GRANITE_CUDA_WORKER_ARTIFACT_ID)
-    {
-        return Err(GpuPayloadRejection::WorkerNotPublished);
-    }
+    // The published half, through the one function that answers it, so the two
+    // checks cannot disagree about what a published configuration is.
+    gpu_configuration_is_installable(manifest)?;
     if !worker_directory.join(worker_file_name).is_file() {
         return Err(GpuPayloadRejection::WorkerNotInstalled);
     }
@@ -368,6 +417,64 @@ mod tests {
             Err(GpuPayloadRejection::WorkerNotPublished),
             "no CUDA Granite worker is published, so no installation may claim one"
         );
+    }
+
+    /// Installable is a question about the release, and must not touch the disk.
+    ///
+    /// This is the assertion the bug needed and did not have. The wizard asked
+    /// `inspect_gpu_payload`, which also requires the worker to be *present* --
+    /// and on a first install it is not, because the payload has not been
+    /// extracted when the provider page is shown. So the option would have stayed
+    /// disabled on every fresh machine however the manifest was pinned, while
+    /// answering `Ok(())` on any machine with a worker staged by hand: which is
+    /// the machine this is developed on, and the reason nothing here could have
+    /// caught it.
+    ///
+    /// So the directory below is deliberately one that does not exist. A future
+    /// change that reintroduces a presence check fails here rather than on a
+    /// user's first install.
+    #[test]
+    fn installable_asks_the_release_and_never_the_disk() {
+        let manifest = bundled_manifest().expect("the bundled manifest must parse");
+        let absent = std::env::temp_dir().join("speakeasy-gpu-installable-no-such-directory");
+        assert!(!absent.exists(), "the fixture directory must not exist");
+
+        // Today: nothing published, so both answers agree and say why.
+        assert_eq!(
+            gpu_configuration_is_installable(&manifest),
+            Err(GpuPayloadRejection::WorkerNotPublished)
+        );
+
+        // And the two questions are answered by different amounts of evidence.
+        // `inspect_gpu_payload` reaches for a directory; this must not, which is
+        // what lets it be asked before one exists.
+        assert_eq!(
+            inspect_gpu_payload(&manifest, &absent, "granite-worker.exe"),
+            Err(GpuPayloadRejection::WorkerNotPublished),
+            "the published gate comes first, so the order of rejections is unchanged"
+        );
+    }
+
+    /// A worker pinned without its libraries is a half-written catalog.
+    ///
+    /// Setup would stage a binary whose imports Windows cannot resolve, and that
+    /// failure names no file: the process does not start and there is nothing to
+    /// act on. The libraries are fetched from NVIDIA's own CDN rather than shipped
+    /// beside the worker (owner decision 2026-08-26), which makes this two
+    /// independent manifest entries that have to move together -- exactly the
+    /// shape that let `cudart64_12` and `cudart64_13` disagree for months.
+    #[test]
+    fn the_catalog_never_pins_a_worker_without_its_runtime() {
+        let manifest = bundled_manifest().expect("the bundled manifest must parse");
+        let worker_pinned = manifest
+            .native_runtimes()
+            .any(|runtime| runtime.id == GRANITE_CUDA_WORKER_ARTIFACT_ID);
+        if worker_pinned {
+            assert!(
+                !required_cuda_runtime_files(&manifest).is_empty(),
+                "a published CUDA worker needs its redistributables pinned beside it"
+            );
+        }
     }
 
     #[test]

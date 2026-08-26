@@ -1672,6 +1672,50 @@ libraries staged, so with the artifact pinned the option would light up *here* a
 look correct. The wizard that only offers the graphics card to machines that
 already have it would have shipped, and every test on this rig would have agreed.
 
+#### Closed 2026-08-26, and proved by simulating the pin
+
+`gpu_configuration_is_installable` is the new question: **published, and the
+libraries pinned**, asked of the manifest and touching no disk at all. That last
+part is the fix -- asking it of a directory is what made it wrong.
+`inspect_gpu_payload` keeps the three-gate "installed here" answer and calls the
+new function for its first gate, so the two cannot disagree about what published
+means, and the order of rejections is unchanged. The wizard's
+`graphics_card_configuration_available` now asks the installable question and no
+longer looks at `install_root` at all.
+
+The presence check was there for a real case -- "published alone would re-offer
+the option on a machine where the runtime libraries never arrived" -- and that
+case is answered later and better: `smoke::verify_engine` runs *after* the payload
+is staged and the recorded provider comes from its verdict, and the app re-proves
+the CUDA context at every warm. The wizard cannot do it correctly before the files
+exist, so it should not try.
+
+**The bug and the fix were both demonstrated rather than argued**, by temporarily
+adding the artifact to the manifest with the proven digest and running the suite
+against it. That simulation is what the pin step will really be, so its output is
+the map:
+
+| Test | Under a pinned manifest |
+| --- | --- |
+| `the_shipped_catalog_publishes_no_graphics_card_worker` | fails with `left: Err(WorkerNotInstalled)` -- **this is the bug, measured**: exactly what the wizard would have received on a first install |
+| `installable_asks_the_release_and_never_the_disk` | fails with `left: Ok(())` -- **the fix, measured**: installable says yes while `inspect_gpu_payload` still says not-installed, which is the split working |
+| `a_published_worker_that_was_not_installed_is_its_own_rejection` | fails in its *fixture* |
+| `a_present_worker_with_no_runtime_libraries_names_every_missing_file` | fails in its *fixture* |
+| `a_complete_payload_is_accepted_and_is_still_not_proof_it_runs` | fails in its *fixture* |
+| `the_catalog_never_pins_a_worker_without_its_runtime` | passes |
+
+Those three fixture failures are not logic failures and are worth knowing before
+they cost an hour. `manifest_with_published_worker()` synthesises the artifact by
+cloning `artifacts[0]` and renaming it, so once a real entry exists the manifest
+has **two** with that id and `TrustedManifest::parse` refuses it. When pinning for
+real, the fixture stops synthesising and returns the shipped manifest, and the
+first two tests in the table invert. All five were anticipated: the shipped-catalog
+test's own comment says it "is the assertion that flips on the day a CUDA worker is
+pinned -- at which point the failing test is the reminder that the wizard, the
+packager and the marker all now have work to do".
+
+Still to do after that: `download::plan`'s second item, and the release.
+
 ### 4. The rebrand tail — done 2026-08-18, and it was not cosmetic
 The remaining "SpeakEasy" strings were filed as naming. Three of them were
 correctness bugs, each one this product writing into the *parent* product's

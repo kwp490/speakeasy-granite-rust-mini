@@ -28,7 +28,7 @@ use speakeasy_domain::CancelToken;
 use speakeasy_models::{
     DownloadPolicy, DownloadRequest, ExecutionProvider, GpuPayloadRejection, InstallManager,
     InstallSpec, LooseInstallFile, Pack, PackRole, bundled_manifest, download_to_file,
-    inspect_gpu_payload,
+    gpu_configuration_is_installable,
 };
 
 use crate::{catalog, uninstall};
@@ -180,11 +180,24 @@ pub fn plan(provider: ExecutionProvider) -> Result<Plan, Failure> {
 /// option was also never disabled, so selecting it wrote `installed=cuda` onto
 /// an installation with no CUDA worker in it.
 ///
-/// It asks `speakeasy_models::inspect_gpu_payload` now, which is the one place
-/// the three independent facts live — published, present, and (separately)
-/// proven operational. Answers `Ok(())` on the day a CUDA worker is pinned in
-/// the manifest and staged with its runtime libraries, with no second place to
-/// remember to change.
+/// It asks `speakeasy_models::gpu_configuration_is_installable`, which is the one
+/// place that fact lives.
+///
+/// **It used to ask `inspect_gpu_payload`, and that was wrong in a way no test
+/// on a development machine could show.** That function answers "published *and*
+/// present on disk", and this page is shown before the payload has been
+/// extracted — so on a first install `proof/granite-worker.exe` does not exist,
+/// the answer is `WorkerNotInstalled`, and the option stays disabled on every
+/// fresh machine however the manifest is pinned. A machine that has already
+/// staged a CUDA worker by hand answers `Ok(())` and looks correct, which is
+/// exactly the machine this is developed on.
+///
+/// The presence check was there because "published alone would re-offer the
+/// option on a machine where the runtime libraries never arrived". That case is
+/// real and is answered later and better: `smoke::verify_engine` runs after the
+/// payload is staged and the recorded provider comes from its verdict, and the
+/// app re-proves the CUDA context at every warm. The wizard does not need to
+/// pre-empt either, and it cannot do so correctly before the files exist.
 ///
 /// # Errors
 ///
@@ -192,14 +205,7 @@ pub fn plan(provider: ExecutionProvider) -> Result<Plan, Failure> {
 /// naming which half is missing.
 pub fn graphics_card_configuration_available() -> Result<(), GpuPayloadRejection> {
     let manifest = bundled_manifest().map_err(|_| GpuPayloadRejection::WorkerNotPublished)?;
-    // The directory the payload will place the worker in, on this machine.
-    // Checked rather than assumed: "published" alone would re-offer the option
-    // on a machine where the runtime libraries never arrived, which is the
-    // failure that does not error but fails to start.
-    let Some(root) = crate::probe::install_root() else {
-        return Err(GpuPayloadRejection::WorkerNotInstalled);
-    };
-    inspect_gpu_payload(&manifest, &root.join("proof"), "granite-worker.exe")
+    gpu_configuration_is_installable(&manifest)
 }
 
 /// Turn one pack into a fetchable item.
