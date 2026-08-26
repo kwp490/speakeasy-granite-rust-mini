@@ -50,7 +50,7 @@
 use std::path::Path;
 
 use crate::gpu::GpuProbeFailure;
-use crate::manifest::TrustedManifest;
+use crate::manifest::{NativeRuntimeSource, TrustedManifest};
 
 /// The manifest id a published CUDA-capable Granite worker will carry.
 ///
@@ -87,9 +87,13 @@ pub const GRANITE_CUDA_WORKER_ARTIFACT_ID: &str = "granite-worker-cuda-windows-x
 /// notice the day it changed; and every file this catalog requires is a file
 /// this catalog pins by digest, which is the property that lets presence imply
 /// provenance. Accepting `cudart64_*.dll` by pattern was considered and
-/// rejected for the same reason. The cost of the superset is 551 KB and a
-/// refusal that cannot arise from a published payload, since the worker and its
-/// libraries are pinned and shipped as one artifact.
+/// rejected for the same reason. The cost of the superset is 551 KB, and a
+/// refusal that names it can only arise from a payload that arrived incomplete
+/// — the worker and these libraries are separate artifacts from separate hosts
+/// (owner decision 2026-08-26: this project publishes the worker, NVIDIA's own
+/// CDN serves the redistributables), so "fetched all three or none" is a
+/// property of [`graphics_card_payload_sources`] and of `inspect_gpu_payload`
+/// refusing until every file is there, not of the transport.
 ///
 /// Ids rather than file names, so the file names come from the manifest's own
 /// `proof_files` and exist in exactly one place. A second hand-written list of
@@ -224,6 +228,38 @@ pub fn gpu_configuration_is_installable(
         return Err(GpuPayloadRejection::WorkerNotPublished);
     }
     Ok(())
+}
+
+/// Every artifact an installer has to fetch to put Granite on the graphics
+/// card, in the order it should be fetched.
+///
+/// The worker first, then the redistributables it loads. That order is for the
+/// progress bar rather than for correctness — nothing is usable until all of
+/// them are installed — but a user watching "1 of 3" wants the item named
+/// "graphics-card engine" to be the one that is clearly the point.
+///
+/// Empty when the configuration is not installable, so a caller that forgets to
+/// ask [`gpu_configuration_is_installable`] first plans nothing rather than
+/// planning half a payload. That is the only failure mode worth guarding here:
+/// a worker with no libraries beside it does not start, and Windows names no
+/// file when it does not.
+///
+/// The ids live in this module and nowhere else, which is the same rule
+/// [`required_cuda_runtime_files`] follows and for the same reason — a second
+/// hand-written list is how `cudart64_12` and `cudart64_13` came to name one
+/// requirement.
+#[must_use]
+pub fn graphics_card_payload_sources(manifest: &TrustedManifest) -> Vec<NativeRuntimeSource<'_>> {
+    if gpu_configuration_is_installable(manifest).is_err() {
+        return Vec::new();
+    }
+    let worker = manifest
+        .native_runtimes()
+        .filter(|runtime| runtime.id == GRANITE_CUDA_WORKER_ARTIFACT_ID);
+    let runtime = manifest
+        .native_runtimes()
+        .filter(|runtime| CUDA_RUNTIME_ARTIFACT_IDS.contains(&runtime.id));
+    worker.chain(runtime).collect()
 }
 
 /// Whether the graphics-card configuration is published **and** present.
@@ -403,19 +439,34 @@ mod tests {
         }
     }
 
+    /// The shipped catalog publishes a graphics-card worker, and this is where
+    /// that became true.
+    ///
+    /// **This test used to assert the opposite**, and its own comment promised it
+    /// would flip "on the day a CUDA worker is pinned -- at which point the
+    /// failing test is the reminder that the wizard, the packager and the marker
+    /// all now have work to do". That day was 2026-08-26 and it did exactly
+    /// that, alongside six others.
+    ///
+    /// What it pins now is the half that stayed the same: publishing is not
+    /// installing. A machine with no worker on disk is refused
+    /// [`GpuPayloadRejection::WorkerNotInstalled`] and not `Ok(())`, so nothing
+    /// downstream can read "the release has one" as "this computer has one".
     #[test]
-    fn the_shipped_catalog_publishes_no_graphics_card_worker() {
-        // The declaration itself, asserted rather than described. This is what
-        // makes "no graphics-card configuration exists" a checkable fact instead
-        // of a comment, and it is the assertion that flips on the day a CUDA
-        // worker is pinned -- at which point the failing test is the reminder
-        // that the wizard, the packager and the marker all now have work to do.
+    fn the_shipped_catalog_publishes_a_graphics_card_worker_that_is_not_installed_everywhere() {
         let manifest = bundled_manifest().expect("the bundled manifest must parse");
-        let root = std::env::temp_dir().join("speakeasy-gpu-payload-unpublished");
+        assert_eq!(
+            gpu_configuration_is_installable(&manifest),
+            Ok(()),
+            "the catalog pins a worker and its redistributables"
+        );
+
+        let root = std::env::temp_dir().join("speakeasy-gpu-payload-not-installed");
+        let _ = std::fs::remove_dir_all(&root);
         assert_eq!(
             inspect_gpu_payload(&manifest, &root, "granite-worker.exe"),
-            Err(GpuPayloadRejection::WorkerNotPublished),
-            "no CUDA Granite worker is published, so no installation may claim one"
+            Err(GpuPayloadRejection::WorkerNotInstalled),
+            "published is not installed, and an empty machine must be told which"
         );
     }
 
@@ -439,19 +490,20 @@ mod tests {
         let absent = std::env::temp_dir().join("speakeasy-gpu-installable-no-such-directory");
         assert!(!absent.exists(), "the fixture directory must not exist");
 
-        // Today: nothing published, so both answers agree and say why.
+        // Installable, against a directory that does not exist. Before the pin
+        // both answers were `WorkerNotPublished` and this test could only show
+        // that they agreed; now they disagree, which is the split it was written
+        // for actually visible. This is the exact pair of answers a first
+        // install produces on the provider page.
         assert_eq!(
             gpu_configuration_is_installable(&manifest),
-            Err(GpuPayloadRejection::WorkerNotPublished)
+            Ok(()),
+            "the release publishes a graphics-card configuration"
         );
-
-        // And the two questions are answered by different amounts of evidence.
-        // `inspect_gpu_payload` reaches for a directory; this must not, which is
-        // what lets it be asked before one exists.
         assert_eq!(
             inspect_gpu_payload(&manifest, &absent, "granite-worker.exe"),
-            Err(GpuPayloadRejection::WorkerNotPublished),
-            "the published gate comes first, so the order of rejections is unchanged"
+            Err(GpuPayloadRejection::WorkerNotInstalled),
+            "and the disk does not have it yet, which is a different answer"
         );
     }
 
@@ -572,6 +624,89 @@ mod tests {
         );
     }
 
+    /// Every artifact of the graphics-card payload is fetchable, engine first.
+    ///
+    /// The "nothing until published" half of this test went away with the pin on
+    /// 2026-08-26 — it asserted the shipped catalog had no sources, which is now
+    /// false. The property it protected is still worth holding and is checked
+    /// where it can be: `gpu_configuration_is_installable` gates this function,
+    /// and `a_worker_without_its_libraries_is_not_a_fetchable_configuration`
+    /// below drives the empty case through a manifest that has half a payload.
+    /// That case matters because two NVIDIA archives with no worker are not a
+    /// partial install, they are 400 MB of libraries nothing will ever load.
+    #[test]
+    fn every_part_of_the_graphics_card_payload_is_fetchable_and_the_engine_leads() {
+        let staged = staged_manifest_publishing_the_cuda_worker();
+        let sources = graphics_card_payload_sources(&staged);
+        let ids: Vec<&str> = sources.iter().map(|source| source.id).collect();
+        assert_eq!(
+            ids.first().copied(),
+            Some(GRANITE_CUDA_WORKER_ARTIFACT_ID),
+            "the engine leads, because it is the item the progress bar should name first: {ids:?}"
+        );
+        let mut rest = ids[1..].to_vec();
+        rest.sort_unstable();
+        let mut expected = CUDA_RUNTIME_ARTIFACT_IDS.to_vec();
+        expected.sort_unstable();
+        assert_eq!(
+            rest, expected,
+            "every pinned redistributable is fetched, not a subset of them"
+        );
+
+        // And each one is actually fetchable. A source with no URL or no digest
+        // would plan a download that cannot start or cannot be verified, and the
+        // schema is what stops that -- so this is checking the schema still does.
+        for source in &sources {
+            assert!(source.url.starts_with("https://"), "{}", source.id);
+            assert_eq!(source.archive_sha256.len(), 64, "{}", source.id);
+            assert!(source.archive_bytes > 0, "{}", source.id);
+            assert!(!source.proof_files.is_empty(), "{}", source.id);
+        }
+    }
+
+    /// Half a payload is not a fetchable configuration.
+    ///
+    /// The empty answer this used to get from the shipped catalog for free, now
+    /// driven deliberately: a manifest with the worker and no redistributables.
+    /// Nothing may be planned from it, because two NVIDIA archives with no
+    /// worker — or a worker with no libraries — is not a partial graphics-card
+    /// install. It is bytes nothing will ever load, and in the worker's case a
+    /// binary Windows cannot resolve the imports for, which fails naming no file.
+    ///
+    /// Built by *removing* entries from the shipped JSON rather than by writing
+    /// a manifest by hand, so the fixture cannot drift from the schema.
+    #[test]
+    fn a_worker_without_its_libraries_is_not_a_fetchable_configuration() {
+        let source = include_str!("../../../models/trusted-manifest.json");
+        let mut document: serde_json::Value =
+            serde_json::from_str(source).expect("the shipped manifest must parse as JSON");
+        let artifacts = document["artifacts"]
+            .as_array_mut()
+            .expect("artifacts is an array");
+        artifacts.retain(|artifact| artifact["id"] == GRANITE_CUDA_WORKER_ARTIFACT_ID);
+        assert_eq!(artifacts.len(), 1, "the worker alone must survive the trim");
+        let manifest = TrustedManifest::parse(
+            serde_json::to_string(&document)
+                .expect("re-serializing the manifest")
+                .as_bytes(),
+        )
+        .expect("a manifest may be half-written and still be valid JSON");
+
+        assert!(
+            required_cuda_runtime_files(&manifest).is_empty(),
+            "the fixture's premise is that no redistributable is pinned"
+        );
+        assert_eq!(
+            gpu_configuration_is_installable(&manifest),
+            Err(GpuPayloadRejection::WorkerNotPublished),
+            "a worker with nothing to load is not a publishable configuration"
+        );
+        assert!(
+            graphics_card_payload_sources(&manifest).is_empty(),
+            "and nothing may be planned from it"
+        );
+    }
+
     #[test]
     fn a_driver_that_will_not_answer_proves_nothing_in_either_direction() {
         // Neither `Holding` nor `NotHolding`. An unavailable probe read as a
@@ -628,28 +763,25 @@ mod tests {
         );
     }
 
-    /// The bundled manifest with a CUDA Granite worker artifact spliced in.
+    /// A manifest that publishes a CUDA Granite worker.
     ///
-    /// Built by editing the shipped JSON rather than by hand, so the staged
-    /// manifest cannot drift from the real schema — a hand-written fixture that
-    /// stops parsing takes its tests green with it, since they would fail for
-    /// the wrong reason.
+    /// **This no longer stages anything.** It synthesised the artifact by
+    /// cloning another and renaming it, from the fork until 2026-08-26, because
+    /// none was published and the tests below had nothing real to run against.
+    /// One is published now, so the shipped catalog *is* the fixture — and
+    /// splicing a second entry under the same id would make
+    /// [`TrustedManifest::parse`] refuse the whole document, which is how these
+    /// three tests announced the change rather than quietly measuring nothing.
+    ///
+    /// Kept as a named function rather than inlined at each call site: it says
+    /// what the callers depend on, and it is where a future re-pin that renames
+    /// the artifact gets caught once instead of three times.
     fn staged_manifest_publishing_the_cuda_worker() -> TrustedManifest {
-        let source = include_str!("../../../models/trusted-manifest.json");
-        let mut document: serde_json::Value =
-            serde_json::from_str(source).expect("the shipped manifest must parse as JSON");
-        let cudart = document["artifacts"][0].clone();
-        let mut worker = cudart;
-        worker["id"] = serde_json::Value::String(GRANITE_CUDA_WORKER_ARTIFACT_ID.to_owned());
-        document["artifacts"]
-            .as_array_mut()
-            .expect("artifacts is an array")
-            .push(worker);
-        TrustedManifest::parse(
-            serde_json::to_string(&document)
-                .expect("re-serializing the manifest")
-                .as_bytes(),
-        )
-        .expect("the staged manifest must still be valid")
+        let manifest = bundled_manifest().expect("the bundled manifest must parse");
+        assert!(
+            gpu_configuration_is_installable(&manifest).is_ok(),
+            "this fixture's whole premise is a published worker"
+        );
+        manifest
     }
 }

@@ -755,11 +755,7 @@ impl Wizard {
             // the message loop while it copies is a known limitation, not an
             // oversight: progress reporting arrives with the download stage,
             // which is where there is finally something worth reporting.
-            if current == STEP_INSTALL
-                && on_next.install.may_proceed()
-                && let Err(reason) = Self::place()
-            {
-                on_next.set_notice(&catalog::install_failed(&reason), catalog::Tone::Warning);
+            if current == STEP_INSTALL && !on_next.perform_install() {
                 return Ok(());
             }
             // Leaving the last question is what records the answers. Here
@@ -852,13 +848,27 @@ impl Wizard {
         }
         self.settled.set(false);
         self.ready.set(false);
-        // The provider the compatibility step decided on.
+        // What the user answered on the provider page.
         //
         // It selects nothing about the *model* — there is one Granite pack and
         // it is the CPU-variant GGUF either way, because the CUDA worker
-        // offloads that same file. What the provider decides is whether the
-        // GPU worker and its two CUDA libraries are fetched alongside it.
-        let provider = self.machine.admissibility.preferred_provider();
+        // offloads that same file. What it decides is whether the GPU worker and
+        // the CUDA libraries it loads are fetched alongside it.
+        //
+        // **The answer, not the machine's capability.** This read the machine
+        // until 2026-08-26, which was correct only for as long as no CUDA worker
+        // was published: the option was disabled, so the answer could not differ
+        // from the capability. Pinning the artifact enables the button, and a
+        // question whose answer nothing reads is the same defect as the one the
+        // disabling exists to prevent — a control that installs something other
+        // than what it says. The graphics-card button is pre-selected when the
+        // card qualifies, so the default is unchanged.
+        //
+        // The *record* still comes from proof and not from here: choosing the
+        // processor means no CUDA worker is staged, so the engine check on the
+        // last page proves the processor and records it. The two cannot disagree
+        // because they are not two claims.
+        let provider = self.selected_provider();
         let (message, tone, show_bar) = match download::plan(provider) {
             Ok(plan) if plan.already_satisfied() => {
                 // Nothing to transfer, and it must not be reported as a transfer
@@ -1087,15 +1097,59 @@ impl Wizard {
         );
     }
 
+    /// Run the install, and say whether the wizard may move on.
+    ///
+    /// `false` for a failed install, which keeps the user on the step that just
+    /// explained why. `true` covers both a clean install and one that could not
+    /// place the graphics-card payload: that second case is named and carried
+    /// on, the same way an unwritten seed is. The installation works — on the
+    /// processor — and refusing to let someone finish setup over one file copy
+    /// would cost them the whole install for the sake of its faster half.
+    ///
+    /// Not the authoritative report of that case, deliberately. The engine check
+    /// two pages on re-reads the disk and names `gpu_worker_not_installed`, or
+    /// the libraries that are missing, in its own verdict — evidence rather than
+    /// a remembered intention, which is the standard every other provider claim
+    /// in this installer is held to.
+    fn perform_install(&self) -> bool {
+        if !self.install.may_proceed() {
+            return true; // Nothing to do; the step has already said why.
+        }
+        match Self::place(self.selected_provider()) {
+            Err(reason) => {
+                self.set_notice(&catalog::install_failed(&reason), catalog::Tone::Warning);
+                false
+            }
+            Ok(unplaced) => {
+                if let Some(reason) = unplaced {
+                    self.set_notice(&reason, catalog::Tone::Warning);
+                }
+                true
+            }
+        }
+    }
+
     /// Place the payload and register the installation.
-    fn place() -> Result<(), String> {
+    ///
+    /// `Err` is an install that did not happen. `Ok(Some(reason))` is an install
+    /// that happened without the graphics-card payload the download step
+    /// fetched — a different outcome and a different sentence, which is why they
+    /// are not one `Result<(), String>`.
+    fn place(provider: speakeasy_models::ExecutionProvider) -> Result<Option<String>, String> {
         // Held until `perform` returns: when setup carries its payload inside
         // its own executable, dropping this deletes the directory it reads from.
         let payload =
             payload::stage().map_err(|failure| catalog::describe_payload_failure(&failure))?;
         let root =
             probe::install_root().ok_or_else(|| catalog::INSTALL_ROOT_UNLOCATABLE.to_owned())?;
-        install::perform(payload.directory(), &root)
+        install::perform(payload.directory(), &root)?;
+        // After `perform`, and the order is the whole point: the payload carries
+        // the **processor** worker under the same name, so a CUDA worker staged
+        // first is overwritten by that copy without a word. `perform` merges
+        // rather than replaces, so this also runs on every upgrade — which is
+        // the silent reversion `scripts/Enable-GraniteCuda.ps1` documents as its
+        // sharpest edge, and the reason that script can now be retired.
+        Ok(download::stage_graphics_card_payload(provider, &root).err())
     }
 
     /// Close the wizard.
@@ -1275,6 +1329,21 @@ impl Wizard {
         }
         let (message, tone) = self.word_count_message();
         self.set_status(&message, tone);
+    }
+
+    /// Which configuration the provider page is asking setup to install.
+    ///
+    /// The processor whenever the answer cannot be read. A `RadioGroup` always
+    /// has one button selected — one is selected at construction — so `None` is
+    /// not a state this can be in; answering CUDA to it anyway would plan a
+    /// graphics-card payload nobody asked for, and the honest failure of an
+    /// unreadable answer is the configuration that works everywhere.
+    fn selected_provider(&self) -> speakeasy_models::ExecutionProvider {
+        if self.provider.selected_index() == Some(GRAPHICS_CARD_OPTION) {
+            speakeasy_models::ExecutionProvider::Cuda
+        } else {
+            speakeasy_models::ExecutionProvider::Cpu
+        }
     }
 
     /// Why the provider step offers what it offers.

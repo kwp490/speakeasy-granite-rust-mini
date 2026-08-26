@@ -12,7 +12,10 @@ use speakeasy_domain::CancelToken;
 use sysinfo::Disks;
 
 use crate::archive::extract_required_files;
-use crate::{Archive, ArchiveEntry, ArchiveEntryKind, ArchiveLimits, Pack, validate_archive_plan};
+use crate::{
+    Archive, ArchiveEntry, ArchiveEntryKind, ArchiveLimits, NativeRuntimeSource, Pack,
+    RequiredFile, validate_archive_plan,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InstallFile {
@@ -46,6 +49,53 @@ impl From<&Pack> for InstallSpec {
             installed_bytes: pack.installed_bytes(),
             required_files: pack
                 .required_files()
+                .iter()
+                .map(|file| InstallFile {
+                    path: PathBuf::from(file.path()),
+                    bytes: file.bytes(),
+                    sha256: file.sha256().to_owned(),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// A native-runtime artifact as something to install.
+///
+/// Exists because the graphics-card configuration is not a pack: the CUDA
+/// Granite worker and the NVIDIA redistributables it loads are `native-runtime`
+/// artifacts, and setup has to fetch, verify and activate them through the same
+/// machinery that installs the weights. Writing a second installer for two
+/// zip files is how the second one ends up without the digest checks.
+///
+/// Two fields do not map straight across.
+///
+/// `revision` is the artifact's `version`. Artifacts have no revision — nothing
+/// upstream of them is a git tree — and the version is what changes when the
+/// bytes do, which is the only property [`InstallManager`] needs of it: it is
+/// the second path component, so a re-pin installs beside the old one rather
+/// than over it.
+///
+/// `installed_bytes` is the sum of the `proof_files`, **not** the artifact's
+/// `extracted_bytes`. Only the pinned files are extracted — one DLL out of the
+/// 9.5 MB `cudart` archive — and `installed_bytes` feeds the disk pre-flight, so
+/// the expanded size of an archive we do not expand would refuse installs on a
+/// machine with room for what is actually written.
+impl From<NativeRuntimeSource<'_>> for InstallSpec {
+    fn from(source: NativeRuntimeSource<'_>) -> Self {
+        Self {
+            id: source.id.to_owned(),
+            revision: source.version.to_owned(),
+            archive_prefix: PathBuf::from(source.archive_prefix),
+            archive_bytes: source.archive_bytes,
+            archive_sha256: source.archive_sha256.to_owned(),
+            installed_bytes: source
+                .proof_files
+                .iter()
+                .map(RequiredFile::bytes)
+                .fold(0_u64, u64::saturating_add),
+            required_files: source
+                .proof_files
                 .iter()
                 .map(|file| InstallFile {
                     path: PathBuf::from(file.path()),
@@ -1043,6 +1093,46 @@ mod tests {
         assert!(spec.archive_sha256.is_empty());
         assert_eq!(spec.required_files.len(), 2);
         assert_eq!(spec.installed_bytes, 2_298_601_952);
+    }
+
+    /// A native-runtime artifact converts, and reserves disk for what it writes.
+    ///
+    /// The cudart archive is the case worth pinning: 9.5 MB expanded, of which
+    /// exactly one 551 KB DLL is extracted. `installed_bytes` feeds the disk
+    /// pre-flight, so taking `extracted_bytes` would refuse an install on a
+    /// machine with seventeen times the room it actually needs -- and would do
+    /// it as an out-of-disk message, which sends someone to delete files they
+    /// did not need to delete.
+    #[test]
+    fn a_native_runtime_artifact_converts_and_reserves_only_what_it_extracts() {
+        let manifest = crate::bundled_manifest().expect("bundled manifest");
+        let cudart = manifest
+            .native_runtimes()
+            .find(|runtime| runtime.id.contains("cudart"))
+            .expect("the CUDA runtime artifact");
+        let spec = InstallSpec::from(cudart);
+
+        assert_eq!(spec.id, cudart.id);
+        assert_eq!(spec.revision, cudart.version, "version is the revision");
+        assert_eq!(spec.archive_bytes, cudart.archive_bytes);
+        assert_eq!(spec.archive_sha256.len(), 64);
+        assert_eq!(
+            spec.required_files.len(),
+            1,
+            "one pinned DLL, not the whole archive"
+        );
+        assert_eq!(spec.installed_bytes, 551_024);
+        assert!(
+            spec.installed_bytes < 9_570_537,
+            "the pre-flight must reserve the extracted file, not the expanded archive"
+        );
+        // The prefix comes across, or every path in the archive misses its
+        // requirement and the install fails as `MissingRequiredFiles` on an
+        // archive that contains exactly what was asked for.
+        assert_eq!(
+            spec.archive_prefix,
+            PathBuf::from("cuda_cudart-windows-x86_64-13.3.29-archive")
+        );
     }
 
     #[test]

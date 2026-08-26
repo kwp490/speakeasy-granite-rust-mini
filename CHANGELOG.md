@@ -1,5 +1,66 @@
 # Changelog
 
+## 1.6.0 — 2026-08-26
+
+Dictation can run on the graphics card, which is the feature this fork has been
+building toward since it started, and one data-loss defect found while releasing
+it.
+
+### Dictation on the graphics card — 2026-08-26
+
+Setup can install the CUDA build of the speech engine. On a machine with a
+supported NVIDIA card it is the offered default; on one without, the option is
+shown disabled with the reason rather than hidden, which it has always been.
+
+**About nine times faster.** Measured on an RTX 4070 Laptop GPU over a real
+105-second dictation: 4.2 s from finishing speaking to the text arriving, against
+44.5 s on the processor for a comparable clip. The transcript is byte-identical
+on both devices, which matters more than the speed — setup's engine check
+compares a whole transcript against one pinned ground truth, so a graphics-card
+path that moved a single punctuation mark would have failed on every card.
+
+- **Choosing the processor is honoured.** Nothing is downloaded for a
+  configuration you did not ask for. This was not true when the work started: the
+  download plan read the machine's *capability* rather than the answer, which is
+  the same value for exactly as long as the option stays disabled — so publishing
+  the worker would have turned the provider page into a control that decided
+  nothing.
+- **A graphics-card install downloads 2.5 GB** rather than 2.1 GB, as setup
+  itself reports it. The
+  extra is the CUDA worker and the two NVIDIA libraries it loads; the model file
+  is the same either way, because the CUDA worker offloads that same file. Every
+  file is verified against a SHA-256 digest pinned in the repository, and an
+  interrupted download resumes rather than restarting.
+- **The engine is published with its notices.** It carries llama.cpp/ggml and a
+  statically linked CUDA runtime, and the MIT texts travel with it.
+- **The installed configuration is still recorded from proof.** It takes a
+  complete payload, a worker that reported a CUDA backend at start-up, and the
+  driver placing that worker's own process on a device. Asking for the graphics
+  card is not evidence of getting it; a machine whose driver refuses records the
+  processor and says so.
+- **An upgrade no longer silently reverts it.** Placing the payload overwrites
+  the worker with the processor build, so the graphics-card engine is re-staged
+  afterwards, every time. Staging it by hand previously did not survive a
+  reinstall and nothing said so.
+
+### `--keep-user-data` deleted user data — 2026-08-26
+
+`speakeasy-bootstrapper --uninstall --keep-user-data`, run **without**
+`--silent`, presented the confirmation page with every box already ticked. A
+command whose name says keep the profile opened on the answer that deletes it,
+and accepting that page removed the settings, the vocabulary, the transcript
+history and the downloaded models.
+
+The flag was computed and then discarded on the interactive path: the page took
+no argument and hardcoded every box checked. It was only ever honoured alongside
+`--silent`, which is the combination this project's own test scripts pass, so
+nothing had exercised the other one. The page now opens on what the caller asked
+for, and still decides — any box can be ticked back on.
+
+It cost a real profile before it was found: 4.28 GB of models, a settings tree
+and a vocabulary, none of it recoverable. **If you are on 1.5.x and intend to
+uninstall, upgrade to 1.6.0 first** and uninstall from this build.
+
 ## 1.5.1 — 2026-08-25
 
 A single defect, reported from use, and it was the worst kind this product can

@@ -471,13 +471,18 @@ Four of the eight ask something, and each one carries a rule the placeholder
 version could not:
 
 - **An option that cannot be installed is shown and disabled, with the reason.**
-  A machine whose graphics card clears the requirements is still offered only
-  the processor, because Granite's GPU support is compiled into the worker
-  rather than loaded beside it and no such worker has been published. Hiding the
-  option would read as setup not having looked at the card; enabling it would be
-  a control that silently installs something else. The step says which half is
-  missing, and the answer is derived from the manifest, so it becomes available
-  on the day the worker is pinned there rather than needing a second edit.
+  Hiding the option would read as setup not having looked at the card; enabling
+  it where it cannot be installed would be a control that silently installs
+  something else. The step says which half is missing, and the answer is derived
+  from the manifest.
+
+  **A CUDA worker has been published since 2026-08-26**, so a machine whose card
+  clears the requirements is now offered it, and it is the pre-selected answer.
+  Before that date this rule read "a machine whose graphics card clears the
+  requirements is still offered only the processor", which was true of every
+  machine for as long as no worker existed. What is unchanged is the shape: the
+  option's availability is a fact about the release plus the card, read from the
+  catalog, never a preference.
 
   **The disabling was specified here and not implemented until 2026-08-20**, and
   the cost was the whole class of defect this page exists to prevent: the option
@@ -492,6 +497,26 @@ version could not:
   does not carry it; or it is here and the libraries it loads are not — that
   last one names the files, because a CUDA build whose imports Windows cannot
   resolve does not start, and the error for that names nothing anyone can act on.
+
+  **The refusal is asked of the release, not of the disk** (2026-08-26). This
+  page is shown before the payload is extracted, so a machine on its first
+  install has no `proof/granite-worker.exe` to look at — an "is it here" check
+  answers *not installed* for every fresh machine however the manifest is
+  pinned, while answering *yes* on a development machine with a worker staged by
+  hand. The wizard asks `gpu_configuration_is_installable`, which touches no
+  disk; `inspect_gpu_payload` keeps the "installed here" answer for the readers
+  that come after the files exist.
+- **The answer decides what is downloaded.** Choosing the graphics card is what
+  makes setup fetch the CUDA engine and the two libraries it loads; choosing the
+  processor fetches the weights alone. A question whose answer nothing reads is
+  the same defect as an option that installs something else — the page would be
+  offering a choice and quietly making its own. The graphics-card button is
+  pre-selected when the card qualifies, so the ordinary path is one Next press.
+
+  This was not true until 2026-08-26, and could not have been noticed before:
+  the plan read the machine's capability rather than the answer, which is the
+  same value for as long as the option is disabled. Pinning the worker is what
+  separates them.
 - **The installed configuration is recorded from proof, on the last page.** Not
   from this page's radio button, and not with the seeds. It takes a published
   and complete payload, a worker that reported a CUDA backend at its startup

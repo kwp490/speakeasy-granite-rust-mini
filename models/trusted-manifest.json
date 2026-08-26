@@ -5,6 +5,28 @@
   "install_eligible": true,
   "artifacts": [
     {
+      "id": "granite-worker-cuda-windows-x64",
+      "kind": "native-runtime",
+      "version": "1.5.1",
+      "source_commit": "67c94987d26983767ef1ceb05f7f62fdbd902858",
+      "url": "https://huggingface.co/orangeblue39/speakeasy-mini-runtime/resolve/18ec2c410d01d95754b43a57b680a4e5dddcb7c7/granite-worker-cuda-windows-x64.zip",
+      "archive_bytes": 42162465,
+      "archive_sha256": "03b7c33f83674edfa64549e43a5f87e3393e03100db44027b10940b5deb28147",
+      "extracted_bytes": 57052672,
+      "licenses": [
+        "MIT License (llama.cpp / ggml authors)",
+        "NVIDIA CUDA Toolkit EULA (statically linked CUDA runtime)"
+      ],
+      "proof_files": [
+        {
+          "path": "granite-worker.exe",
+          "bytes": 57052672,
+          "sha256": "1d4a3ad57e72acaaa55a507f88733ac18f77909349c4bf7c7bc017269499170a"
+        }
+      ],
+      "proof_status": "built-from-source-at-67c9498-and-transcribed-the-bundled-fixture-on-cuda-with-nvml-confirming-the-context"
+    },
+    {
       "id": "nvidia-cuda-cudart-windows-x64-13.3.29",
       "kind": "native-runtime",
       "version": "13.3.29",

@@ -243,11 +243,22 @@ try {
     if ($providerStatus -notmatch 'processor') {
         throw "The provider page said nothing about the processor configuration: $providerStatus"
     }
-    # The option that cannot be installed is shown and **disabled**, which is
-    # `UI-GUIDE`'s rule for this page and was not implemented until 2026-08-20.
-    # Selecting it is what wrote `installed=cuda` onto an installation carrying no
-    # CUDA worker: the app then correctly ran on the processor and the support log
-    # read `engine=cpu_gpu_runtime_missing device=cpu installed=cuda`.
+    # The graphics-card option is **shown** on every machine, and enabled only
+    # where a graphics-card configuration is both published and suited to the
+    # card. Hiding it would read as setup not having examined the card;
+    # enabling it where it cannot be installed is what wrote `installed=cuda`
+    # onto an installation carrying no CUDA worker, and the app then correctly
+    # ran on the processor while the support log read
+    # `engine=cpu_gpu_runtime_missing device=cpu installed=cuda`.
+    #
+    # **This assertion inverted on 2026-08-26**, when the CUDA worker was
+    # published. Before then it demanded the option be disabled on every
+    # machine, which was right for as long as no worker existed and is now a
+    # statement about the card in whatever machine this runs on. So the
+    # expectation is *derived*: whether the option is enabled decides what the
+    # rest of this script requires of the download and of the marker. Hardcoding
+    # either answer would make this pass on one class of machine and be a lie on
+    # the other.
     #
     # Asserted by *name*, because "the first radio button" is the kind of index
     # that keeps pointing at the right control while meaning the wrong one.
@@ -258,19 +269,88 @@ try {
     }
     $graphicsCard = @($providerOptions | Where-Object { $_.Text -eq 'Use the graphics card' })[0]
     if (-not $graphicsCard) { throw 'The provider page does not offer the graphics-card option at all.' }
-    # Hidden would be wrong too: it reads as setup not having examined the card.
-    if ($graphicsCard.Enabled) {
-        throw ('The graphics-card option is selectable on a payload that carries no CUDA ' +
-            'worker. Selecting it is what records a graphics-card installation that does not exist.')
+    $graphicsCardOffered = [bool]$graphicsCard.Enabled
+    if ($graphicsCardOffered) {
+        # Whether it is the *selected* one is deliberately not asserted here.
+        # `Get-Controls` reports `Visible` and `Enabled` and no check state, so
+        # `$graphicsCard.Checked` reads `$null`, inverts to true, and throws on
+        # every capable machine -- a broken instrument shaped exactly like the
+        # failure it would claim to have found. The property that actually
+        # matters is not which radio is filled in but whether the answer reached
+        # the plan, and the download page below states that in words.
+        Write-Host "  provider: graphics-card option offered; $($providerStatus.Split([Environment]::NewLine)[0])"
+    } else {
+        # Disabled must come with the reason. A greyed control and no sentence is
+        # the state this page exists to avoid.
+        if ($providerStatus -notmatch 'graphics card|graphics-card') {
+            throw ('The graphics-card option is disabled and the page does not say why: ' +
+                $providerStatus)
+        }
+        Write-Host "  provider: graphics-card option shown and disabled with a reason; $($providerStatus.Split([Environment]::NewLine)[0])"
     }
-    Write-Host "  provider: graphics-card option shown and disabled; $($providerStatus.Split([Environment]::NewLine)[0])"
     Invoke-Next -Window $window
 
     Assert-Page -Window $window -Heading 'Download the models' -Number 3
-    # Generous, because this is the step that fetches ~2.2 GB on a machine that
-    # does not already have the weights. Read before the click, not after: the
-    # first version reported the *install* page's notice under the heading
-    # "download", because by then the wizard had already advanced.
+    # **The provider answer reaching the plan, proved in the wizard's own words.**
+    # This page lists what it will fetch, one artifact per line, and the list is
+    # built from `download::plan(provider)` -- so a graphics-card machine naming
+    # the engine here is the end-to-end evidence that the radio button three
+    # pages back is read rather than merely drawn. It was not read until
+    # 2026-08-26: the plan took the machine's *capability*, which is the same
+    # value as the answer for exactly as long as the option stays disabled, so
+    # nothing before the worker was published could have told the two apart.
+    #
+    # Read before the click, not after: the first version of this reported the
+    # *install* page's notice under the heading "download", because by then the
+    # wizard had already advanced.
+    $downloadNotice = Get-Status -Window $window
+    if ([string]::IsNullOrWhiteSpace($downloadNotice)) {
+        $downloadNotice = (Get-Controls -Window $window |
+            Where-Object { $_.Class -eq 'Static' -and $_.Visible } |
+            ForEach-Object { $_.Text }) -join "`n"
+    }
+    # A page that reports everything already present names no artifacts, by
+    # design -- nothing was transferred and the reason is that the files are
+    # there and still match their digests. That is a legitimate state on a
+    # machine that has run this before, and asserting the artifact list against
+    # it would fail the proof for the one reason that is not a defect.
+    # **Read the item *count*, not the artifact names.** The first version of this
+    # required the notice to contain "Graphics-card engine", and it failed on a
+    # run where everything worked: arriving at this page calls `begin_transfer`,
+    # which replaces the plan listing with a progress line within the poll
+    # interval, and the progress line names only the item in flight. So the
+    # naming assertion was racing the transfer it was meant to describe.
+    #
+    # "(N of M)" is in the progress line and survives the whole step, and M is a
+    # better signal than the names anyway: 4 against 1 distinguishes the two
+    # plans unambiguously, and it cannot be satisfied by a label appearing
+    # somewhere for another reason.
+    $alreadyPresent = $downloadNotice -match 'already here'
+    $planned = if ($downloadNotice -match '\(\d+ of (\d+)\)') { [int]$Matches[1] } else { 0 }
+    if ($alreadyPresent) {
+        Write-Host '  download: everything already present, so there is no plan to count'
+    } elseif ($planned -eq 0) {
+        # Neither a count nor an already-present notice. Refused rather than
+        # skipped: an unreadable page here is the instrument failing, and
+        # passing over it would make this whole assertion optional.
+        throw "The download page states neither a plan nor a progress count: $downloadNotice"
+    } elseif ($graphicsCardOffered) {
+        # The weights, the engine, and the two NVIDIA redistributables.
+        if ($planned -ne 4) {
+            throw ('The graphics card was offered and the plan has ' + $planned +
+                ' item(s), not 4, so the answer did not reach the plan: ' + $downloadNotice)
+        }
+        Write-Host '  download: plan has 4 items, so the graphics-card answer reached it'
+    } else {
+        if ($planned -ne 1) {
+            throw ('The processor was the only option and the plan has ' + $planned +
+                ' item(s), not 1: ' + $downloadNotice)
+        }
+        Write-Host '  download: plan has 1 item, the weights alone'
+    }
+    # Generous, because this is the step that fetches ~2.3 GB of weights on a
+    # machine that does not already have them, and ~400 MB more on a
+    # graphics-card install.
     Invoke-Next -Window $window -TimeoutSeconds 3600
     Write-Host '  download: satisfied or transferred, and Next opened'
 
@@ -348,6 +428,32 @@ try {
         throw "The engine check did not pass: $verdict"
     }
 
+    # What the marker must say, taken from the sentence the user is shown rather
+    # than from what this script expected. The two agreeing is the property worth
+    # proving: the marker is written from this verdict and from nowhere else, so a
+    # page that says one thing while the file says another is the 2026-08-20
+    # defect returning by a different route.
+    #
+    # `Provider-FromVerdict` deliberately does not accept "the card is capable"
+    # as evidence. A machine whose driver refuses, whose card is claimed, or
+    # whose VRAM is exhausted runs the same binary on the processor, and the
+    # honest record for that is `cpu` even though the graphics card was chosen
+    # three pages back.
+    $expectedProvider = if ($verdict -match 'graphics card') { 'cuda' } else { 'cpu' }
+    if (-not $graphicsCardOffered -and $expectedProvider -ne 'cpu') {
+        throw ('The engine check proved a graphics-card configuration on a machine that was ' +
+            'never offered one. The marker would be recording something setup did not install.')
+    }
+    if ($graphicsCardOffered -and $expectedProvider -eq 'cpu') {
+        # Not a failure of this script: a real and disclosed outcome. Said loudly
+        # rather than passed over, because it means the graphics-card payload was
+        # fetched and staged and then did not take, and the run below is
+        # therefore not exercising the path it looks like it is exercising.
+        Write-Host ('  engine: NOTE - the graphics card was offered and chosen, and the check ' +
+            'proved the processor. That is honest, not a pass of the CUDA path.') -ForegroundColor Yellow
+    }
+    Write-Host "  engine: verdict names $expectedProvider; the marker must agree"
+
     # Everything the pages claimed, checked against the disk rather than the
     # window. A wizard that painted eight correct pages and installed nothing
     # would have passed every assertion above.
@@ -360,11 +466,10 @@ try {
         'install-hotkey.txt'     = 'Ctrl+Alt+P'
         'install-logging.txt'    = '1'
         'install-retention.txt'  = '0'
-        # `cpu`, and it has to be: this payload carries no CUDA worker, so the
-        # engine check cannot prove a graphics-card installation however capable
-        # the card in this machine is. A `cuda` here would mean the marker had
-        # gone back to describing an intention.
-        'install-provider.txt'   = 'cpu'
+        # Filled in below, from what the engine check actually proved rather
+        # than from what this script hoped for. It was a hardcoded `cpu` until
+        # 2026-08-26, correct only while no CUDA worker was published.
+        'install-provider.txt'   = $expectedProvider
         'install-vocabulary.txt' = 'Kenneth, Anthropic, Granite'
     }
     foreach ($seed in $expectedSeeds.Keys) {
@@ -451,12 +556,34 @@ try {
         Start-Sleep -Seconds 2
     }
     if (-not $warmLine) { throw 'This launch never logged granite_warm, so its provider report cannot be read.' }
-    if ($warmLine -notmatch 'installed=cpu') {
-        throw "The app read a different installed configuration than setup recorded: $warmLine"
+    # Both of these were hardcoded `cpu` until 2026-08-26, and both were correct
+    # only while no CUDA worker was published. They are the third and fourth in
+    # this script to invert on the pin -- the provider page and the marker were
+    # the first two, found and fixed before this run, which is why finding two
+    # more here is worth writing down: a sweep that stops at the first pair is
+    # not a sweep.
+    if ($warmLine -notmatch "installed=$expectedProvider") {
+        throw ("The app read a different installed configuration than setup proved " +
+            "($expectedProvider): $warmLine")
     }
-    if ($warmLine -notmatch 'device=cpu') {
-        throw "This payload has no CUDA worker, so the device cannot be anything but cpu: $warmLine"
+    # The device the app is *live* on, which is a separate reading from the
+    # record and the whole reason both are logged. `cuda_unverified` is a
+    # legitimate third answer -- the worker reported a CUDA backend and NVML
+    # could not be asked to confirm it -- and reading it as a failure would
+    # report a fault on a machine whose driver merely would not answer.
+    $expectedDevices = if ($expectedProvider -eq 'cuda') { @('cuda', 'cuda_unverified') } else { @('cpu') }
+    $device = if ($warmLine -match 'device=(\S+)') { $Matches[1] } else { '' }
+    if ($device -notin $expectedDevices) {
+        throw ("The app is running on '$device', which is not one of " +
+            "$($expectedDevices -join '/') for an installation proved as " +
+            "$expectedProvider): $warmLine")
     }
+    # `engine=` is deliberately not asserted against the provider. It is the
+    # *pack* reason, and on a graphics-card machine the correct value is
+    # `cpu_gpu_pack_not_installed` -- there is one GGUF, its id ends `-cpu`, and
+    # the CUDA worker offloads that same file, so a CUDA pack would be a
+    # duplicate. Reading that as a fault is the mistake `download::plan`'s own
+    # doc comment exists to prevent.
     if ($warmLine -notmatch 'provider=ok') {
         throw "The provider record and the running device disagree: $warmLine"
     }

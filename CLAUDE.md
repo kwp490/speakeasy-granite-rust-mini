@@ -762,12 +762,23 @@ Every one of these produced a plausible, wrong result rather than an error.
   never be able to suppress a dictation the user wanted.
 - **Granite's GPU support is a build feature, not a downloadable pack**, so
   there is no provider-override setting: no setting can conjure a CUDA-capable
-  worker binary. The installer fetches one when the hardware warrants it;
-  without it the app runs on CPU and says so. **The declaration lives in the
-  trusted manifest, by absence**: a published CUDA worker appears as a
-  `native-runtime` artifact `granite-worker-cuda-windows-x64`, and until it does,
-  the wizard's option is disabled, the packager refuses to assemble a CUDA worker
-  without its libraries, and no installation may record `cuda`.
+  worker binary. The installer fetches one when the user asks for it on hardware
+  that warrants it; without it the app runs on CPU and says so. **The declaration
+  lives in the trusted manifest**: the CUDA worker is the `native-runtime`
+  artifact `granite-worker-cuda-windows-x64`, and its presence is what enables
+  the wizard's option and permits an installation to record `cuda`.
+
+  **Published 2026-08-26** to
+  `orangeblue39/speakeasy-mini-runtime` on Hugging Face, pinned at an immutable
+  commit, 42,162,465 bytes of zip around a 57,052,672-byte worker. Hugging Face
+  carries the worker only; the three CUDA redistributables still come from
+  NVIDIA's own CDN, which the manifest already pinned. Before that date the
+  declaration was made *by absence* and seven tests asserted it — they inverted
+  together, which is what said the change had landed everywhere it needed to.
+  Two things that did not change and are the point: publishing is not
+  installing (`inspect_gpu_payload` still answers `WorkerNotInstalled` on a
+  machine without the files), and the recorded provider still comes from
+  `smoke::verify_engine`'s verdict rather than from the option the user picked.
 - **The whole workspace targets CUDA 13.x**, pinned at cudart 13.3.29 and
   libcublas 13.6.0.2 from `redistrib_13.3.1.json` — the versions whose bytes are
   byte-identical to this workspace's CUDA Toolkit, proved by digest. Accepting
@@ -859,6 +870,15 @@ Every one of these produced a plausible, wrong result rather than an error.
   caller keep believing it is choosing. `Removals::default()` still selects
   nothing, because a *caller* that forgets to ask must delete nothing; the
   inversion is at the command line, where somebody has actually been asked.
+
+  **`--keep-user-data` seeds the page's check boxes, and until 2026-08-26 it did
+  not.** `remove()` computed the `Removals` and then discarded it on the
+  interactive path, because `uninstall_page::ask` took no argument and hardcoded
+  every box checked — so `--uninstall --keep-user-data` *without* `--silent` drew
+  a page primed to delete the profile, and one did go: 4.28 GB of weights, the
+  settings and the vocabulary. The flag worked only alongside `/S`, which is the
+  one combination both proof scripts pass, so nothing had ever run the other. A
+  flag that states an intention has to reach the control that acts on it.
 - **Local-only.** No GitHub Actions, no Dependabot, no hosted runners.
   `scripts/Test-LocalOnlyPolicy.ps1` fails if `.github` config reappears. A
   GitHub *Release* is not automation and is how the installer is published; the

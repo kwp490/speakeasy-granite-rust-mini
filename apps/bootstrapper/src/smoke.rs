@@ -712,17 +712,26 @@ mod tests {
         assert_eq!(proven.code(), "cuda_context_held");
     }
 
-    /// The shipped payload cannot produce a graphics-card marker.
+    /// A payload that is not on this disk cannot produce a graphics-card marker.
     ///
-    /// Against the real bundled manifest and the real worker path, so it fails
-    /// on the day a CUDA worker is pinned without the rest of this path being
-    /// finished -- which is the moment the wizard, the packager and the marker
-    /// all need revisiting together.
+    /// Against the real bundled manifest and a worker path that does not exist,
+    /// which is what the *installer's own working directory* is: setup has no
+    /// `proof/` of its own, so this is the answer any machine gives before the
+    /// payload is staged.
+    ///
+    /// **The expected rejection changed on 2026-08-26** from `WorkerNotPublished`
+    /// to `WorkerNotInstalled`, when the CUDA worker was pinned. That is the
+    /// whole reason this test exists against the real manifest rather than a
+    /// fixture -- its own comment promised it would "fail on the day a CUDA
+    /// worker is pinned without the rest of this path being finished", and it
+    /// did. The property it holds is unchanged and is the one that matters: a
+    /// published worker is never enough to record `cuda`, only a present and
+    /// operational one is.
     #[test]
-    fn the_shipped_payload_refuses_the_graphics_card_configuration() {
+    fn a_payload_that_is_not_staged_here_refuses_the_graphics_card_configuration() {
         let rejection = gpu_payload_rejection(Path::new("proof/granite-worker.exe"))
-            .expect("no CUDA Granite worker is published, so the payload must be refused");
-        assert_eq!(rejection, GpuPayloadRejection::WorkerNotPublished);
+            .expect("no worker is staged beside setup, so the payload must be refused");
+        assert_eq!(rejection, GpuPayloadRejection::WorkerNotInstalled);
     }
 
     /// An engine that cannot start is `Unavailable`, never a mismatch.

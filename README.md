@@ -39,12 +39,12 @@ engine, but no models. It walks eight steps:
 
 1. **Checks this computer** — processor, memory, disk, graphics card — and
    reports what it found. Nothing is installed or downloaded yet.
-2. **Asks how it should run.** Today that is the processor on every machine: the
-   graphics-card engine is compiled rather than downloaded and has not been
-   published, so the option is shown and disabled with that reason rather than
-   hidden. See [the CUDA note](#a-note-on-graphics-cards).
-3. **Downloads the model** — about 2.2 GB — and verifies every file against a
-   SHA-256 digest pinned in
+2. **Asks how it should run** — the graphics card or the processor. The
+   graphics-card option is offered on a machine with a supported NVIDIA card and
+   shown disabled, with the reason, on one without; it is never hidden. See
+   [the CUDA note](#a-note-on-graphics-cards).
+3. **Downloads the model** — setup reports 2.1 GB, or 2.5 GB if you chose the
+   graphics card — and verifies every file against a SHA-256 digest pinned in
    [`models/trusted-manifest.json`](models/trusted-manifest.json). Interrupted
    downloads resume where they stopped.
 4. **Installs**, into `%LOCALAPPDATA%\SpeakEasy Mini`, for your user account
@@ -113,25 +113,31 @@ To **run**:
 
 ### A note on graphics cards
 
-Granite's GPU support is a **build feature**, not a download: llama.cpp's CUDA
-backend is compiled into the worker executable rather than loaded beside it. No
-CUDA-built worker has been published, so every install today runs on the
-processor — including on machines with a card that clears every requirement.
+Granite's GPU support is a **build feature**, not a model variant: llama.cpp's
+CUDA backend is compiled into the worker executable rather than loaded beside it.
+So the graphics-card configuration is a different *worker binary*, and the model
+file is the same either way.
 
-Setup says so rather than hiding it, and the app records which configuration it
-**proved** it installed — not which one you asked for — so that "running on the
-processor" can be told from "the graphics-card engine failed to load". Settings
-reports the device dictation is actually on, and
-`speakeasy-bootstrapper --verify-provider` re-checks it against an installed
+That worker is published as of 2026-08-26, at
+[`orangeblue39/speakeasy-mini-runtime`](https://huggingface.co/orangeblue39/speakeasy-mini-runtime),
+pinned by digest in the trusted manifest like everything else setup fetches. If
+you choose the graphics card, setup downloads it along with the two CUDA
+libraries it loads — from NVIDIA's own servers — and puts them beside the app.
+It was measured on an RTX 4070 Laptop GPU: a resident pass took 361 ms against
+2,928 ms on the processor, with a byte-identical transcript. On a real 105-second
+dictation the difference was 4.2 s against 44.5 s.
+
+**The app records which configuration it *proved* it installed** — not which one
+you asked for — so that "running on the processor" can be told from "the
+graphics-card engine failed to load". The record comes from a real transcription
+run at the end of setup, plus the driver confirming that worker's own process
+holds a compute context. Settings reports the device dictation is actually on,
+and `speakeasy-bootstrapper --verify-provider` re-checks it against an installed
 build without a reinstall.
 
-If you want the GPU build now, `scripts\Enable-GraniteCuda.ps1` builds and stages
-one locally and needs the CUDA Toolkit (13.x — the workspace pins cudart 13.3.29
-and libcublas 13.6.0.2). It was measured on an RTX 4070 Laptop GPU on
-2026-08-21: a resident pass took 361 ms against 2,928 ms on the processor, with a
-byte-identical transcript. Note that it does not survive a reinstall or an
-upgrade — the payload copy puts the processor worker back — so re-run it
-afterwards.
+Choosing the processor on a machine that could use the card is a supported
+answer, and it is honoured: nothing is downloaded for a configuration you did not
+ask for.
 
 To **build**, additionally:
 

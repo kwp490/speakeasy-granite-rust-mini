@@ -323,6 +323,38 @@ const INSTALLED_PROOF_FILES: &[&str] = &["granite-worker.exe"];
 /// entry retires with it.
 const KNOWN_PROOF_ORPHANS: &[&str] = &["granite-worker.cpu.exe"];
 
+/// What setup *stages* into `proof/` rather than ships there.
+///
+/// The CUDA redistributables. They are program files by every meaning that
+/// matters here — this installer downloaded them, verified them against the
+/// catalog's digests and copied them in — but they cannot go in
+/// [`INSTALLED_PROOF_FILES`], which is pinned against the payload manifest's
+/// `bundle.resources` and correctly holds only what the payload carries.
+/// Without this list an uninstall reports the libraries setup itself placed
+/// under [`Outcome::removed_unrecognised`], which is the exact confusing thing
+/// that constant's own comment warns against.
+///
+/// Read from the manifest, never written out. The names are the same ones
+/// [`speakeasy_models::inspect_gpu_payload`] checks for and the same ones
+/// `download::stage_graphics_card_payload` copies, so all three cannot disagree
+/// — a second hand-written list of DLL names is how `cudart64_12` and
+/// `cudart64_13` came to name one requirement in this workspace.
+///
+/// It answers non-empty **today**, before any worker is published, because the
+/// redistributables are pinned already. One consequence, small and deliberate:
+/// libraries staged by `scripts/Enable-GraniteCuda.ps1` are now removed as
+/// program files rather than named as unrecognised. They are still removed,
+/// which is what the 2026-08-21 work was for, and once setup stages them itself
+/// "unrecognised" would simply be false.
+///
+/// Empty when the catalog will not parse, which leaves the second pass to catch
+/// the files by their own rule rather than skipping them.
+fn staged_proof_files() -> Vec<String> {
+    speakeasy_models::bundled_manifest()
+        .map(|manifest| speakeasy_models::required_cuda_runtime_files(&manifest))
+        .unwrap_or_default()
+}
+
 fn clear_registration(outcome: &mut Outcome) {
     use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
@@ -484,7 +516,13 @@ fn empty_proof_directory(proof: &Path, outcome: &mut Outcome) -> bool {
         return false;
     }
     let mut removed_anything = false;
-    for name in INSTALLED_PROOF_FILES.iter().chain(KNOWN_PROOF_ORPHANS) {
+    let staged = staged_proof_files();
+    let ours = INSTALLED_PROOF_FILES
+        .iter()
+        .copied()
+        .chain(KNOWN_PROOF_ORPHANS.iter().copied())
+        .chain(staged.iter().map(String::as_str));
+    for name in ours {
         let path = proof.join(name);
         if !path.exists() {
             continue;
@@ -536,13 +574,16 @@ pub fn unrecognised_proof_files(install_root: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(&proof) else {
         return Vec::new();
     };
+    let staged = staged_proof_files();
     let mut names: Vec<String> = entries
         .flatten()
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .filter(|name| {
             !INSTALLED_PROOF_FILES
                 .iter()
-                .chain(KNOWN_PROOF_ORPHANS)
+                .copied()
+                .chain(KNOWN_PROOF_ORPHANS.iter().copied())
+                .chain(staged.iter().map(String::as_str))
                 .any(|known| name.eq_ignore_ascii_case(known))
         })
         .collect();
@@ -784,20 +825,33 @@ mod tests {
             std::fs::write(proof.join(ours), b"ours").expect("installed file");
         }
         std::fs::write(proof.join("granite-worker.cpu.exe"), b"orphan").expect("orphan");
-        let staged = ["cublas64_13.dll", "cublasLt64_13.dll", "cudart64_13.dll"];
-        for name in staged {
+        // **The CUDA libraries changed sides on 2026-08-26.** They used to be
+        // the canonical unrecognised file here, because only
+        // `Enable-GraniteCuda.ps1` ever put one in `proof/`. Setup stages them
+        // itself now, from the digests in its own catalog, so calling them files
+        // "this installer did not put there" would be false — and it would put a
+        // question in front of every graphics-card user about the two libraries
+        // their installation cannot run without.
+        // Never empty: the redistributables are pinned already, worker or no
+        // worker, so this list has entries on today's catalog.
+        let staged = staged_proof_files();
+        assert!(!staged.is_empty(), "no staged proof files");
+        for name in &staged {
             std::fs::write(proof.join(name), b"staged").expect("staged library");
         }
-        // A directory, too. Nothing this installer ships puts one in `proof/`,
-        // so leaving it would defeat the point just as surely as leaving a file.
+        // Something genuinely foreign, so the second pass is still exercised
+        // rather than merely reached — and a directory, because nothing this
+        // installer puts in `proof/` is one and leaving it would defeat the point
+        // just as surely as leaving a file.
+        std::fs::write(proof.join("someone-elses.dll"), b"theirs").expect("foreign file");
         std::fs::create_dir_all(proof.join("leftover-dir")).expect("leftover directory");
 
         // Asked before the removal, because that is when the confirmation needs
-        // it. The declared names must not appear; everything else must.
+        // it. Nothing this installer places or stages may appear; everything
+        // else must.
         let mut unrecognised = unrecognised_proof_files(&root);
         unrecognised.sort();
-        let mut expected = staged.map(str::to_owned).to_vec();
-        expected.push("leftover-dir".to_owned());
+        let mut expected = vec!["leftover-dir".to_owned(), "someone-elses.dll".to_owned()];
         expected.sort();
         assert_eq!(unrecognised, expected);
 

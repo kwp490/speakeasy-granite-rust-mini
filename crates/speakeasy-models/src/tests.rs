@@ -182,12 +182,15 @@ fn bundled_proof_manifest_is_embedded_valid_and_fail_closed() {
     assert_eq!(manifest.schema_version(), 3);
     assert_eq!(manifest.status(), ManifestStatus::AdmittedCatalog);
     assert!(manifest.is_install_eligible());
-    // Two artifacts and two packs, down from twelve and four. The departed ten
+    // Three artifacts and two packs, down from twelve and four. The departed ten
     // were sherpa-onnx's runtimes, the Nemotron and Parakeet models, Silero
     // VAD, and the cuDNN/cuFFT redistributables that only ONNX Runtime needed.
-    // What is left is the two CUDA libraries llama.cpp links and the two
-    // Granite quantizations.
-    assert_eq!(manifest.proof_artifacts().len(), 2);
+    // What is left is the two CUDA libraries llama.cpp links, the CUDA Granite
+    // worker pinned on 2026-08-26, and the two Granite quantizations.
+    //
+    // A count rather than a list, so it notices an entry arriving as well as one
+    // leaving -- which is what it did on the day the worker was pinned.
+    assert_eq!(manifest.proof_artifacts().len(), 3);
     assert_eq!(manifest.packs().len(), 2);
     assert!(!manifest.capability_view().is_empty());
     assert!(!manifest.license_notice_view().is_empty());

@@ -534,7 +534,18 @@ fn remove(silent: bool, keep_user_data: bool) -> ExitCode {
     let removals = if silent {
         removals
     } else {
-        let Some(chosen) = uninstall_page::ask(&uninstall::unrecognised_proof_files(&root)) else {
+        // Seeded with what the caller asked for, and that is the fix for a real
+        // data loss on 2026-08-26. This discarded `removals` and the page
+        // hardcoded every box checked, so `--uninstall --keep-user-data` without
+        // `--silent` drew a page primed to delete the profile — 4.28 GB of
+        // weights, the settings tree and the vocabulary — from a command whose
+        // name says the opposite. The flag worked only alongside `/S`, which is
+        // the one combination both proof scripts pass, so nothing exercised the
+        // other. A flag stating an intention has to reach the control that acts
+        // on it.
+        let Some(chosen) =
+            uninstall_page::ask(&uninstall::unrecognised_proof_files(&root), removals)
+        else {
             repair::report(
                 catalog::UNINSTALL_CANCELLED,
                 console::Destination::None,

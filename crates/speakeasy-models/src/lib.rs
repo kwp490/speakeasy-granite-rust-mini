@@ -29,8 +29,8 @@ pub use gpu::{
 };
 pub use granite_gpu::{
     CudaContextProbe, CudaContextProof, GRANITE_CUDA_WORKER_ARTIFACT_ID, GpuPayloadRejection,
-    NvmlCudaContextProbe, gpu_configuration_is_installable, inspect_gpu_payload,
-    prove_cuda_context, required_cuda_runtime_files,
+    NvmlCudaContextProbe, gpu_configuration_is_installable, graphics_card_payload_sources,
+    inspect_gpu_payload, prove_cuda_context, required_cuda_runtime_files,
 };
 pub use hardware::{DetectedAdapter, HardwareProbe, HardwareSnapshot, SafeStandardHardwareProbe};
 pub use lifecycle::{

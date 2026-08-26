@@ -859,6 +859,30 @@ pub const STEP_NOT_BUILT: &str = "This step's controls are not built yet. Naviga
 pub const ARTIFACT_STREAMING: &str = "Speech recognition model";
 pub const ARTIFACT_GRANITE: &str = "Punctuation model";
 
+/// The graphics-card configuration's three artifacts, named separately.
+///
+/// Separately because they are fetched separately and from different places:
+/// this project publishes the engine, NVIDIA's own servers serve the two
+/// libraries. One label covering all of them would make a failure in one read as
+/// a failure in the others, and the remedies are not the same.
+///
+/// **Distinct strings, and that is a requirement rather than a nicety.** The
+/// download step lists these one per line and names one of them per progress
+/// line, so two artifacts sharing a label print the same sentence twice and read
+/// as a defect in setup. `every_graphics_card_artifact_gets_its_own_name` holds
+/// this against the shipped catalog.
+///
+/// "Engine" rather than "worker": `worker` is this repository's word for the
+/// child process, and it is not a word a user has been given.
+pub const ARTIFACT_GPU_ENGINE: &str = "Graphics-card engine";
+pub const ARTIFACT_GPU_CUDA_RUNTIME: &str = "Graphics-card runtime";
+pub const ARTIFACT_GPU_MATH_LIBRARY: &str = "Graphics-card maths library";
+/// For a redistributable this catalog pins that the two names above do not
+/// cover. Generic on purpose: a wrong specific name is worse than an honest
+/// vague one, and the test above turns the fallback into a failure rather than
+/// letting it ship as a label.
+pub const ARTIFACT_GPU_SUPPORT_LIBRARY: &str = "Graphics-card support library";
+
 /// Shown when the pinned catalog compiled into this binary will not parse.
 pub const CATALOG_UNAVAILABLE: &str = "Setup's list of verified downloads could not be read, so nothing was fetched. \
      That is a fault in this copy of setup, not in this computer.";
@@ -919,6 +943,25 @@ pub fn install_of_artifact_failed(label: &str, detail: &str) -> String {
     format!(
         "The {label} downloaded and verified, but could not be unpacked.\n\n{detail}\n\n\
          The downloaded copy is kept, so this does not need fetching again."
+    )
+}
+
+/// Shown when the graphics-card payload was downloaded but could not be put
+/// beside the app.
+///
+/// Its own sentence rather than [`install_of_artifact_failed`], which says the
+/// artifact "could not be unpacked" — here it unpacked perfectly and the copy
+/// into the program directory is what failed, so that message would send
+/// someone to look at their download. The instruction is the processor, because
+/// that is what the installation now is: the weights are in place and the app
+/// runs, more slowly, and the engine check on the next page will say so rather
+/// than this sentence having to be believed.
+pub fn gpu_staging_failed(label: &str, detail: &str) -> String {
+    format!(
+        "The {label} was downloaded and verified but could not be put in place, so this \
+         installation will use the processor.\n\n{detail}\n\n\
+         Everything else installed. Running setup again is the fix; nothing needs \
+         downloading a second time."
     )
 }
 

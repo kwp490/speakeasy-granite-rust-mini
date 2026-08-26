@@ -117,8 +117,24 @@ struct Page {
 /// `unrecognised` is the files in `proof/` that setup did not put there, from
 /// [`crate::uninstall::unrecognised_proof_files`], asked *before* anything is
 /// deleted so the page can name them.
-pub fn ask(unrecognised: &[String]) -> Option<Removals> {
-    let page = Page::new(unrecognised);
+///
+/// `initial` is which boxes start ticked, and it exists because of a real data
+/// loss on 2026-08-26. `remove()` computed the caller's intent — everything, or
+/// nothing for `--keep-user-data` — and then **threw it away** on the
+/// interactive path, because this page took no argument and hardcoded every box
+/// checked. So `--uninstall --keep-user-data` without `--silent` presented a
+/// page primed to delete the profile: 4.28 GB of weights, the settings tree and
+/// the vocabulary went, from a command that says the opposite in its own name.
+/// The flag was honoured only in company with `/S`, which is the one
+/// combination both proof scripts pass, so nothing here had ever exercised the
+/// other one.
+///
+/// A flag that states an intention has to *reach* the control that acts on it.
+/// The page still decides — someone is looking at it, and they can tick any box
+/// back on — but it now opens on what the caller asked for rather than on the
+/// opposite of it.
+pub fn ask(unrecognised: &[String], initial: Removals) -> Option<Removals> {
+    let page = Page::new(unrecognised, initial);
     // A window that could not run is not an answer. `run_main` returns the
     // message loop's exit code; anything that stopped it before the Remove
     // handler recorded a choice leaves `answer` as it started.
@@ -130,7 +146,7 @@ pub fn ask(unrecognised: &[String]) -> Option<Removals> {
 }
 
 impl Page {
-    fn new(unrecognised: &[String]) -> Self {
+    fn new(unrecognised: &[String], initial: Removals) -> Self {
         let window = gui::WindowMain::new(gui::WindowMainOpts {
             title: catalog::UNINSTALL_WINDOW_TITLE,
             size: gui::dpi(layout::WINDOW.0, layout::WINDOW.1),
@@ -162,7 +178,7 @@ impl Page {
             layout::INTRO_HEIGHT,
             catalog::UNINSTALL_INTRO,
         );
-        let boxes = Self::check_boxes(&window, content_width);
+        let boxes = Self::check_boxes(&window, content_width, initial);
         let _unrecognised = label(
             layout::UNRECOGNISED_TOP,
             layout::UNRECOGNISED_HEIGHT,
@@ -193,7 +209,11 @@ impl Page {
     /// the uninstaller learns to remove cannot become a thing this page forgets
     /// to offer. That property is why the enum exists at all — its own doc
     /// comment says so.
-    fn check_boxes(window: &gui::WindowMain, content_width: i32) -> Vec<gui::CheckBox> {
+    fn check_boxes(
+        window: &gui::WindowMain,
+        content_width: i32,
+        initial: Removals,
+    ) -> Vec<gui::CheckBox> {
         Removable::ALL
             .iter()
             .enumerate()
@@ -208,11 +228,20 @@ impl Page {
                             layout::CHECK_TOP + layout::CHECK_ROW * index,
                         ),
                         size: gui::dpi(content_width, layout::CHECK_ROW),
-                        // Checked, all of them. The owner's decision of
+                        // From what the caller asked for, which is every box for
+                        // an ordinary uninstall — the owner's decision of
                         // 2026-08-21: an uninstall leaves nothing unless the
                         // user says otherwise, and this page is where they say
                         // it.
-                        check_state: co::BST::CHECKED,
+                        //
+                        // Hardcoded `CHECKED` here until 2026-08-26, which made
+                        // `--keep-user-data` a no-op on this path and cost a real
+                        // profile. See [`ask`].
+                        check_state: if initial.includes(*item) {
+                            co::BST::CHECKED
+                        } else {
+                            co::BST::UNCHECKED
+                        },
                         ..Default::default()
                     },
                 )
@@ -352,6 +381,90 @@ mod tests {
             usize::try_from(layout::CHECK_ROWS).expect("a row count fits a usize"),
             Removable::ALL.len(),
             "a sixth removable item needs a sixth row"
+        );
+    }
+
+    /// The caller's intention reaches the boxes.
+    ///
+    /// The regression test for the 2026-08-26 data loss. This page hardcoded
+    /// every box checked, so `remove()`'s `Removals` — the only place
+    /// `--keep-user-data` existed — was computed and discarded, and an uninstall
+    /// asked to keep the profile drew a page primed to delete it. 4.28 GB of
+    /// weights, a settings tree and a vocabulary went that way.
+    ///
+    /// The window cannot be built in a test, so this asserts the mapping the
+    /// window applies rather than the pixels: for each item, whether its box
+    /// starts ticked is `initial.includes(item)` and nothing else. A future
+    /// change back to a constant `CHECKED` fails here — which is what nothing
+    /// did the first time.
+    #[test]
+    fn the_boxes_start_where_the_caller_asked_and_not_where_the_page_prefers() {
+        let check_state = |initial: Removals, item: Removable| {
+            if initial.includes(item) {
+                co::BST::CHECKED
+            } else {
+                co::BST::UNCHECKED
+            }
+        };
+
+        // `--keep-user-data`: nothing ticked. This is the case that lost data.
+        for item in Removable::ALL {
+            assert_eq!(
+                check_state(Removals::default(), item),
+                co::BST::UNCHECKED,
+                "keeping user data must not open with {} ticked",
+                item.label()
+            );
+        }
+
+        // An ordinary uninstall: everything ticked, which is the 2026-08-21
+        // decision and must survive this fix.
+        for item in Removable::ALL {
+            assert_eq!(
+                check_state(Removals::everything(), item),
+                co::BST::CHECKED,
+                "an ordinary uninstall must still open with {} ticked",
+                item.label()
+            );
+        }
+
+        // And the two are actually different, so neither assertion above is
+        // passing against a `Removals` that answers the same for everything.
+        assert_ne!(
+            Removals::default(),
+            Removals::everything(),
+            "the instrument is broken if these agree"
+        );
+
+        // **Against the source, because everything above is this test's own copy
+        // of the mapping.** A `check_state` that went back to a constant would
+        // satisfy every assertion so far — the trap of a test holding its own
+        // copy of the value it exists to protect, which this repository has
+        // already paid for once in
+        // `the_ceiling_stays_inside_the_pipeline_byte_limit`. So the real
+        // assertion is that the control's initial state is *derived* from
+        // `initial` at the point the box is built.
+        let source = include_str!("uninstall_page.rs");
+        let construction = source
+            .split_once("fn check_boxes(")
+            .expect("check_boxes must exist")
+            .1
+            .split_once("\n    /// Remove and Cancel")
+            .expect("check_boxes must be followed by the buttons")
+            .0;
+        assert!(
+            construction.contains("check_state: if initial.includes("),
+            "the boxes' initial state must come from `initial`, not from a constant"
+        );
+        assert!(
+            !construction.contains("check_state: co::BST::CHECKED,"),
+            "a hardcoded CHECKED here is the 2026-08-26 data loss returning"
+        );
+        // The instrument's own check: the slice really is the construction and
+        // not an empty string that satisfies the negative assertion for free.
+        assert!(
+            construction.contains("gui::CheckBoxOpts {"),
+            "the scan did not find the check-box construction at all"
         );
     }
 

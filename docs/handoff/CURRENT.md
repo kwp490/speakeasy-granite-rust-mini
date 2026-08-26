@@ -43,14 +43,36 @@ Read `CLAUDE.md` first. This file assumes it.
 > refused that press all along and the global shortcut had not, so two controllers
 > disagreed about one key because the rule was stated twice.
 >
-> **Item 3 is under way and is the only thing left that matters.** The CUDA worker
-> is built from `67c9498` and **proven on the card** (361.2 ms resident, both
-> hardware tests green against that exact binary). The publish is blocked on one
-> human step — `hf auth login` — and then on a gap item 3 did not anticipate:
-> pinning the artifact does **not** enable the wizard's option, because
-> `inspect_gpu_payload` requires the worker to be on disk already and a first
-> install has not extracted it yet. Read item 3 before touching any of it; this
-> machine cannot see that bug, because it has a worker staged.
+> **Item 3 is done and the CUDA worker is published (2026-08-26).** It is on
+> Hugging Face at `orangeblue39/speakeasy-mini-runtime`, pinned in
+> `models/trusted-manifest.json` at an immutable commit, and the whole path from
+> the wizard's radio button to a staged worker in `proof/` is written. The
+> graphics-card option is live: on a capable machine setup now fetches four items
+> instead of one and records `cuda` from the engine check's verdict.
+>
+> Read item 3 for what it cost. Four gaps it did not anticipate, none of them
+> visible on this machine without deliberately looking: the installable check
+> asked the *disk*, so pinning alone would have left the option disabled on every
+> fresh machine; the provider radio was never read, so pinning would have enabled
+> a control that decided nothing; staging keyed on disk presence would have handed
+> the card to someone who chose the processor; and the uninstaller would have
+> reported setup's own staged libraries as files it did not place. **Seven tests
+> inverted on the pin**, including one hardcoded artifact count nobody predicted,
+> and `Test-SetupWizard.ps1` had to stop hardcoding `cpu`.
+>
+> **`scripts/Enable-GraniteCuda.ps1` is now retirable** and has not been retired.
+> Its own header says it "should be retired rather than maintained" once setup
+> fetches a published worker, and setup does. Its `-Verify` and `-Revert` verbs
+> still have local use, so this is a decision rather than a deletion — but the
+> `granite-worker.cpu.exe` entry in `KNOWN_PROOF_ORPHANS` exists only for it, and
+> the silent-reversion-on-upgrade hazard it documents is fixed now.
+>
+> **Item 18 is a data-loss defect found the hard way during this release**, and it
+> is in 1.6.0 because it was found before the tag. `--keep-user-data` was
+> discarded on the interactive uninstall path, so the page opened with every box
+> ticked and a real profile went — 4.28 GB of weights, the settings and the
+> vocabulary. Read it for the two lessons, one of which is that the first
+> regression test written for it could not have caught a revert.
 
 ## Start here
 
@@ -86,6 +108,7 @@ predicted:
 | Broken doc links | none, `--document-private-items` and denied, workspace-wide (four were reintroduced on 2026-08-19 and cleared 2026-08-20) |
 | **The provider a machine reports** | proved, never chosen. All five states now produced on hardware — see item 0 |
 | Graphics-card path | **run on hardware** (2026-08-21, RTX 4070 Laptop): resident pass 361 ms on CUDA against 2,928 ms on the processor, transcript byte-identical. Still nothing published |
+| **Setup's graphics-card download** | **live 2026-08-26.** Worker published to `orangeblue39/speakeasy-mini-runtime` and pinned at an immutable commit; a capable machine fetches four items and records `cuda` from the engine check. Seven tests inverted on the pin — item 3 |
 | The CUDA pin | 13.3.1, produced by `scripts/Get-CudaRuntime.ps1` and byte-identical to this workspace's toolkit |
 | Uninstall | **leaves nothing** (2026-08-21). Asks first, interactively; `--keep-user-data` is the testing opt-out both proof scripts pass |
 | Branch | `main`, pushed to `kwp490/speakeasy-granite-rust-mini` |
@@ -1714,7 +1737,201 @@ test's own comment says it "is the assertion that flips on the day a CUDA worker
 pinned -- at which point the failing test is the reminder that the wizard, the
 packager and the marker all now have work to do".
 
-Still to do after that: `download::plan`'s second item, and the release.
+#### The download path is written, 2026-08-26. Only the upload and the pin are left
+
+`download::plan` fetches the graphics-card payload now, setup places it, and the
+uninstaller knows the difference between a library it staged and one it found.
+All of it proved against a simulated pin, because that is still the only
+instrument that works before publication.
+
+**Four items, not two.** The plan is the weights, then the engine, then the two
+NVIDIA redistributables — separate artifacts from separate hosts, per the
+2026-08-26 decision, so `graphics_card_payload_sources` returns all of them or
+none. Each gets its own label (`Graphics-card engine`, `Graphics-card runtime`,
+`Graphics-card maths library`) because the step lists them one per line and names
+one per progress line; a shared label prints the same sentence twice and reads as
+setup having lost count.
+
+**A graphics-card install downloads 2.69 GB, not 2.30.** The weights are
+2,298,601,952 bytes; the two NVIDIA archives add 396,296,547, of which cuBLAS is
+393.7 MB on its own. The worker archive is on top of that — call it ~25 MB
+zipped from 57 MB. The step states the total before the user commits to it, so
+this number is shown rather than discovered, but it is worth knowing that
+choosing the graphics card costs a user 400 MB more than choosing the processor
+and that most of it is one library.
+
+**Publish the worker as a zip, not the bare `.exe`.** A `native-runtime` artifact
+carries `archive_bytes`, `archive_sha256`, `archive_prefix` and `proof_files` as
+required fields, so an archive is the only shape the schema has — and taking it
+means `install_archive` already does the fetch, the digest check, the extraction
+and the atomic activation. `archive_prefix` is empty for an archive with no
+wrapping directory. The `proof_files` entry pins `granite-worker.exe` at the
+**digest already measured** (`1d4a3ad5…`, 57,052,672 bytes) — those bytes, not a
+rebuild of them, since an MSVC build is not reproducible.
+
+Three things this found that the plan above does not mention:
+
+- **The provider page's radio button was never read.** `plan` took the
+  *machine's* `preferred_provider()`, and that was indistinguishable from the
+  answer for exactly as long as the option stayed disabled — so pinning the
+  artifact would have enabled a control that decided nothing, which is the defect
+  the disabling exists to prevent arriving from the other side. It reads
+  `selected_provider()` now. The record still comes from proof: choosing the
+  processor stages no worker, so the engine check proves the processor.
+- **The staging has to run *after* `install::perform`, not before.** The payload
+  carries the processor worker under the same name and `perform` merges, so a
+  CUDA worker placed first is overwritten by the copy, silently. Putting it after
+  also fixes the reversion `Enable-GraniteCuda.ps1` documents as its sharpest
+  edge — an upgrade re-lays the CPU worker and this puts the CUDA one back, every
+  time. **That script can be retired once the pin lands**, along with the
+  `granite-worker.cpu.exe` entry in `KNOWN_PROOF_ORPHANS` that exists only for it.
+- **Staging keyed on what is on the disk hands the card to someone who asked for
+  the processor.** The first version of `stage_graphics_card_payload` asked only
+  whether the artifacts were installed under `model-lifecycle`, on the reasoning
+  that this is *evidence* rather than intention — which is the right instinct and
+  the wrong question. Those artifacts survive an uninstall with
+  `--keep-user-data` and survive installing over an existing profile, so a second
+  install where the user chose the processor would have found them, staged the
+  CUDA worker over the CPU one, and the engine check would have dutifully proved
+  and recorded the card. **Nothing would have reported it**, because nothing
+  would have been wrong: every layer would be honestly describing what it found.
+  It takes the provider now, and refuses for anything but CUDA. The distinction
+  is that the answer *is* the fact here; what stays evidence-driven is the
+  record, which still comes from the engine check's verdict.
+- **The uninstaller would have accused setup's own files.** `proof/` is
+  classified into "files this installer placed" and "files it did not", and the
+  CUDA libraries were the canonical example of the second — because only
+  `Enable-GraniteCuda.ps1` ever put one there. `staged_proof_files()` reads them
+  from the manifest now, so an uninstall no longer asks a graphics-card user
+  about the two libraries their installation cannot run without.
+  `nothing_survives_proof_and_what_we_did_not_place_there_is_named` inverted for
+  them and was rewritten with a genuinely foreign file, so the second pass is
+  still exercised rather than merely reached.
+
+#### Published 2026-08-26. Item 3 is closed except for the release
+
+The worker is on Hugging Face, pinned in the manifest, and the seven tests that
+declared its absence have inverted. `orangeblue39/speakeasy-mini-runtime`,
+public, with `README.md` and a `NOTICE.md` carrying the MIT texts verbatim
+(llama.cpp/ggml, nlohmann/json, llama-cpp-rs) and naming the NVIDIA CUDA Toolkit
+EULA for the statically linked runtime.
+
+**Pinned at an immutable commit, not at `main`.**
+`.../resolve/18ec2c410d01d95754b43a57b680a4e5dddcb7c7/granite-worker-cuda-windows-x64.zip`,
+the way the two Granite pack files already are. A `main` URL would let the bytes
+move out from under the digest, which fails closed but fails on a user's machine.
+Downloaded back after upload and verified byte-identical, and the redirect goes
+to `us.aws.cdn.hf.co` — in `redirect_hosts` already — serving range requests, so
+resume works.
+
+**Seven tests inverted, and one of them was a count nobody predicted.** The six
+expected ones flipped as their comments promised. The seventh was
+`bundled_proof_manifest_is_embedded_valid_and_fail_closed` asserting
+`proof_artifacts().len() == 2` — a hardcoded count, which is exactly why it
+caught an entry *arriving* and not only one leaving.
+`staged_manifest_publishing_the_cuda_worker` in both crates now returns the
+shipped manifest and asserts its premise instead of forging one, and the
+bootstrapper's `serde_json` dev-dependency went with it, so the dependency-policy
+allowlist entry it needed is reverted too.
+
+**The empty case still needs covering, and now has to be built deliberately.**
+`a_worker_without_its_libraries_is_not_a_fetchable_configuration` trims the
+redistributables out of the shipped JSON, because "nothing published" stopped
+being the free answer the shipped catalog gave.
+
+**`Test-SetupWizard.ps1` now derives its expectations from the machine.** It
+demanded the graphics-card option be *disabled* and the marker be `cpu` — both
+correct only while nothing was published, and both now statements about whichever
+card the machine running it happens to have. It reads whether the option was
+offered, requires the download page to name `Graphics-card engine` when it was
+(which is the end-to-end proof the radio button reaches `download::plan`), and
+takes the expected marker from the verdict sentence the user is shown rather than
+from a constant. A run where the card was offered and the processor was proved
+prints a loud note rather than passing quietly, because that means the CUDA path
+was not exercised by a run that looks like it was.
+
+**A `Checked` assertion was written and removed before it ever ran.**
+`Get-Controls` reports `Visible` and `Enabled` and no check state, so
+`$graphicsCard.Checked` reads `$null`, inverts to true, and would have thrown on
+every capable machine — a broken instrument shaped exactly like the failure it
+claimed to find. The download page's own words are the better assertion anyway.
+
+#### The archive is built and proved, 2026-08-26. The blocker *was* a write token
+
+**`hf auth login` was never the blocker, and repeating that cost a round trip.**
+This machine has an authenticated token — `hf auth whoami` answers
+`orangeblue39` — and it is **role `read`** ("speakeasy token 04.22.2026"), so
+`hf repo create` returns `403 Forbidden: You don't have the rights to create a
+model under the namespace`. A token that authenticates is not a token that can
+write, and `whoami` cannot tell them apart. Ask
+`https://huggingface.co/api/whoami-v2` for `auth.accessToken.role` before
+believing an upload is possible.
+
+**The archive exists and installs.** Built from the proven binary, with the exe
+renamed to the name it must occupy in `proof/`:
+
+```text
+granite-worker-cuda-windows-x64.zip
+  42,162,465 bytes   (26.1% smaller than the exe)
+  sha256 03b7c33f83674edfa64549e43a5f87e3393e03100db44027b10940b5deb28147
+  contains granite-worker.exe
+    57,052,672 bytes
+    sha256 1d4a3ad57e72acaaa55a507f88733ac18f77909349c4bf7c7bc017269499170a
+```
+
+That inner digest is the binary both hardware tests passed against, and its
+import table was re-checked: `cublas64_13.dll` and `nvcuda.dll` present,
+`cublasLt64_13.dll` and `cudart64_13.dll` absent, matching 2026-08-21 exactly.
+**`strings` is not on PATH in this repository's shells**, so the first check
+reported all four absent — four zeros from a program that does not exist, which
+reads exactly like a CPU build. Use `grep -ao` and run a control.
+
+**It was installed through the real path, not eyeballed.** A throwaway
+integration test drove `InstallManager::install_archive` with the spec
+`InstallSpec::from(NativeRuntimeSource)` will build — no `archive_prefix`, one
+required file — and the worker landed under its own name, at the right length,
+and passed `reverify`. So `Compress-Archive`'s zip is a format the `zip` crate's
+`deflate-flate2`-only feature set reads, which was an assumption until then.
+
+**Omit `archive_prefix`, do not set it to `""`.** It is `Option<String>` and an
+empty string fails `check_relative_path`, which refuses an empty value. Absent
+becomes `""` in `NativeRuntimeSource`, which is the no-op `strip_prefix` wants.
+
+**The download policy already allows the host.** An HF `resolve` URL 302s to
+`us.aws.cdn.hf.co`, which is in `redirect_hosts` — measured against the Granite
+pack's own URL. Pin the worker at an immutable commit rather than `main`, the way
+those two entries do (`/resolve/8267dad2…/`), so the URL cannot move out from
+under the digest.
+
+**Unverified risk, and it is not new: that redirect host looks regional.**
+`us.aws.cdn.hf.co` is what this machine is sent to, and it is the *only* HF CDN
+host in the policy. A user outside the US being sent to a different one would
+fail closed at transfer time — and this applies to the 2.3 GB of weights the
+shipped installer already fetches, not just to the worker. Nothing here can test
+it from one country. Worth resolving before the next release is handed to anyone
+far away.
+
+**The artifact's `version` is `1.5.1`, and that is deliberate.** It describes the
+*bytes*, which were built from `67c9498` when the workspace was at 1.5.1, and it
+is the second component of the install path — so it identifies the binary rather
+than the release that ships it. `source_commit` pins it exactly. The pack's
+`minimum_worker_version` is `0.1.0`, so a 1.5.1 worker under a 1.6.0 app is not
+a compatibility question.
+
+**Done, in the order it happened.** A write-scoped Hugging Face token and the
+upload; then the manifest entry (id, version, URL, `archive_bytes`,
+`archive_sha256`, one `proof_files` entry for the worker, and no
+`archive_prefix`);
+then the four tests in the table above invert and
+`staged_manifest_publishing_the_cuda_worker` — which exists in *two* crates now,
+`speakeasy-models` and the bootstrapper — stops synthesising and returns the
+shipped manifest. Then the release, and item 16's four sentences, which a
+published worker closes on its own by restoring the qualification promotion.
+
+**Nothing user-visible has changed yet**, and that is the point: with no worker
+pinned, `graphics_card_payload_sources` is empty, the plan is one item, the option
+stays disabled and `stage_graphics_card_payload` returns `Ok(false)` without
+creating a directory.
 
 ### 4. The rebrand tail — done 2026-08-18, and it was not cosmetic
 The remaining "SpeakEasy" strings were filed as naming. Three of them were
@@ -2462,6 +2679,59 @@ Every one of these was an explicit owner decision this session.
 - **Distribution is two paths**: a one-exe installer from GitHub Releases, and
   handing the repo to an LLM so a cautious user can watch every step. Both are
   in `README.md` and both must keep working.
+
+### 18. `--keep-user-data` deleted the user's data — found and fixed 2026-08-26
+
+**It cost a real profile**: 4.28 GB of weights, `settings.json`, the vocabulary
+in `personalization.json`, both `.bak` copies and the log, on this machine,
+during the 1.6.0 release run. Removal does not use the recycle bin, so none of it
+came back.
+
+The command was `speakeasy-bootstrapper --uninstall --keep-user-data`, run to
+clear the machine for `Test-InstallerLifecycle.ps1`. `remove()` computes
+`Removals::default()` from that flag — select nothing — and then **discards it**:
+
+```rust
+let removals = if silent { removals } else { uninstall_page::ask(...) };
+```
+
+`uninstall_page::ask` took no argument and built every check box with
+`check_state: co::BST::CHECKED`. So the interactive path drew a page primed to
+delete the whole profile, from a command whose name says the opposite, and the
+owner clicked the answer the page was already set to. **The click is not the
+defect.** A page that opens on the inverse of what the caller asked for is.
+
+**Why nothing had caught it.** The flag was only ever honoured in company with
+`--silent`, and `--uninstall /S --keep-user-data` is exactly what both proof
+scripts pass — `Test-InstallerLifecycle.ps1` twice and `Test-SetupWizard.ps1`
+once. The interactive-plus-flag combination had never been run by anything. The
+2026-08-21 work that inverted the default and built the page is where the two
+diverged; `Removals::default()` still "selects nothing, because a *caller* that
+forgets to ask must delete nothing", and that reasoning is intact — what was
+missing is that a caller which *did* ask never reached the control.
+
+**The fix is that `ask` takes the `Removals` and seeds the boxes from it.** The
+page still decides, because someone is looking at it and can tick anything back
+on; it just opens on the answer that was requested. One caller, so the change is
+contained.
+
+**The first regression test would not have caught a revert**, and that is worth
+more than the fix. It asserted a `check_state` mapping the test itself defined,
+so restoring `check_state: co::BST::CHECKED` in the real code satisfied every
+assertion — the same trap as
+`the_ceiling_stays_inside_the_pipeline_byte_limit` holding its own copy of a
+constant. The version that shipped reads `include_str!("uninstall_page.rs")`,
+slices out `check_boxes`, and requires the state to be *derived* from `initial`;
+it carries an instrument self-check that the slice is not empty, and it was
+proved able to fail by restoring the bug.
+
+**Two general lessons.** A flag that states an intention must reach the control
+that acts on it — computing it and passing it to one of two branches is not the
+same as honouring it. And **a safe-sounding flag is not evidence**: the pre-flight
+guard named the remedy, the flag read as the careful choice, and nothing checked
+that it arrived. Verify the outcome on disk, which is what exposed this: the
+uninstall printed `Removed: … configuration, transcript history, installed
+models, …` and the profile directory was gone one command later.
 
 ## Mistakes made this session, so they are not repeated
 

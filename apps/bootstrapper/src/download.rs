@@ -26,9 +26,10 @@ use std::sync::{Arc, Mutex};
 
 use speakeasy_domain::CancelToken;
 use speakeasy_models::{
-    DownloadPolicy, DownloadRequest, ExecutionProvider, GpuPayloadRejection, InstallManager,
-    InstallSpec, LooseInstallFile, Pack, PackRole, bundled_manifest, download_to_file,
-    gpu_configuration_is_installable,
+    DownloadPolicy, DownloadRequest, ExecutionProvider, GRANITE_CUDA_WORKER_ARTIFACT_ID,
+    GpuPayloadRejection, InstallManager, InstallSpec, LooseInstallFile, NativeRuntimeSource, Pack,
+    PackRole, bundled_manifest, download_to_file, gpu_configuration_is_installable,
+    graphics_card_payload_sources,
 };
 
 use crate::{catalog, uninstall};
@@ -133,10 +134,20 @@ impl Plan {
 /// `engine=cpu_gpu_pack_not_installed device=cuda` is the correct state in the
 /// app's log rather than a fault.
 ///
-/// What the provider will decide is whether the CUDA worker and its two
-/// libraries are fetched alongside the weights. That fetch is not wired yet —
-/// the worker has to be published and pinned by digest first — so today this
-/// plans the weights alone and a GPU machine gets the same list as a CPU one.
+/// What the provider decides is whether the CUDA worker and the libraries it
+/// loads are fetched alongside the weights. A machine that asked for the
+/// processor fetches one item and a machine that asked for the graphics card
+/// fetches four, and the difference is not cosmetic: nothing else in setup
+/// puts a CUDA worker on the disk, so a plan that ignored the answer would
+/// install the processor configuration and say nothing — which is the defect
+/// the provider page's own disabling exists to prevent, arriving from the other
+/// direction.
+///
+/// Nothing is fetched for a graphics-card install that this release cannot
+/// serve. [`graphics_card_payload_sources`] answers empty in that case, so a
+/// caller that somehow asks for CUDA against a manifest with no worker in it
+/// gets the processor plan rather than a partial payload — and the same
+/// question has already disabled the option upstream.
 ///
 /// # Errors
 ///
@@ -146,18 +157,44 @@ impl Plan {
 pub fn plan(provider: ExecutionProvider) -> Result<Plan, Failure> {
     let manifest = bundled_manifest().map_err(|_| catalog::CATALOG_UNAVAILABLE.to_owned())?;
     let root = model_lifecycle_root().ok_or_else(|| catalog::DATA_ROOT_UNLOCATABLE.to_owned())?;
+    plan_from(&manifest, provider, root)
+}
+
+/// [`plan`], against a supplied catalog.
+///
+/// Split out on 2026-08-26 so the pinned-worker case could be tested *before*
+/// the worker was published, which is how the graphics-card plan was proved at
+/// all: the bug this path was written around — a wizard that offers the graphics
+/// card only to machines that already have it — was found by simulating the pin
+/// and could not have been found any other way on a machine with a worker staged
+/// by hand.
+///
+/// It stays split now that the artifact is real, because the catalog is still the
+/// input worth varying: `a_worker_without_its_libraries_is_not_a_fetchable_configuration`
+/// covers a half-written manifest, and the next re-pin gets the same instrument
+/// this one had.
+fn plan_from(
+    manifest: &speakeasy_models::TrustedManifest,
+    provider: ExecutionProvider,
+    root: PathBuf,
+) -> Result<Plan, Failure> {
     let downloads = root.join("downloads");
 
-    // One item today. The GPU worker and its two CUDA libraries join it here
-    // once they are published and pinned by digest, which is why `provider` is
-    // taken and not yet read — the weights are the same file either way.
-    let _ = provider;
+    // The weights, first and on every machine: there is one Granite pack and it
+    // is the CPU-variant GGUF either way, because the CUDA worker offloads that
+    // same file. This is why `engine=cpu_gpu_pack_not_installed device=cuda` is
+    // the correct state in the app's log rather than a fault.
     let pack = manifest
         .select_sole_install_eligible(PackRole::FinalAsr, ExecutionProvider::Cpu)
         .map_err(|error| {
             catalog::pack_unavailable(catalog::ARTIFACT_GRANITE, &error.to_string())
         })?;
-    let items = vec![item_for(pack, &downloads)?];
+    let mut items = vec![item_for(pack, &downloads)?];
+    if provider == ExecutionProvider::Cuda {
+        for source in graphics_card_payload_sources(manifest) {
+            items.push(item_for_runtime(source, &downloads));
+        }
+    }
 
     let total_bytes = items.iter().map(|item| item.bytes).sum();
     Ok(Plan {
@@ -265,6 +302,186 @@ fn item_for(pack: &Pack, downloads: &Path) -> Result<Item, Failure> {
         payload: Payload::Loose(files),
         spec,
     })
+}
+
+/// Turn one native-runtime artifact into a fetchable item.
+///
+/// Infallible where [`item_for`] is not, and that is a property of the schema
+/// rather than an omission: a `native-runtime` artifact carries a URL and an
+/// archive digest as required fields, so there is no loose-file form and no
+/// "pinned but not downloadable" case to report. The `Option` that
+/// [`Pack::archive`] returns has no counterpart here.
+fn item_for_runtime(source: NativeRuntimeSource<'_>, downloads: &Path) -> Item {
+    let spec = InstallSpec::from(source);
+    Item {
+        label: runtime_label(source.id),
+        bytes: source.archive_bytes,
+        payload: Payload::Archive(DownloadRequest {
+            url: source.url.to_owned(),
+            // The same `{id}-{revision}.archive` shape the packs use, so the
+            // resumable `.part` beside it is found again by a second run of
+            // setup. `version` is the revision for an artifact — see
+            // `InstallSpec`'s conversion.
+            destination: downloads.join(format!("{}-{}.archive", source.id, source.version)),
+            expected_bytes: source.archive_bytes,
+            expected_sha256: source.archive_sha256.to_owned(),
+        }),
+        spec,
+    }
+}
+
+/// What to call one artifact of the graphics-card payload.
+///
+/// Matched on the id, and by substring for the two NVIDIA archives because their
+/// ids carry a version that moves — `nvidia-cuda-cudart-windows-x64-13.3.29`
+/// became that from a 12.9 spelling, and a label keyed to the whole string would
+/// have silently become the fallback. The component name is the part that does
+/// not move.
+///
+/// The fallback is deliberately generic and deliberately reachable: a catalog
+/// that pins a third redistributable gets an honest vague label rather than a
+/// confident wrong one, and a test refuses to let the shipped catalog reach it.
+fn runtime_label(id: &str) -> &'static str {
+    if id == GRANITE_CUDA_WORKER_ARTIFACT_ID {
+        catalog::ARTIFACT_GPU_ENGINE
+    } else if id.contains("cudart") {
+        catalog::ARTIFACT_GPU_CUDA_RUNTIME
+    } else if id.contains("cublas") {
+        catalog::ARTIFACT_GPU_MATH_LIBRARY
+    } else {
+        catalog::ARTIFACT_GPU_SUPPORT_LIBRARY
+    }
+}
+
+/// Put a downloaded graphics-card payload beside the app's worker.
+///
+/// Called after [`crate::install::perform`] and not before, and the order is the
+/// whole reason this is a separate step. `perform` merges the payload tree over
+/// the install root, and the payload carries the **CPU** worker under the same
+/// name — so a CUDA worker placed first is overwritten by the copy, silently,
+/// and the engine check then proves the processor on a machine that asked for
+/// and downloaded the card. That is exactly the failure
+/// `scripts/Enable-GraniteCuda.ps1` warns about for a reinstall, which this
+/// step also fixes: an upgrade re-lays the CPU worker and this puts the CUDA one
+/// back, every time, instead of leaving Granite silently on the processor.
+///
+/// Copied out of the installed artifacts rather than moved: they stay under
+/// `model-lifecycle/models`, verified and re-usable, so a repair or an upgrade
+/// re-stages without a download. Flattened to base names, because Windows
+/// resolves a DLL against the loading process's own directory and nowhere else —
+/// the same reduction [`speakeasy_models::required_cuda_runtime_files`] makes,
+/// which is what lets the check and the placement agree about the file names.
+///
+/// `Ok(false)` means there was nothing to stage: a processor installation, or a
+/// release with no graphics-card configuration in it. Not an error, and not
+/// silent either — the caller has the answer and the engine check reports what
+/// it actually found afterwards.
+///
+/// # Errors
+///
+/// Returns a catalog message when an artifact this release publishes was
+/// expected on disk and is not, or when a file cannot be copied. Deliberately
+/// **not** best-effort: a partial payload is the one state that fails ~36 s into
+/// a dictation rather than at startup, so setup would rather say it could not
+/// finish than leave that behind.
+pub fn stage_graphics_card_payload(
+    provider: ExecutionProvider,
+    install_root: &Path,
+) -> Result<bool, Failure> {
+    if provider != ExecutionProvider::Cuda {
+        // The answer, and not merely what is on the disk. A machine that had a
+        // graphics-card install before this one still has the artifacts under
+        // `model-lifecycle` — an uninstall with `--keep-user-data` keeps them,
+        // and so does installing over an existing profile — so presence alone
+        // would stage a CUDA worker onto an installation whose owner had just
+        // chosen the processor, and the engine check would then dutifully prove
+        // and record the card. Nothing would report it, because nothing would be
+        // wrong: every layer would be describing what it found.
+        return Ok(false);
+    }
+    let Ok(manifest) = bundled_manifest() else {
+        // Unreadable catalog is reported by the download step, which runs first
+        // and could not have planned anything. Saying it twice, on a later page,
+        // would read as a second fault.
+        return Ok(false);
+    };
+    let sources = graphics_card_payload_sources(&manifest);
+    if sources.is_empty() {
+        return Ok(false);
+    }
+    let root = model_lifecycle_root().ok_or_else(|| catalog::DATA_ROOT_UNLOCATABLE.to_owned())?;
+    let models = root.join("models");
+    let manager = InstallManager::new(&models);
+    let proof = install_root.join("proof");
+
+    // Asked of all of them before any of them is copied. None present is not an
+    // error: a user can reach this page having cancelled the transfer, and the
+    // engine check that follows reports the processor with the reason rather
+    // than this step guessing at one.
+    let specs: Vec<InstallSpec> = sources.into_iter().map(InstallSpec::from).collect();
+    if !specs.iter().any(|spec| manager.is_present(spec)) {
+        return Ok(false);
+    }
+    std::fs::create_dir_all(&proof).map_err(|error| {
+        catalog::gpu_staging_failed(catalog::ARTIFACT_GPU_ENGINE, &error.to_string())
+    })?;
+    // **The worker goes last, and the order is the safety property.** Every
+    // failure here leaves the install root part-way through, and the two
+    // orderings leave very different machines behind. Libraries first: a failure
+    // then leaves the processor worker the payload placed, with some unused DLLs
+    // beside it that nothing loads — an installation that works, which is what
+    // this step's own failure message promises. Worker first: a failure leaves a
+    // CUDA worker with no libraries, and that does not run slower, it does not
+    // start at all, and Windows names no file. `graphics_card_payload_sources`
+    // returns the worker first because that is the order to *fetch* in; this is
+    // the order to *place* in, and they are not the same question.
+    for spec in specs.iter().rev() {
+        let label = runtime_label(&spec.id);
+        if !manager.is_present(spec) {
+            // One half arrived and the other did not. Named rather than
+            // shrugged at: this is the state that starts and then fails at the
+            // first matmul.
+            return Err(catalog::gpu_staging_failed(
+                label,
+                &format!("{} was not installed.", spec.id),
+            ));
+        }
+        let installed = models.join(&spec.id).join(&spec.revision);
+        for file in &spec.required_files {
+            let Some(name) = file.path.file_name() else {
+                continue;
+            };
+            place_beside_the_worker(&installed.join(&file.path), &proof.join(name))
+                .map_err(|error| catalog::gpu_staging_failed(label, &error))?;
+        }
+    }
+    Ok(true)
+}
+
+/// Copy one file into `proof/`, atomically as far as any reader is concerned.
+///
+/// Through a temporary beside the destination and a rename, rather than
+/// [`std::fs::copy`] straight over it. A copy that fails half way leaves a
+/// **truncated** file under the real name, and the file this matters most for is
+/// `granite-worker.exe`: half a CUDA worker is neither the CUDA worker nor the
+/// processor one the payload placed, and it fails in the shape that names no
+/// file. A rename either happened or did not.
+///
+/// The temporary is removed on failure so a retry — pressing Next again — does
+/// not accumulate them, and it sits in the destination directory rather than
+/// `%TEMP%` because a rename across volumes is not a rename and Windows refuses
+/// it rather than silently copying.
+fn place_beside_the_worker(source: &Path, destination: &Path) -> Result<(), String> {
+    let mut staging = destination.to_path_buf().into_os_string();
+    staging.push(".incoming");
+    let staging = PathBuf::from(staging);
+    let outcome = std::fs::copy(source, &staging)
+        .and_then(|_| std::fs::rename(&staging, destination))
+        .map_err(|error| format!("{}: {error}", destination.display()));
+    if outcome.is_err() {
+        let _ = std::fs::remove_file(&staging);
+    }
+    outcome
 }
 
 fn label_for(pack: &Pack) -> &'static str {
@@ -574,11 +791,12 @@ mod tests {
     /// The same shape as the recorded "a whole crate went red unnoticed", one
     /// level down — a target filter rather than a crate list.
     ///
-    /// The second item is a real future state rather than a thing that was
-    /// deleted: `plan` takes `provider` and deliberately ignores it, waiting on
-    /// the CUDA worker being published and pinned by digest (item 3 in the
-    /// handoff). When that lands this count becomes 2 and the label list gains
-    /// the worker beside the weights.
+    /// The second item is no longer a future state in the *code* — `plan` reads
+    /// `provider` now — but it is still one in the *catalog*, because nothing is
+    /// published. So a graphics-card plan is one item today, for a stated reason
+    /// rather than by omission, and
+    /// `the_graphics_card_plan_fetches_the_worker_and_its_libraries` exercises
+    /// the other half against a simulated pin.
     #[test]
     fn the_plan_names_one_engine_and_totals_its_transfer_size() {
         // Not shadowed as `plan`: this test calls the function twice, and a
@@ -590,15 +808,20 @@ mod tests {
             vec![catalog::ARTIFACT_GRANITE]
         );
 
-        // A GPU machine gets the same list today, and that is the current
-        // decision rather than an oversight — the weights are the same file
-        // either way and the CUDA worker is unpublished. When that changes,
-        // this is where the divergence has to show up.
+        // And a graphics-card machine gets more, which is the whole point of the
+        // provider being read. This assertion was the reverse — "nothing
+        // published means nothing extra to fetch" — until the worker was pinned
+        // on 2026-08-26, and it inverting is what said so.
         let gpu = plan(ExecutionProvider::Cuda).expect("a GPU machine must also yield a plan");
+        assert!(
+            gpu.items.len() > cpu.items.len(),
+            "a published worker means a graphics-card machine fetches more: {:?}",
+            gpu.items.iter().map(|item| item.label).collect::<Vec<_>>()
+        );
         assert_eq!(
-            gpu.items.iter().map(|item| item.label).collect::<Vec<_>>(),
             cpu.items.iter().map(|item| item.label).collect::<Vec<_>>(),
-            "the provider does not select a different model yet"
+            vec![catalog::ARTIFACT_GRANITE],
+            "and asking for the processor still fetches the weights alone"
         );
 
         // Transfer size, not installed size. Counting the larger figure would
@@ -608,6 +831,216 @@ mod tests {
             cpu.items.iter().map(|item| item.bytes).sum::<u64>()
         );
         assert!(cpu.total_bytes > 0);
+    }
+
+    /// What a graphics-card machine will fetch on the day the worker is pinned.
+    ///
+    /// Proved by simulating the pin, because that is the only instrument that
+    /// works before publication and because the last thing this path got wrong
+    /// was invisible on a machine that already had a CUDA worker staged by hand.
+    /// This one is the same shape: the developer machine cannot tell a plan that
+    /// reads `provider` from one that ignores it, since both produce one item
+    /// against the shipped catalog.
+    #[test]
+    fn the_graphics_card_plan_fetches_the_worker_and_its_libraries() {
+        let manifest = staged_manifest_publishing_the_cuda_worker();
+        let root = std::env::temp_dir().join("speakeasy-plan-simulated-pin");
+
+        let cpu = plan_from(&manifest, ExecutionProvider::Cpu, root.clone())
+            .expect("a processor plan must be buildable");
+        assert_eq!(
+            cpu.items.iter().map(|item| item.label).collect::<Vec<_>>(),
+            vec![catalog::ARTIFACT_GRANITE],
+            "asking for the processor must not fetch a graphics-card payload, whatever \
+             the catalog publishes"
+        );
+
+        let gpu = plan_from(&manifest, ExecutionProvider::Cuda, root)
+            .expect("a graphics-card plan must be buildable");
+        assert_eq!(
+            gpu.items.iter().map(|item| item.label).collect::<Vec<_>>(),
+            vec![
+                catalog::ARTIFACT_GRANITE,
+                catalog::ARTIFACT_GPU_ENGINE,
+                catalog::ARTIFACT_GPU_CUDA_RUNTIME,
+                catalog::ARTIFACT_GPU_MATH_LIBRARY,
+            ],
+            "the weights, then the engine, then the libraries it loads"
+        );
+        assert!(
+            gpu.total_bytes > cpu.total_bytes,
+            "a graphics-card install transfers more, and the step states the total \
+             before the user commits to it"
+        );
+
+        // Every extra item is a verifiable archive with somewhere to put it. A
+        // request with no digest downloads and installs whatever arrives.
+        for item in gpu.items.iter().skip(1) {
+            for request in item.payload.requests() {
+                assert_eq!(request.expected_sha256.len(), 64, "{}", request.url);
+                assert!(request.expected_bytes > 0, "{}", request.url);
+                assert!(
+                    request.destination.starts_with(&gpu.root),
+                    "downloads belong under the app's own model root: {:?}",
+                    request.destination
+                );
+            }
+            assert!(
+                !item.spec.required_files.is_empty(),
+                "an artifact with no required files installs nothing and reports success"
+            );
+        }
+    }
+
+    /// A payload that was never downloaded stages nothing, and creates nothing.
+    ///
+    /// Two cases that must both be quiet, and for different reasons. **The
+    /// processor** is the answer being honoured: this machine may well have the
+    /// artifacts installed under `model-lifecycle` from an earlier
+    /// graphics-card install, and staging them onto an installation whose owner
+    /// just chose the processor would be silently overriding them — the engine
+    /// check would then prove and record the card, with nothing anywhere
+    /// reporting it. **The graphics card with nothing fetched** is a cancelled
+    /// or interrupted transfer, which is not this step's to diagnose; the engine
+    /// check that follows names it.
+    ///
+    /// Either way nothing is *created*. An install root that comes back with an
+    /// empty `proof/` in it — a `create_dir_all` before the question is asked —
+    /// is how a machine ends up carrying the shape of a configuration it does not
+    /// have, and `unrecognised_proof_files` then has a directory to explain.
+    ///
+    /// This test used to assert the same silence because the release published
+    /// no worker at all. It has published one since 2026-08-26, so the silence
+    /// now comes from the two conditions above rather than from an empty
+    /// catalog, and it is a stronger check for it.
+    #[test]
+    fn a_payload_that_was_not_downloaded_stages_nothing_and_creates_nothing() {
+        let root = std::env::temp_dir().join("speakeasy-stage-gpu-nothing-fetched");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("an install root to stage into");
+
+        assert_eq!(
+            stage_graphics_card_payload(ExecutionProvider::Cpu, &root),
+            Ok(false),
+            "the answer was the processor, whatever is on this disk"
+        );
+        assert!(
+            !root.join("proof").exists(),
+            "the processor answer must be given before any directory is made"
+        );
+
+        // The graphics-card half is only meaningful on a machine that has not
+        // installed the artifacts, which is every machine but one mid-way
+        // through a real setup run. Skipped rather than faked where they are
+        // present: asserting `Ok(false)` there would be asserting the opposite
+        // of what this function is for.
+        let installed = model_lifecycle_root().map(|root| {
+            let manager = InstallManager::new(root.join("models"));
+            let manifest = bundled_manifest().expect("the bundled manifest must parse");
+            graphics_card_payload_sources(&manifest)
+                .into_iter()
+                .map(InstallSpec::from)
+                .any(|spec| manager.is_present(&spec))
+        });
+        if installed == Some(false) {
+            assert_eq!(
+                stage_graphics_card_payload(ExecutionProvider::Cuda, &root),
+                Ok(false),
+                "nothing was fetched, so there is nothing to stage and no fault to report"
+            );
+            assert!(!root.join("proof").exists(), "and still nothing is created");
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A file arrives whole or not at all, and leaves no litter either way.
+    ///
+    /// The case this is for is `granite-worker.exe`. A [`std::fs::copy`] that
+    /// fails part way leaves a truncated file under the real name, and half a
+    /// CUDA worker is neither the CUDA worker nor the processor one the payload
+    /// placed — it fails to start, and Windows' error for that names no file.
+    /// The unreadable-source half is the one that can be provoked: a directory
+    /// where a file should be.
+    #[test]
+    fn a_staged_file_arrives_whole_and_leaves_no_temporary() {
+        let root = std::env::temp_dir().join("speakeasy-stage-atomically");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("a staging root");
+        let destination = root.join("granite-worker.exe");
+        std::fs::write(&destination, b"the processor worker").expect("the file being replaced");
+
+        let source = root.join("incoming.exe");
+        std::fs::write(&source, b"the graphics-card worker").expect("a source file");
+        assert_eq!(place_beside_the_worker(&source, &destination), Ok(()));
+        assert_eq!(
+            std::fs::read(&destination).expect("the replaced file"),
+            b"the graphics-card worker"
+        );
+
+        // And a failure leaves the previous file untouched, with no `.incoming`
+        // beside it for `unrecognised_proof_files` to ask the user about.
+        let unreadable = root.join("a-directory-not-a-file");
+        std::fs::create_dir_all(&unreadable).expect("an unreadable source");
+        assert!(place_beside_the_worker(&unreadable, &destination).is_err());
+        assert_eq!(
+            std::fs::read(&destination).expect("the file must survive"),
+            b"the graphics-card worker"
+        );
+        assert!(
+            !root.join("granite-worker.exe.incoming").exists(),
+            "the temporary must not survive a failure"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Two artifacts must never print the same line.
+    ///
+    /// The download step lists these one per line and names one per progress
+    /// line, so a shared label prints the same sentence twice — which reads as
+    /// setup having lost count. The fallback label exists for a catalog that
+    /// pins something these names do not cover, and reaching it on the *shipped*
+    /// catalog means a re-pin renamed an artifact out from under the mapping.
+    #[test]
+    fn every_graphics_card_artifact_gets_its_own_name() {
+        let manifest = staged_manifest_publishing_the_cuda_worker();
+        let labels: Vec<&str> = graphics_card_payload_sources(&manifest)
+            .iter()
+            .map(|source| runtime_label(source.id))
+            .collect();
+
+        let mut unique = labels.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), labels.len(), "duplicate labels: {labels:?}");
+        assert!(
+            !labels.contains(&catalog::ARTIFACT_GPU_SUPPORT_LIBRARY),
+            "an artifact this catalog pins fell through to the generic name: {labels:?}"
+        );
+    }
+
+    /// A catalog that publishes a CUDA Granite worker.
+    ///
+    /// **This no longer stages anything.** It spliced a renamed copy of another
+    /// artifact in, until 2026-08-26, because none was published and the tests
+    /// above had nothing real to plan from. One is published now, so the shipped
+    /// catalog *is* the fixture — and pushing a second entry under the same id
+    /// would make `TrustedManifest::parse` refuse the whole document, which is
+    /// how these two tests announced the change rather than quietly passing
+    /// against a forgery.
+    ///
+    /// The `serde_json` dev-dependency this needed went with it. What replaced
+    /// it is a real assertion: the premise is checked rather than constructed,
+    /// so a re-pin that renames the artifact fails here instead of silently
+    /// planning one item.
+    fn staged_manifest_publishing_the_cuda_worker() -> speakeasy_models::TrustedManifest {
+        let manifest = bundled_manifest().expect("the bundled manifest must parse");
+        assert!(
+            gpu_configuration_is_installable(&manifest).is_ok(),
+            "this fixture's whole premise is a published worker"
+        );
+        manifest
     }
 
     #[test]
