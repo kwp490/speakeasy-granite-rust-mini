@@ -1,10 +1,8 @@
 # Changelog
 
-## 1.6.0 — 2026-08-26
+## 1.6.1 — 2026-08-26
 
-Dictation can run on the graphics card, which is the feature this fork has been
-building toward since it started, one data-loss defect found while releasing it,
-and readable text in setup.
+One report from use, about the first thing anybody sees.
 
 ### Setup and the uninstaller are readable — 2026-08-26
 
@@ -22,6 +20,15 @@ Windows text size rather than a fixed point size, so raising Windows'
 Accessibility → Text size raises this too instead of overriding it. And it
 inherits the face your system actually uses, so a Windows installed in a language
 that ships a different UI font gets that font, larger.
+
+Nothing about dictation changed. **1.6.0 is otherwise identical**, so the only
+reason to take this one is that you have to read setup to install it.
+
+## 1.6.0 — 2026-08-26
+
+Dictation can run on the graphics card, which is the feature this fork has been
+building toward since it started, and one data-loss defect found while releasing
+it.
 
 ### Dictation on the graphics card — 2026-08-26
 
