@@ -836,13 +836,27 @@ Every one of these produced a plausible, wrong result rather than an error.
   `" I mean "`, which is live data loss, and it fires more often on Granite's
   fluent output than on a transducer's. A test pins this precisely because the
   rules are now unreachable from the UI.
-- **The setup wizard has colour and no bold.** Emphasising a label's font means
-  `WM_SETFONT`, `winsafe` sends messages only through an `unsafe` call, and this
-  workspace sets `unsafe_code = "forbid"`. `WM_CTLCOLORSTATIC` is safely wrapped,
-  so emphasis is `catalog::Tone` mapped to ink, plus a one-line key band and
-  short copy. Verified on screen at 250% (accent blue, warning red, good green)
-  rather than assumed — a `WM_CTLCOLORSTATIC` that is never reached looks
-  identical in every measurement.
+- **The setup wizard sets its own type, and it is the only crate in the
+  workspace allowed `unsafe`.** Owner decision 2026-08-26, inverting "colour and
+  no bold". `winsafe` builds one `HFONT` per process from `lfMenuFont` and offers
+  nothing that changes a control's font afterwards — that is `WM_SETFONT` through
+  `SendMessage`, which it marks `unsafe`. So both wizard windows drew everything
+  at Segoe UI 9pt, the size Windows uses for *menu bars*, on a ~105-character
+  measure with the heading, step counter, key line and body all identical.
+  Correctly scaled and too small to read, which is not a bug a measurement finds.
+
+  `apps/bootstrapper/Cargo.toml` declares `[lints.rust] unsafe_code = "deny"`
+  instead of inheriting; `src/typeface.rs` holds the only two `#[allow]`s under
+  it. **The root stays `forbid`** — it is load-bearing beyond style, because
+  under edition 2024 it is what makes `std::env::set_var` unreachable from a
+  test. Two rules for anyone touching this: sizes are a **ratio** of
+  `SPI_GETNONCLIENTMETRICS` (four thirds for body, five thirds semibold for the
+  heading), never absolute points, because a reader who raised Windows' own text
+  size is the person the change is for and "12pt" would shrink the wizard for
+  them; and **every control that carries words gets one of the two**, buttons and
+  check-box labels included — `apply_typeface` lists them by hand rather than
+  enumerating children, so a control added later is a control someone must
+  remember. Colour is unchanged and still never the only signal.
 - **Every wizard page is a question, one key line, and at most two short
   sentences.** Rewritten 2026-08-20 from four-sentence paragraphs that were
   correct and unread. Nobody reads an installer, so an honesty obligation

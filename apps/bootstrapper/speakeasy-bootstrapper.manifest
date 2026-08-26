@@ -33,22 +33,32 @@
     PerMonitorV2 is not reachable here, and the blocker is the FONT rather than
     the geometry. `winsafe` 0.0.27 creates one `HFONT` for the whole process
     (`static mut UI_HFONT`, from `SystemParametersInfo`, which reports the system
-    DPI) and sets it on each control as that control is created. Nothing in the
-    crate can change a control's font afterwards: that is `WM_SETFONT` through
-    `SendMessage`, which `winsafe` marks `unsafe` and this workspace `forbid`s
-    workspace-wide. So under PerMonitorV2 the controls would relayout to a second
-    monitor's DPI while the text stayed the size of the first one's. Measured on
-    this machine: Segoe UI 9pt is a 41 px cell at 240 dpi, and on a 96-dpi
-    monitor the heading label would be 26 px tall and the buttons 28 px. Every
-    label clipped. System-aware instead gets a bitmap stretch from Windows —
-    blurry, but proportionally correct and never clipped, which is the better
-    failure of the two.
+    DPI) and sets it on each control as that control is created. So under
+    PerMonitorV2 the controls would relayout to a second monitor's DPI while the
+    text stayed the size of the first one's. Measured on this machine: Segoe UI
+    9pt is a 41 px cell at 240 dpi, and on a 96-dpi monitor the heading label
+    would be 26 px tall and the buttons 28 px. Every label clipped. System-aware
+    instead gets a bitmap stretch from Windows — blurry, but proportionally
+    correct and never clipped, which is the better failure of the two.
 
-    What would have to change to revisit this: a safe way to set a control's
-    font, either from a newer `winsafe` or by drawing the text ourselves; or
-    building the wizard from a dialog resource template, which PerMonitorV2
-    rescales automatically INCLUDING its font, at the cost of an `.rc` compile
-    step. Both are dependency or toolchain changes, so both need asking first.
+    Half of what this used to say is no longer true, and the half that changed is
+    not the half that matters. `src/typeface.rs` DOES set a control's font now,
+    from 2026-08-26, because the 9pt those figures describe was too small to read
+    and the owner said so; it is `WM_SETFONT` through `SendMessage`, which
+    `winsafe` marks `unsafe`, under a crate-local `unsafe_code = "deny"` that
+    replaced the inherited `forbid`. What that does not give is a font that
+    changes when the DPI does. Both fonts are built once from
+    `SPI_GETNONCLIENTMETRICS` at `WM_CREATE`, at whatever the system DPI is, and
+    nothing here handles `WM_DPICHANGED`. So the clipping above is exactly as
+    reachable as it was — with a third more type in it.
+
+    What would have to change to revisit this: rebuild both fonts and re-apply
+    them on `WM_DPICHANGED`, alongside a relayout of every control, which
+    `winsafe` 0.0.27 offers no help with; or build the wizard from a dialog
+    resource template, which PerMonitorV2 rescales automatically INCLUDING its
+    font, at the cost of an `.rc` compile step. The second is a toolchain change,
+    so it needs asking first. Neither is a fix for anything anyone has reported —
+    this machine has one monitor.
 
     One build trap, since editing this file is how anyone would test the above:
     `cargo:rerun-if-changed` compares mtimes, so restoring a manifest from a copy

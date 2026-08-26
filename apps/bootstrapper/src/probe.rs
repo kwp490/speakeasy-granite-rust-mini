@@ -71,9 +71,11 @@ pub fn install_root() -> Option<PathBuf> {
 /// The whole of [`install_root`]'s decision, with the environment handed in.
 ///
 /// Split out to be testable at all: `LOCALAPPDATA` is process-global, and this
-/// workspace is edition 2024 under `unsafe_code = "forbid"`, where
-/// `std::env::set_var` is `unsafe`. A test cannot reach the real variable, so
-/// the decision has to live somewhere a test can hand it one.
+/// workspace is edition 2024 under `unsafe_code` denied, where
+/// `std::env::set_var` is `unsafe`. A test cannot reach the real variable
+/// without an `#[allow]`, and the two this crate has are in
+/// [`mod@crate::typeface`] and are the two the owner approved. So the decision
+/// has to live somewhere a test can hand it one.
 ///
 /// Empty counts as absent. `PathBuf::from("").join(PRODUCT)` is the bare
 /// relative path `SpeakEasy Mini`, which would install into whatever directory

@@ -275,14 +275,22 @@ sentence of the third paragraph is discharged on paper and not in fact.
 so the shape cannot quietly drift back into prose, and `catalog::Tone` marks
 which line matters — ordinary, accent, warning, good.
 
-**Colour, and no bold.** Emphasising a label's font needs `WM_SETFONT`, `winsafe`
-only sends messages through an `unsafe` call, and the workspace forbids `unsafe`.
-`WM_CTLCOLORSTATIC` is safely wrapped, so the emphasis a reader gets is ink plus
-position plus brevity. Verified on screen at 250% rather than assumed: a
+**Colour, and — since 2026-08-26 — weight and two sizes.** Accent renders blue,
+warning red, good green, verified on screen at 250% rather than assumed: a
 `WM_CTLCOLORSTATIC` handler that is never reached looks identical in every
-measurement. Accent renders blue, warning red, good green, and
-`Measure-NativeWindow.ps1 -Fit` reports every label on all eight pages fitting
-its box at 240 dpi — the key band holds two lines with room, the body four.
+measurement. Colour is still never the only signal.
+
+What changed is the type. This page said "and no bold", because emphasising a
+label's font needs `WM_SETFONT`, `winsafe` only sends messages through an
+`unsafe` call, and the workspace forbids `unsafe` — all still true, and it also
+meant every control drew at `winsafe`'s one process-wide font, Segoe UI 9pt, the
+size Windows uses for menu bars. The owner reported it as too small to read.
+`apps/bootstrapper/Cargo.toml` now declares `unsafe_code = "deny"` for that one
+crate instead of inheriting `forbid`, and `src/typeface.rs` holds the two
+`#[allow]`s: body text at four thirds of the system UI font, the heading at five
+thirds and semibold. Every layout height grew with it, and
+`Measure-NativeWindow.ps1 -Fit` reports every label on all eight pages and on the
+uninstall page fitting its box at 240 dpi.
 
 ### The vocabulary box takes a comma-separated list
 
@@ -500,10 +508,14 @@ found nothing and reported the words lost. The proof waits.
 
 ### Measured, on this machine
 
-- The wizard at 250% on a 3840x2400 display: client rect **1550x1250 physical =
-  620x500 logical**, exactly as declared, and **every label and control fits its
+- The wizard at 250% on a 3840x2400 display: client rect **1550x1515 physical =
+  620x606 logical**, exactly as declared, and **every label and control fits its
   box** by `Measure-NativeWindow.ps1 -Fit`. The longest new string — the
   diagnostic-log checkbox, 70 characters — wraps to one line in a 1470 px box.
+  Re-measured 2026-08-26 after the type grew; it was 620x500 at 9pt, and every
+  band kept the line capacity it had — the findings box holds 10.7 lines of a
+  54 px cell against 10.4 lines of a 41 px one, and the longest thing it shows is
+  eleven.
 - `SpeakEasyMiniSetup.exe` is **37.5 MB**: a 7.6 MB bootstrapper plus a 29.9 MB
   payload of three executables. The payload deliberately includes a second copy
   of the bootstrapper rather than self-copying, so the installed uninstaller is
@@ -1348,7 +1360,9 @@ Three things about it worth keeping:
 
 Measured at 250% with `Measure-NativeWindow.ps1 -Fit`: client rect 480x398
 logical, every control fitting its box, the unrecognised-files block wrapping to
-four of the roughly five lines it reserves.
+four of the roughly five lines it reserves. Re-measured 2026-08-26 after the type
+grew: 560x494 logical, every control still fitting, and the unrecognised block
+still reserving about six lines of the larger cell.
 
 #### The real weights were finally deleted, and it found one thing
 

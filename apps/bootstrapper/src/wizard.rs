@@ -29,7 +29,7 @@ use std::rc::Rc;
 use winsafe::prelude::*;
 use winsafe::{self as w, co, gui};
 
-use crate::{catalog, download, install, payload, probe, seed, smoke};
+use crate::{catalog, download, install, payload, probe, seed, smoke, typeface};
 
 /// Layout, in DPI-independent units.
 ///
@@ -40,37 +40,42 @@ use crate::{catalog, download, install, payload, probe, seed, smoke};
 /// is to measure the running window rather than trust the declaration, and that
 /// applies here too.
 mod layout {
-    /// Grown from 460 to 500 when the download step gained its own bar, rather
-    /// than taking the space out of `NOTICE_HEIGHT`. Measured first: the notice
-    /// holds 10.4 lines at 240 dpi and the compatibility report already uses 8,
-    /// so the 40 px would have come out of two lines of headroom that the
-    /// remaining steps are going to need. 500 logical is 1250 physical at 250%,
-    /// which still fits a 2400-pixel-tall display with room over.
-    pub const WINDOW: (i32, i32) = (620, 500);
+    /// Grown from 460 to 500 when the download step gained its own bar, and
+    /// from 500 to 606 on 2026-08-26 when the type stopped being Windows'
+    /// menu-bar font.
+    ///
+    /// Every height below it grew by about a third for that — see
+    /// [`mod@crate::typeface`] for why the type did, and for the ratio. Growing
+    /// the window rather than reflowing into the old one is the only honest
+    /// option: the copy did not get shorter, so a third more type needs a third
+    /// more room, and the alternative is a page that clips at 250%. 606 logical
+    /// is 1515 physical at 250%, which still fits a 2400-pixel-tall display
+    /// with the caption and a taskbar.
+    pub const WINDOW: (i32, i32) = (620, 606);
     pub const MARGIN: i32 = 16;
     pub const HEADING_TOP: i32 = 16;
-    pub const HEADING_HEIGHT: i32 = 26;
-    pub const POSITION_TOP: i32 = 44;
-    pub const POSITION_HEIGHT: i32 = 18;
+    pub const HEADING_HEIGHT: i32 = 32;
+    pub const POSITION_TOP: i32 = 52;
+    pub const POSITION_HEIGHT: i32 = 24;
     /// The one line on the page worth reading first, coloured by its tone.
     ///
     /// Its own band above the body rather than the body's first sentence,
     /// because the point of it is to be readable without reading the body. Two
     /// lines of room: the longest of them wraps to two at this measure, and a
     /// key line that clips is worse than no key line at all.
-    pub const KEY_TOP: i32 = 68;
-    pub const KEY_HEIGHT: i32 = 40;
-    pub const BODY_TOP: i32 = 110;
+    pub const KEY_TOP: i32 = 82;
+    pub const KEY_HEIGHT: i32 = 52;
+    pub const BODY_TOP: i32 = 140;
     /// The step's own explanation. Short on purpose — the space below it
     /// belongs to what the step actually found or is asking for. Shrunk from
     /// 110 when the key line took its own band; the copy it holds shrank
     /// further than that, which is what the 2026-08-20 rewrite was for.
-    pub const BODY_HEIGHT: i32 = 78;
-    pub const NOTICE_TOP: i32 = 194;
+    pub const BODY_HEIGHT: i32 = 96;
+    pub const NOTICE_TOP: i32 = 244;
     /// Where a step's findings and controls go. Sized for the longest thing it
     /// currently has to hold: the compatibility report, which runs to about
     /// eleven lines on a machine with a graphics card whose engines disagree.
-    pub const NOTICE_HEIGHT: i32 = 170;
+    pub const NOTICE_HEIGHT: i32 = 232;
     /// Where a step that asks a question puts its controls.
     ///
     /// The same band as [`NOTICE_TOP`], because a step either reports something
@@ -82,17 +87,21 @@ mod layout {
     /// step.
     pub const CONTROL_TOP: i32 = NOTICE_TOP;
     /// One radio button or check box. Sized for the text, not the glyph: at
-    /// 250% a 20 px row clips the descenders on this font.
-    pub const CONTROL_ROW: i32 = 24;
+    /// 250% a 20 px row clipped the descenders on the 9pt font, and this type is
+    /// a third larger again.
+    pub const CONTROL_ROW: i32 = 32;
     /// The vocabulary box. Four or five lines at the wizard's text size, which
     /// is enough for a comma-separated list to wrap and still be read back
     /// without pretending this is the place to type fifty words.
-    pub const EDIT_HEIGHT: i32 = 100;
+    pub const EDIT_HEIGHT: i32 = 132;
     /// What a question step says back — a shortcut already in use, or why an
     /// option cannot be chosen. Below the controls rather than above them, so
     /// the answer appears where the eye already is after choosing.
-    pub const STATUS_TOP: i32 = 300;
-    pub const STATUS_HEIGHT: i32 = 64;
+    ///
+    /// Below the tallest thing that can be in the control band, which is the
+    /// vocabulary box at [`EDIT_HEIGHT`] rather than the three-row radio group.
+    pub const STATUS_TOP: i32 = 388;
+    pub const STATUS_HEIGHT: i32 = 86;
     /// The download step's own bar.
     ///
     /// A second bar rather than reusing the step indicator below, which counts
@@ -101,12 +110,14 @@ mod layout {
     /// nobody reads. Created with every other control and hidden except on the
     /// step that owns it — `winsafe` panics if a control is created after its
     /// parent window is, so nothing here can be built on demand.
-    pub const TRANSFER_TOP: i32 = 376;
-    pub const TRANSFER_HEIGHT: i32 = 14;
-    pub const PROGRESS_TOP: i32 = 416;
-    pub const PROGRESS_HEIGHT: i32 = 8;
-    pub const BUTTON_TOP: i32 = 444;
-    pub const BUTTON: (i32, i32) = (96, 28);
+    pub const TRANSFER_TOP: i32 = 486;
+    pub const TRANSFER_HEIGHT: i32 = 18;
+    pub const PROGRESS_TOP: i32 = 528;
+    pub const PROGRESS_HEIGHT: i32 = 10;
+    pub const BUTTON_TOP: i32 = 554;
+    /// Wide enough for the longest label at the larger type, which is `Cancel`.
+    /// A button that fits its text at 9pt does not fit it at a third more.
+    pub const BUTTON: (i32, i32) = (124, 36);
     pub const BUTTON_GAP: i32 = 8;
 }
 
@@ -214,6 +225,14 @@ pub struct Wizard {
     /// one by looking at it. Gates Next, because a shortcut that does not work
     /// is discovered by the user pressing it and nothing happening.
     shortcut_free: Rc<Cell<bool>>,
+    /// The two fonts every control on the page is switched to in `WM_CREATE`.
+    ///
+    /// `Rc` and held here rather than a local in `new`, because the fonts are
+    /// GDI objects the controls keep referencing for as long as they draw:
+    /// dropping them earlier would leave every label painting with a deleted
+    /// handle. [`typeface::Typeface`] states the invariant its `unsafe` depends
+    /// on, and this field is what satisfies it.
+    typeface: Rc<typeface::Typeface>,
 }
 
 /// Indices into [`catalog::STEPS`] for the steps that have content.
@@ -307,12 +326,12 @@ fn shortcut_choices() -> [ShortcutChoice; 3] {
 
 /// What a [`catalog::Tone`] paints with.
 ///
-/// Colour and nothing else. **Bold is not available here**: emphasising a
-/// label's font means `WM_SETFONT`, `winsafe` only sends messages through an
-/// `unsafe` call, and this workspace sets `unsafe_code = "forbid"`. So the
-/// emphasis a reader gets is a colour plus the fact that the key line is one
-/// short line on its own — and every tone is also carried by the words, per
-/// `UI-GUIDE.md`'s rule that colour is never the only signal.
+/// Colour and nothing else, and that is now a choice rather than a limit. Bold
+/// was recorded here as unavailable until [`mod@crate::typeface`] existed; the
+/// tones stay ink-only anyway, because the key line's emphasis is already
+/// carried by its being one short line on its own, and by the words themselves —
+/// `UI-GUIDE.md`'s rule that colour is never the only signal. Weight went to the
+/// heading, where there is nothing else to distinguish.
 ///
 /// Fixed values rather than system colours for the three that mean something.
 /// The window is drawn on the dialog face (`COLOR::BTNFACE`), which these are
@@ -462,6 +481,7 @@ impl Wizard {
             // at `false` rather than `true` means a step that somehow never runs
             // its check blocks rather than waves the user through.
             shortcut_free: Rc::new(Cell::new(false)),
+            typeface: Rc::new(typeface::Typeface::new()),
         };
         wizard.wire_events();
         wizard
@@ -660,9 +680,50 @@ impl Wizard {
         ]
     }
 
+    /// Switch every control off `winsafe`'s menu-bar font.
+    ///
+    /// Every control, not the prose only. A page whose body text is a third
+    /// larger than its own buttons and check-box labels reads as a page that
+    /// forgot half of itself, and the check-box labels here are sentences —
+    /// "Keep my transcripts after I close `SpeakEasy` Mini" is not a glyph label.
+    /// The heading is the single exception, and the only other size on the page.
+    ///
+    /// Listing them by hand is deliberate. `EnumChildWindows` would catch a
+    /// control added later without anyone remembering this function, and would
+    /// also catch the heading and quietly demote it; the two progress bars have
+    /// no text at all. A missed control here shows up as one 9pt line on a page
+    /// of larger ones, which is visible in the first screenshot anybody takes.
+    fn apply_typeface(&self) {
+        self.typeface.heading(self.heading.hwnd());
+        for label in [
+            &self.position,
+            &self.key,
+            &self.body,
+            &self.notice,
+            &self.status,
+        ] {
+            self.typeface.body(label.hwnd());
+        }
+        for radio in self.provider.iter().chain(self.shortcut.iter()) {
+            self.typeface.body(radio.hwnd());
+        }
+        self.typeface.body(self.words.hwnd());
+        for check in [&self.keep_transcripts, &self.disk_logging] {
+            self.typeface.body(check.hwnd());
+        }
+        for button in [&self.back, &self.next, &self.cancel, &self.retry] {
+            self.typeface.body(button.hwnd());
+        }
+    }
+
     fn wire_events(&self) {
         let on_create = self.clone();
         self.window.on().wm_create(move |_| {
+            // Before the first `show_step`, so nothing is ever painted at the
+            // 9pt `winsafe` gave it. This is the earliest moment the controls
+            // exist: `winsafe` creates each one from a `before_on` handler for
+            // this same message, which runs ahead of this closure.
+            on_create.apply_typeface();
             on_create.show_step()?;
             // Runs for the window's whole life rather than being started and
             // stopped around the download step. A timer that only exists while
@@ -1163,9 +1224,12 @@ impl Wizard {
     ///
     /// `DestroyWindow` rather than posting `WM_CLOSE`: `PostMessage` and
     /// `SendMessage` are `unsafe` in `winsafe` — they hand a raw payload to an
-    /// arbitrary window procedure — and this workspace forbids `unsafe`
-    /// outright. Destroying the main window is the safe equivalent; `winsafe`
-    /// turns the resulting `WM_NCDESTROY` into the quit that ends `run_main`.
+    /// arbitrary window procedure. Destroying the main window is the safe
+    /// equivalent; `winsafe` turns the resulting `WM_NCDESTROY` into the quit
+    /// that ends `run_main`. `WM_SETFONT` in [`mod@crate::typeface`] is the
+    /// exception this crate makes and the reason it is the only one: a font
+    /// handle and a redraw flag are not a raw payload, and there is no safe
+    /// equivalent at all.
     fn close(&self) -> w::AnyResult<()> {
         self.window.hwnd().DestroyWindow()?;
         Ok(())

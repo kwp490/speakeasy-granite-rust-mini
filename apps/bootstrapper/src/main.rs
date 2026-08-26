@@ -54,6 +54,7 @@ mod repair;
 mod seed;
 mod shortcut;
 mod smoke;
+mod typeface;
 mod uninstall;
 mod uninstall_page;
 mod webview2;

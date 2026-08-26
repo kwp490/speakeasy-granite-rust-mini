@@ -286,11 +286,32 @@ copy, because which sentence a reader must not skip is a decision about the
 writing. Every tone is also carried by the words — a reader who cannot see the
 colour loses emphasis, never information.
 
-**Bold is not available on this surface**, and the reason is worth recording so
-it is not attempted again: emphasising a label's font means `WM_SETFONT`,
-`winsafe` sends messages only through an `unsafe` call, and this workspace sets
-`unsafe_code = "forbid"`. Colour goes through `WM_CTLCOLORSTATIC`, which
-`winsafe` wraps safely. So emphasis here is colour plus position plus brevity.
+**Both wizard windows set their own type, and there are exactly two sizes.**
+Body text is four thirds of the system UI font and the step heading is five
+thirds of it, semibold. Everything that carries words takes one of the two —
+the step counter, the key line, the body, the findings, the status line, both
+radio groups, both check boxes, the vocabulary box, every button, and the
+uninstall page's list and its "This cannot be undone." A page whose prose is a
+third larger than its own buttons reads as a page that forgot half of itself.
+
+`apps/bootstrapper/src/typeface.rs` owns this, and the sizes are a *ratio* of
+what `SPI_GETNONCLIENTMETRICS` reports rather than absolute points — a reader
+who has raised Windows' own text size is exactly the person the ratio is for,
+and forcing "12pt" would shrink the wizard for them. Every layout height in
+`wizard.rs` and `uninstall_page.rs` grew with it; the windows are 620x606 and
+560x494 logical.
+
+> **Superseded.** Until 2026-08-26 this surface drew everything at `winsafe`'s
+> one process-wide font — Segoe UI 9pt, what Windows uses for menu bars — on a
+> measure of about 105 characters, and **bold was recorded here as
+> unavailable**: emphasising a label's font means `WM_SETFONT`, `winsafe` sends
+> messages only through an `unsafe` call, and the workspace sets
+> `unsafe_code = "forbid"`. Nothing was mis-scaled; the type was correctly sized
+> for a menu bar and too small to read comfortably, which is what the owner
+> reported. `apps/bootstrapper/Cargo.toml` now declares its own `deny` in place
+> of the inherited `forbid` for the two calls that fix it, so weight is
+> available on this surface as well — the heading uses it. Colour still goes
+> through `WM_CTLCOLORSTATIC` and is still never the only signal.
 
 **Finish starts the app**, and says so if it could not. Setup that ends by
 closing its own window leaves a user who watched every step succeed looking at
@@ -377,9 +398,10 @@ is where the claims are easiest to overstate:
   deletion uses, so the figure cannot describe one set of files while another is
   removed. The label this descends from said "about 2.3 GB" for a downloaded
   runtime this fork never had, which is what a written-down size eventually
-  becomes. Measured on this machine at 250%, the page is 480x398 logical and
+  becomes. Measured on this machine at 250%, the page is 560x494 logical and
   every control fits its box, the models row reading
-  `Downloaded speech models (2.3 GB)`.
+  `Downloaded speech models (5.6 GB)` — it was 480x398 before the type grew on
+  2026-08-26, and the figure is whatever this machine happens to hold.
 - **The two-minute ceiling ends the recording out loud, and says so.** Reaching
   it is not a failure and never costs the user their words. Three things happen,
   in this order (owner decision, 2026-08-25): the stop cue sounds, a notice

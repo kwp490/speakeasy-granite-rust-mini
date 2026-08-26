@@ -122,9 +122,11 @@ $allowedDependencies = @{
     # own dependencies -- hardware probing, downloads, the native GUI -- are
     # added here as the stages that use them land, not ahead of them.
     # `winsafe` for the native wizard: `gui` for its chrome, `shell` for the
-    # IShellLink that Start Menu shortcuts need once NSIS is gone. Both are safe
-    # bindings, which is what makes a native wizard possible under this
-    # workspace's `unsafe_code = "forbid"`.
+    # IShellLink that Start Menu shortcuts need once NSIS is gone. Almost all of
+    # it is safe bindings, which is what made a native wizard possible at all;
+    # the two calls that are not are in `src/typeface.rs`, under the crate-local
+    # `unsafe_code = "deny"` that this one crate declares in place of the
+    # workspace's `forbid`.
     # `speakeasy-domain` supplies `CancelToken` and nothing else: it is what makes
     # the reused download and install lifecycle interruptible, and setup's whole
     # resume story rests on being able to stop a transfer without discarding it.

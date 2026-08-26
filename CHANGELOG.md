@@ -3,8 +3,25 @@
 ## 1.6.0 — 2026-08-26
 
 Dictation can run on the graphics card, which is the feature this fork has been
-building toward since it started, and one data-loss defect found while releasing
-it.
+building toward since it started, one data-loss defect found while releasing it,
+and readable text in setup.
+
+### Setup and the uninstaller are readable — 2026-08-26
+
+Reported from use: the text in both windows was small and hard to read. It was —
+every word of it was drawn at the size Windows uses for **menu bars**, on lines
+of about 105 characters, with the page heading, the step counter and the body all
+the same size as each other.
+
+Body text is now a third larger and the heading is larger again and semibold, so
+a page has a shape before it has been read. That applies to everything with words
+in it, buttons and check-box labels included, and both windows grew to hold it.
+
+Two things worth saying about how it is sized. It is a **ratio** of your own
+Windows text size rather than a fixed point size, so raising Windows'
+Accessibility → Text size raises this too instead of overriding it. And it
+inherits the face your system actually uses, so a Windows installed in a language
+that ships a different UI font gets that font, larger.
 
 ### Dictation on the graphics card — 2026-08-26
 

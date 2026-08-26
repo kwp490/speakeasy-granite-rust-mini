@@ -42,10 +42,35 @@ sha2.workspace = true
 # is native rather than a Tauri window because the thing that provisions
 # WebView2 is the thing this replaces, and repair mode runs on already-broken
 # machines. `gui` brings the wizard chrome and `shell` brings IShellLink, which
-# is what Start Menu shortcuts need once NSIS is gone. Both are reachable
-# without `unsafe`, which is the property that made a native wizard possible at
-# all under this workspace's `unsafe_code = "forbid"`.
+# is what Start Menu shortcuts need once NSIS is gone. Almost all of it is
+# reachable without `unsafe`, which is the property that made a native wizard
+# possible at all; the two calls that are not are in `typeface.rs`, under the
+# lint table below.
 winsafe = { workspace = true, features = ["gui", "shell"] }
 
-[lints]
-workspace = true
+# Spelled out rather than `[lints] workspace = true`, and the only crate in the
+# workspace that does not inherit. The one difference is `unsafe_code`, which is
+# `forbid` at the workspace root and stays there.
+#
+# Why it has to differ here. `winsafe` sets one process-wide font on every
+# control at creation and offers nothing that changes it afterwards; the only way
+# is `WM_SETFONT` through `SendMessage`, which `winsafe` marks `unsafe`. So the
+# whole setup wizard and the uninstall page drew at the size Windows uses for
+# menu bars, which the owner reported as too small to read on 2026-08-26.
+# `forbid` cannot be relaxed by an `#[allow]` below it, so the choice was between
+# this table, painting every label ourselves, and rebuilding the wizard from an
+# `.rc` dialog template. Owner decision, same day; `src/typeface.rs` carries the
+# comparison.
+#
+# `deny`, not `allow`: every `unsafe` block in this crate needs its own
+# `#[allow(unsafe_code)]` with a `SAFETY:` note, and there are exactly two, both
+# in `typeface.rs`. And the root stays `forbid` deliberately, because it is
+# load-bearing elsewhere for more than style — under edition 2024 it is what
+# makes `std::env::set_var` unreachable from a test, which is why
+# `speakeasy-storage` resolves its directory through a parameter instead.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"

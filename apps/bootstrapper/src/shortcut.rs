@@ -2,8 +2,10 @@
 //!
 //! The one job in the NSIS replacement that genuinely needs COM: a `.lnk` is a
 //! structured-storage file, not something to write by hand, and `IShellLink` is
-//! the only supported way to produce one. `winsafe` binds it safely, which is
-//! what keeps this reachable under the workspace's `unsafe_code = "forbid"`.
+//! the only supported way to produce one. `winsafe` binds it safely, so this
+//! needs none of the `#[allow(unsafe_code)]` that [`mod@crate::typeface`] has —
+//! and a COM interface reached through a raw pointer would have been a far
+//! harder case to make than a font handle.
 //!
 //! NSIS created one shortcut, to the repair tool. The bootstrapper is now both
 //! setup and repair, so the shortcut it creates points at itself — and the

@@ -42,6 +42,7 @@ use winsafe::prelude::*;
 use winsafe::{self as w, co, gui};
 
 use crate::catalog;
+use crate::typeface;
 use crate::uninstall::{Removable, Removals};
 
 /// Layout, in DPI-independent units.
@@ -60,29 +61,36 @@ mod layout {
 
     pub const MARGIN: i32 = 16;
     pub const HEADING_TOP: i32 = 16;
-    pub const HEADING_HEIGHT: i32 = 26;
-    pub const INTRO_TOP: i32 = 50;
-    pub const INTRO_HEIGHT: i32 = 20;
-    pub const CHECK_TOP: i32 = 78;
+    pub const HEADING_HEIGHT: i32 = 32;
+    pub const INTRO_TOP: i32 = 54;
+    pub const INTRO_HEIGHT: i32 = 26;
+    pub const CHECK_TOP: i32 = 88;
     /// One check box. Sized for the text rather than the glyph — at 250% a
-    /// 20 px row clips this font's descenders, which is the measurement the
-    /// wizard's own `CONTROL_ROW` records.
-    pub const CHECK_ROW: i32 = 24;
+    /// 20 px row clipped the descenders on the 9pt font this page used to draw
+    /// with, which is the measurement the wizard's own `CONTROL_ROW` records,
+    /// and the type is a third larger since 2026-08-26.
+    pub const CHECK_ROW: i32 = 32;
     /// Where the list of files setup did not place goes.
     ///
-    /// Measured on this machine at 250%: the heading plus three staged CUDA
-    /// libraries wraps to four lines of a 41 px cell, 164 px inside the 240 px
-    /// this reserves -- so one spare line, not the two the arithmetic suggests,
-    /// because the heading itself takes one. A longer list clips rather than
-    /// overlapping the sentence below it.
+    /// Measured on this machine at 250% while the page was still drawing at
+    /// 9pt: the heading plus three staged CUDA libraries wrapped to four lines
+    /// of a 41 px cell, 164 px inside the 240 px then reserved -- one spare
+    /// line, not the two the arithmetic suggests, because the heading itself
+    /// takes one. Grown by the same third as the type so that stays true. A
+    /// longer list clips rather than overlapping the sentence below it.
     pub const UNRECOGNISED_TOP: i32 = CHECK_TOP + CHECK_ROW * CHECK_ROWS + MARGIN;
-    pub const UNRECOGNISED_HEIGHT: i32 = 96;
+    pub const UNRECOGNISED_HEIGHT: i32 = 128;
     pub const IRREVERSIBLE_TOP: i32 = UNRECOGNISED_TOP + UNRECOGNISED_HEIGHT + 8;
-    pub const IRREVERSIBLE_HEIGHT: i32 = 20;
+    pub const IRREVERSIBLE_HEIGHT: i32 = 26;
     pub const BUTTON_TOP: i32 = IRREVERSIBLE_TOP + IRREVERSIBLE_HEIGHT + MARGIN;
-    pub const BUTTON: (i32, i32) = (96, 28);
+    /// The wizard's button, to the pixel. The two windows are the same product
+    /// and a user sees both; a Remove button narrower than the Next button they
+    /// pressed eight times reads as a different program.
+    pub const BUTTON: (i32, i32) = (124, 36);
     pub const BUTTON_GAP: i32 = 8;
-    pub const WINDOW: (i32, i32) = (480, BUTTON_TOP + BUTTON.1 + MARGIN);
+    /// Widened from 480 with the type: the check-box labels are sentences, and
+    /// one that wraps in a fixed-height row is one that clips.
+    pub const WINDOW: (i32, i32) = (560, BUTTON_TOP + BUTTON.1 + MARGIN);
 }
 
 /// The page, and the answer it is collecting.
@@ -90,6 +98,14 @@ mod layout {
 struct Page {
     window: gui::WindowMain,
     boxes: Rc<Vec<gui::CheckBox>>,
+    /// The page's own title, and the only control that takes the heading size.
+    heading: gui::Label,
+    /// The intro and the list of files setup did not place. Held rather than
+    /// dropped on the floor as `_intro` and `_unrecognised` were, because
+    /// [`Self::apply_typeface`] has to reach every control that carries text —
+    /// and a label whose Rust handle is gone still draws, at whatever font it
+    /// was created with.
+    prose: Rc<Vec<gui::Label>>,
     irreversible: gui::Label,
     remove: gui::Button,
     cancel: gui::Button,
@@ -104,6 +120,10 @@ struct Page {
     /// Set once the window has been shown, so the focus is only forced on the
     /// first paint. After that the focus belongs to wherever the user tabbed.
     focused: Rc<Cell<bool>>,
+    /// The fonts, for the reason [`crate::wizard::Wizard`]'s own field gives:
+    /// they are GDI objects the controls draw with, so they have to outlive the
+    /// controls.
+    typeface: Rc<typeface::Typeface>,
 }
 
 /// Ask what to remove, and return the answer.
@@ -168,18 +188,18 @@ impl Page {
                 },
             )
         };
-        let _heading = label(
+        let heading = label(
             layout::HEADING_TOP,
             layout::HEADING_HEIGHT,
             catalog::UNINSTALL_HEADING,
         );
-        let _intro = label(
+        let intro = label(
             layout::INTRO_TOP,
             layout::INTRO_HEIGHT,
             catalog::UNINSTALL_INTRO,
         );
         let boxes = Self::check_boxes(&window, content_width, initial);
-        let _unrecognised = label(
+        let unrecognised = label(
             layout::UNRECOGNISED_TOP,
             layout::UNRECOGNISED_HEIGHT,
             &unrecognised_text(unrecognised),
@@ -193,11 +213,14 @@ impl Page {
         let page = Self {
             window,
             boxes: Rc::new(boxes),
+            heading,
+            prose: Rc::new(vec![intro, unrecognised]),
             irreversible,
             remove,
             cancel,
             answer: Rc::new(RefCell::new(None)),
             focused: Rc::new(Cell::new(false)),
+            typeface: Rc::new(typeface::Typeface::new()),
         };
         page.wire_events();
         page
@@ -282,7 +305,38 @@ impl Page {
         ]
     }
 
+    /// Switch every control off `winsafe`'s menu-bar font.
+    ///
+    /// The wizard's own [`crate::wizard::Wizard::apply_typeface`] says why this
+    /// is a hand-written list and why it covers the check boxes and buttons
+    /// rather than the prose alone. It matters more here than there: this page
+    /// is the last thing a user reads before 4 GB of their data is deleted, and
+    /// the sentence that says so cannot be the small one.
+    fn apply_typeface(&self) {
+        self.typeface.heading(self.heading.hwnd());
+        for label in self.prose.iter() {
+            self.typeface.body(label.hwnd());
+        }
+        self.typeface.body(self.irreversible.hwnd());
+        for check in self.boxes.iter() {
+            self.typeface.body(check.hwnd());
+        }
+        for button in [&self.remove, &self.cancel] {
+            self.typeface.body(button.hwnd());
+        }
+    }
+
     fn wire_events(&self) {
+        // Before anything is shown, and for the reason the wizard's own
+        // `WM_CREATE` handler gives: this is the first moment the controls
+        // exist, because `winsafe` creates each one from a `before_on` handler
+        // for this same message.
+        let on_create = self.clone();
+        self.window.on().wm_create(move |_| {
+            on_create.apply_typeface();
+            Ok(0)
+        });
+
         // `BS::DEFPUSHBUTTON` makes Remove the *default* button and does not
         // make it the *focused* one, and the owner's decision of 2026-08-21 was
         // about what happens when somebody presses Enter without reading.
