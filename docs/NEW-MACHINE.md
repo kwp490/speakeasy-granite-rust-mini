@@ -104,30 +104,32 @@ download.
 single most surprising thing about the setup, and it is why the app has no
 provider-override control: no setting can conjure a CUDA-built worker binary.
 
-A dev checkout always builds the CPU worker, because `speakeasy-granite`'s
-`cuda` feature would make the CUDA Toolkit a hard build prerequisite for the
-whole gate. To put it on the GPU on a machine that has the Toolkit:
+**The installer does this for you now** (since 1.6.0, 2026-08-26). Its "choose
+how it runs" page offers the graphics card on a machine with a supported NVIDIA
+card, and setup fetches the CUDA worker — pinned by digest in
+`models/trusted-manifest.json`, like the model weights — along with the two CUDA
+libraries it loads. It records what it *proved* it installed, not what was
+chosen: look for `installed=` and `device=` in the `granite_warm` log line, and
+`speakeasy-bootstrapper --verify-provider` re-asks the same question of an
+installed build without a reinstall. An upgrade re-stages the worker, so it no
+longer reverts to the processor silently.
+
+So the rest of this section is only for a **dev checkout**, which always builds
+the CPU worker because `speakeasy-granite`'s `cuda` feature would make the CUDA
+Toolkit a hard build prerequisite for the whole gate. There used to be a
+`scripts\Enable-GraniteCuda.ps1` for this; it was retired on 2026-08-26 with the
+release that made it unnecessary, and staging a worker by hand is now:
 
 ```powershell
-.\scripts\Enable-GraniteCuda.ps1          # build and stage
-.\scripts\Enable-GraniteCuda.ps1 -Verify  # which worker is live
-.\scripts\Enable-GraniteCuda.ps1 -Revert  # back to CPU
+cargo build --release -p speakeasy-granite-worker --features cuda
 ```
 
-**Any reinstall or upgrade silently puts Granite back on the CPU**, because it
-overwrites `proof\granite-worker.exe`. Re-run the script afterwards; `-Verify`
-is how you tell.
-
-The shipped installer does **not** close this gap yet, and says so rather than
-appearing to: its "choose how it runs" page shows the graphics-card option
-disabled, because no CUDA worker has been published for it to install. When one
-is — pinned by digest in `models/trusted-manifest.json`, like the model weights
-— the option becomes selectable with no other change, and setup records that it
-installed the GPU configuration. What setup already records today is that it
-installed the *processor* configuration, which is what lets the app report a
-CPU run as expected rather than as a silent fallback: look for `installed=` in
-the `granite_warm` log line. This script's `-Verify` flag is the by-hand version
-of the same question.
+then copy that exe over `target\debug\proof\granite-worker.exe` and put the three
+CUDA libraries beside it — the easiest source is an installed 1.6.0's own
+`proof\` directory, where setup has already placed the versions the catalog pins.
+`Stage-DevRuntime.ps1` overwrites that worker on every `npm run tauri -- dev`, so
+run `npm run dev` and the binary separately when the card is what you are
+testing.
 
 Measured on an RTX 5090: Granite's resident pass is 1,571.9 ms on CPU against
 156.4 ms on CUDA — RTF 0.158 versus 0.0157 — holding ~3.3 GiB of VRAM. Cold load

@@ -407,9 +407,17 @@ pub const PROVIDER_VERIFY_UNAVAILABLE: &str = "The engine did not run, so there 
 /// start the process, and names no file in the error. Naming them *is* the
 /// instruction, which is why `GpuPayloadRejection::RuntimeFilesMissing` carries
 /// them this far.
+/// The remedy is **setup**, and it was a developer script until 2026-08-26.
+/// This said "re-run scripts/Enable-GraniteCuda.ps1", which was the only way to
+/// get a CUDA worker onto a machine before one was published — and which stopped
+/// existing when setup learned to fetch it. Naming a script that is not there
+/// is worse than naming nothing: it is an instruction that cannot be followed,
+/// in the one message whose whole job is to be actionable.
 pub fn provider_verify_runtime_missing(files: &[String]) -> String {
     format!(
-        "The graphics-card engine cannot start: {} is not beside the worker. Restore it, or re-run scripts/Enable-GraniteCuda.ps1, then try again.",
+        "The graphics-card engine cannot start: {} is not beside the worker. Run setup again and \
+         choose the graphics card — it fetches these and puts them back. Choosing the processor \
+         works too, and is slower.",
         files.join(", ")
     )
 }

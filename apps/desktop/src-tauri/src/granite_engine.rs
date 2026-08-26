@@ -1774,10 +1774,18 @@ mod tests {
 
     /// Whether a built worker carries llama.cpp's CUDA backend.
     ///
-    /// The same `ggml-cuda` marker `scripts/GraniteWorkerProvider.ps1` and
-    /// `Enable-GraniteCuda.ps1` read, and for the reason their comments give: the
-    /// CUDA build is an order of magnitude larger than the CPU one (54 MB against
-    /// 4 MB measured 2026-08-21), so size is a proxy where the marker is the fact.
+    /// The same `ggml-cuda` marker `scripts/GraniteWorkerProvider.ps1` reads, and
+    /// for the reason its comments give: the CUDA build is an order of magnitude
+    /// larger than the CPU one (54 MB against 4 MB measured 2026-08-21), so size
+    /// is a proxy where the marker is the fact.
+    ///
+    /// It was also read by `Enable-GraniteCuda.ps1`, which staged a CUDA worker
+    /// over an installed one and was retired on 2026-08-26 when setup learned to
+    /// fetch a published worker itself. To stage one for the hardware tests now:
+    /// `cargo build --release -p speakeasy-granite-worker --features cuda`, then
+    /// copy that exe and the three CUDA libraries into `target/debug/proof/` —
+    /// the libraries are in an installed build's own `proof/` directory, put
+    /// there by setup.
     fn image_is_cuda_build(worker_exe: &Path) -> bool {
         let image = std::fs::read(worker_exe).expect("the staged worker must be readable");
         image
@@ -1842,7 +1850,7 @@ mod tests {
         );
         assert!(
             image_is_cuda_build(&worker_exe),
-            "the staged worker is not a CUDA build; run scripts/Enable-GraniteCuda.ps1"
+            "the staged worker is not a CUDA build; see this test's documentation"
         );
 
         let manifest = bundled_manifest().expect("the bundled manifest must parse");

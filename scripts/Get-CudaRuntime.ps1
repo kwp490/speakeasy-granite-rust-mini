@@ -37,11 +37,19 @@ to a real pin.
 
 # The toolkit comparison, and why it is here
 
-`Enable-GraniteCuda.ps1` stages the libraries from the *installed CUDA Toolkit*,
-not from these archives, because a machine building a CUDA worker already has
-them on disk. That is only sound if the toolkit's bytes are the bytes this
+`Enable-GraniteCuda.ps1` staged the libraries from the *installed CUDA Toolkit*
+rather than from these archives, because a machine building a CUDA worker already
+has them on disk. That was only sound if the toolkit's bytes were the bytes this
 catalog pins, and "the version numbers look the same" is not that claim. So this
-script compares them by digest and says so per file. A mismatch is not
+script compares them by digest and says so per file.
+
+That script was retired on 2026-08-26, when setup began fetching these archives
+itself, so the comparison no longer guards a staging path. **It is kept because
+it is now the cheaper claim to make**: it says the archive a user downloads
+contains the same code as a real NVIDIA toolkit installation, which nothing else
+here checks and which no amount of digest-pinning the archive can establish on
+its own. A dev staging a worker by hand still copies from the toolkit, and this
+is still how they know those bytes match. A mismatch is not
 necessarily wrong -- it means the toolkit is a different component version than
 the one being pinned -- but it does mean the staged libraries are not the pinned
 ones, and someone has to choose which to move.

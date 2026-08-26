@@ -33,9 +33,14 @@ use crate::{CancelToken, Deadline, DomainError};
 /// answers `WorkerErrorCode::ProtocolMismatch` *gracefully* from the handler
 /// rather than dying in the reader.
 ///
-/// That matters because host and worker no longer always ship together:
-/// `scripts/Enable-GraniteCuda.ps1` deliberately stages a locally built Granite
-/// worker over an installed one. A mismatched pair now reports what it is.
+/// That matters because host and worker no longer always ship together, and
+/// since 2026-08-26 that is true of a *shipped* installation rather than only a
+/// hand-staged one: the CUDA Granite worker is fetched from its own pinned
+/// artifact, versioned by the bytes it is rather than by the release that
+/// installs it, so an app and a worker from different builds is an ordinary
+/// state. It used to take `scripts/Enable-GraniteCuda.ps1` staging a locally
+/// built worker over an installed one, which is why this was written. A
+/// mismatched pair reports what it is.
 pub const WORKER_PROTOCOL_VERSION: u32 = 2;
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_AUDIO_SAMPLES_PER_REQUEST: usize = 16_000;

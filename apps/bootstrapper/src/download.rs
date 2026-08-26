@@ -361,7 +361,7 @@ fn runtime_label(id: &str) -> &'static str {
 /// name — so a CUDA worker placed first is overwritten by the copy, silently,
 /// and the engine check then proves the processor on a machine that asked for
 /// and downloaded the card. That is exactly the failure
-/// `scripts/Enable-GraniteCuda.ps1` warns about for a reinstall, which this
+/// `scripts/Enable-GraniteCuda.ps1` warned about for a reinstall, which this
 /// step also fixes: an upgrade re-lays the CPU worker and this puts the CUDA one
 /// back, every time, instead of leaving Granite silently on the processor.
 ///

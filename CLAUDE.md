@@ -253,7 +253,10 @@ Every one of these produced a plausible, wrong result rather than an error.
   tests, which read that same path, without failing them. Restore the worker and
   start `npm run dev` and `target/debug/ai-speakeasy-mini.exe` separately when
   the graphics-card path is what you are looking at. This is the same shape as
-  `Enable-GraniteCuda.ps1` reverting on reinstall, one directory over.
+  `Enable-GraniteCuda.ps1` reverting on reinstall, one directory over — and it is
+  the half that survived: setup re-stages the worker on every install now, so the
+  installed build no longer reverts, but `Stage-DevRuntime.ps1` still overwrites
+  the dev one.
 - **The three CUDA libraries fail in three different ways, and one of them never
   loads at all.** Measured 2026-08-21 with the toolkit stripped from `PATH`,
   which is the only way to ask the question on a machine that can build the
@@ -788,14 +791,17 @@ Every one of these produced a plausible, wrong result rather than an error.
 - **`install-provider.txt` has exactly one writer and two callers.** The writer is
   `seed::record_installed_provider`, fed from `smoke::verify_engine`'s verdict.
   The callers are the wizard's last page and the bootstrapper's
-  `--verify-provider` verb, which `scripts/Enable-GraniteCuda.ps1` invokes after
-  staging a CUDA worker and after `-Revert`. The script reads no NVML, classifies
-  nothing and writes no marker — a second implementation of the three-gate proof
-  would be a second source of truth for the same claim, which is the shape of the
-  defect the 2026-08-20 work removed. **Neither skip is neutral:** staging without
-  re-proving reports `running_beyond_record`, and reverting without re-proving
-  manufactures `gpu_install_not_operational` from the script meant to undo the
-  change.
+  `--verify-provider` verb. A third caller, `scripts/Enable-GraniteCuda.ps1`,
+  invoked that verb after staging a CUDA worker by hand and after `-Revert`; it
+  was **retired on 2026-08-26** when setup began fetching a published worker. It
+  read no NVML, classified nothing and wrote no marker — a second implementation
+  of the three-gate proof would have been a second source of truth for the same
+  claim, which is the shape of the defect the 2026-08-20 work removed, and the
+  reason retiring the script changed nothing about this rule. Anyone staging a
+  worker by hand now inherits its obligation: **skipping the re-prove is not
+  neutral in either direction.** Staging without re-proving reports
+  `running_beyond_record`; putting the processor worker back without re-proving
+  manufactures `gpu_install_not_operational`.
 - **The NVML probe is a parameter threaded through `GraniteEnvironment`, not an
   environment variable.** A production switch whose only purpose is to make the
   app misreport its own provider is the same shape as the radio button that

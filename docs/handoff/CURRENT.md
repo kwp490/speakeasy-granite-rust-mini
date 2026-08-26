@@ -60,12 +60,25 @@ Read `CLAUDE.md` first. This file assumes it.
 > inverted on the pin**, including one hardcoded artifact count nobody predicted,
 > and `Test-SetupWizard.ps1` had to stop hardcoding `cpu`.
 >
-> **`scripts/Enable-GraniteCuda.ps1` is now retirable** and has not been retired.
-> Its own header says it "should be retired rather than maintained" once setup
-> fetches a published worker, and setup does. Its `-Verify` and `-Revert` verbs
-> still have local use, so this is a decision rather than a deletion — but the
-> `granite-worker.cpu.exe` entry in `KNOWN_PROOF_ORPHANS` exists only for it, and
-> the silent-reversion-on-upgrade hazard it documents is fixed now.
+> **`scripts/Enable-GraniteCuda.ps1` is retired (2026-08-26).** Its own header
+> said it "should be retired rather than maintained" once setup fetches a
+> published worker, and setup does. Deleting it cost a **54-reference sweep across
+> 18 files**, and that is the part worth reading: one was *shipped user copy*
+> telling people to run it (`provider_verify_runtime_missing`), one was *shipped
+> data* — the trusted manifest's own `limitations` still said "there is no GPU
+> Granite configuration in this catalog" — and the rest split into legitimate
+> history, which was left alone, and present-tense claims about a script that no
+> longer exists, which were not. Two counts changed as a consequence:
+> `--verify-provider`'s VRAM guard was "the second of two" and is now the only
+> one, and `running_beyond_record` went from a state a script produced on purpose
+> to one that takes a person copying a worker in by hand.
+>
+> **`KNOWN_PROOF_ORPHANS` deliberately did *not* retire with it**, against its own
+> note saying the two would go together. That note assumed nobody would still have
+> `granite-worker.cpu.exe`, which is false for every machine the script ran on.
+> Dropping the entry would not leave the file — the second pass takes it either
+> way — it would move it into `removed_unrecognised` and put a question in front
+> of a user about a file this project's own tooling created.
 >
 > **Item 18 is a data-loss defect found the hard way during this release**, and it
 > is in 1.6.0 because it was found before the tag. `--keep-user-data` was
@@ -1437,6 +1450,13 @@ SHA-256 dominates any timing that verifies a model — 17.5 s in debug against
 2.36 s in release on the same rig.
 
 #### Before you start
+
+> **Superseded in one respect (2026-08-26).** The staging steps below invoke
+> `scripts\Enable-GraniteCuda.ps1`, which is retired. Setup installs the
+> graphics-card worker itself now, so the way to get a card into this measurement
+> is to choose the graphics card on setup's provider page. The rest of this
+> section — measure in release on an installed build, what to watch, what each
+> signal means — is unchanged and is why it is kept rather than rewritten.
 
 1. `Get-Process SpeakEasy*` — nothing running, or the single-instance lock
    silently absorbs the launch and you test the old binary.

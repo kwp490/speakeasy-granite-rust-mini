@@ -122,10 +122,17 @@ pub struct Wizard {
     /// What a question step says back. Shares the notice's band; see
     /// [`layout::STATUS_TOP`].
     status: gui::Label,
-    /// Which configuration to install. Two buttons even though only one of them
-    /// can be chosen today, because the choice is real and the reason the other
-    /// is unavailable is worth showing — a machine with a graphics card and no
-    /// mention of it reads as a machine setup did not look at.
+    /// Which configuration to install, and since 2026-08-26 the answer decides
+    /// what [`download::plan`] fetches. Both buttons are live on a machine whose
+    /// card qualifies; on one whose does not, the graphics-card button is shown
+    /// **disabled with the reason** rather than hidden, because a machine with a
+    /// graphics card and no mention of it reads as a machine setup did not look
+    /// at.
+    ///
+    /// Only one could be chosen until the CUDA worker was published, which is
+    /// why the plan reading the machine's capability instead of this answer went
+    /// unnoticed: the two values were identical for as long as the option was
+    /// always disabled.
     provider: gui::RadioGroup,
     /// The activation shortcut, from [`shortcut_choices`].
     shortcut: gui::RadioGroup,
@@ -1147,7 +1154,7 @@ impl Wizard {
         // the **processor** worker under the same name, so a CUDA worker staged
         // first is overwritten by that copy without a word. `perform` merges
         // rather than replaces, so this also runs on every upgrade — which is
-        // the silent reversion `scripts/Enable-GraniteCuda.ps1` documents as its
+        // the silent reversion `scripts/Enable-GraniteCuda.ps1` documented as its
         // sharpest edge, and the reason that script can now be retired.
         Ok(download::stage_graphics_card_payload(provider, &root).err())
     }

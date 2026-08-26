@@ -143,11 +143,12 @@ pub struct Outcome {
     /// Files removed from `proof/` that this installer did not put there.
     ///
     /// Reported by name rather than counted, because they are the one thing an
-    /// uninstall removes that nobody declared: today that is
-    /// `scripts/Enable-GraniteCuda.ps1`'s staged CUDA libraries, and tomorrow it
-    /// is whatever the next interim script leaves. They used to be spared
-    /// forever and silently. Removing them without saying so would be the same
-    /// silence pointing the other way.
+    /// uninstall removes that nobody declared: it was
+    /// `scripts/Enable-GraniteCuda.ps1`'s staged CUDA libraries until setup
+    /// began staging those itself on 2026-08-26, and it is whatever the next
+    /// interim script leaves. They used to be spared forever and silently.
+    /// Removing them without saying so would be the same silence pointing the
+    /// other way.
     pub removed_unrecognised: Vec<String>,
 }
 
@@ -317,10 +318,18 @@ const INSTALLED_PROOF_FILES: &[&str] = &["granite-worker.exe"];
 /// so the fetched runtime survives an upgrade — so an orphan is invisible to
 /// every rule above and survives forever until something names it.
 ///
-/// `granite-worker.cpu.exe` is left by `scripts/Enable-GraniteCuda.ps1`, which
-/// renames the CPU worker aside before staging a CUDA one. That script is
-/// labelled interim and retires when setup fetches a published worker; this
-/// entry retires with it.
+/// `granite-worker.cpu.exe` was left by `scripts/Enable-GraniteCuda.ps1`, which
+/// renamed the CPU worker aside before staging a CUDA one.
+///
+/// **That script was retired on 2026-08-26 and this entry deliberately was
+/// not**, against its own earlier note saying the two would go together. That
+/// note assumed no machine would still be carrying the file, and that is false
+/// for every machine the script ever ran on — the file is still in `proof/`
+/// there, and `copy_tree` merges, so no upgrade removes it. Dropping the entry
+/// would not leave the file behind; the second pass takes it either way. It
+/// would move it into [`Outcome::removed_unrecognised`], which puts a question
+/// in front of the user about a file this project's own tooling created. Naming
+/// it here is the cheaper truth, and it costs one line until nobody has it.
 const KNOWN_PROOF_ORPHANS: &[&str] = &["granite-worker.cpu.exe"];
 
 /// What setup *stages* into `proof/` rather than ships there.

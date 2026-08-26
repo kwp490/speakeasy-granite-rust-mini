@@ -205,17 +205,28 @@ Setup's engine check requires all three before `install-provider.txt` says
 `cuda`, and writes nothing at all if the check never ran (the app reads that as
 `unrecorded`). The bootstrapper's `--verify-provider` verb runs that same check
 against an installed build and rewrites the marker from its verdict, so the
-record can be re-proved without a reinstall — which is what
-`scripts/Enable-GraniteCuda.ps1` calls after it stages a CUDA worker, and after
-`-Revert` puts the processor one back. **Two callers, one implementation.** The
-script reads no NVML and writes no marker: `install-provider.txt` having exactly
-one writer is what makes a claim assembled from an intention unrepeatable, and a
-PowerShell re-implementation of the three gates would have been a second writer
-wearing a different hat. The app re-checks the third at every warm and compares it against
+record can be re-proved without a reinstall. **Two callers, one implementation**
+— the wizard's last page and that verb. Until 2026-08-26 there was a third
+caller, `scripts/Enable-GraniteCuda.ps1`, which staged a CUDA worker by hand and
+then invoked `--verify-provider` rather than classifying anything itself;
+`install-provider.txt` having exactly one writer is what makes a claim assembled
+from an intention unrepeatable, and a PowerShell re-implementation of the three
+gates would have been a second writer wearing a different hat. That script was
+retired with the release that made staging by hand unnecessary, and the rule it
+respected is why retiring it changed nothing here.
+The app re-checks the third at every warm and compares it against
 the record. `ProviderIntegrity` has five values: `ok`, `unrecorded`,
 `gpu_install_not_operational` — the actionable fault — `running_beyond_record`,
-which is what `scripts/Enable-GraniteCuda.ps1` produces on purpose and is
-disclosed rather than treated as a failure, and `gpu_record_unconfirmed`.
+which is disclosed rather than treated as a failure, and
+`gpu_record_unconfirmed`.
+
+`running_beyond_record` is running on the card beyond what the installation was
+recorded as providing, and it became much harder to reach on 2026-08-26.
+`scripts/Enable-GraniteCuda.ps1` used to produce it on purpose, by staging a CUDA
+worker onto an installation recorded as `cpu`; with that script retired, it takes
+someone copying a worker in by hand. The state stays, because that is still a
+thing a person can do and the honest answer to it is disclosure rather than a
+fault.
 
 That fifth one is the fault's other half, split out on 2026-08-21. Only a
 **definitive** negative is a fault: a worker with no CUDA backend, or one NVML

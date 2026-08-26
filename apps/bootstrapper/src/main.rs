@@ -125,9 +125,10 @@ enum Mode<'a> {
     /// proved.
     ///
     /// Exists so that `install-provider.txt` keeps having exactly one writer.
-    /// `scripts/Enable-GraniteCuda.ps1` stages a CUDA worker over an installed
-    /// processor build, which changes the answer to a question only setup had
-    /// ever asked — and the alternative was a PowerShell script that read NVML
+    /// `scripts/Enable-GraniteCuda.ps1` used to stage a CUDA worker over an
+    /// installed processor build, which changed the answer to a question only
+    /// setup had ever asked — and the alternative was a PowerShell script that
+    /// read NVML
     /// and wrote the marker itself. That would be a second implementation of the
     /// three-gate proof, free to drift from this one, and the defect this whole
     /// surface exists to prevent was a *second* source of truth for the same
@@ -386,8 +387,10 @@ fn place(install_root: Option<&std::ffi::OsStr>, destination: console::Destinati
 /// a resident worker belonging to the running app is a second process on the
 /// same card. That does not make this check wrong, but a card with only enough
 /// free memory for one of them makes it wrong in the direction that matters,
-/// recording `cpu` for an installation that is fine. `Enable-GraniteCuda.ps1`
-/// already refuses for its own reason, so this is the second of two.
+/// recording `cpu` for an installation that is fine. This was "the second of
+/// two" until 2026-08-26, the other being `Enable-GraniteCuda.ps1`'s own
+/// refusal; that script is retired, so it is the only one now — worth knowing
+/// before anyone decides it is redundant.
 fn verify_provider(
     install_root: Option<&std::ffi::OsStr>,
     destination: console::Destination,

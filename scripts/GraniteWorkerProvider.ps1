@@ -6,12 +6,13 @@
 
 .DESCRIPTION
     Dot-sourced by the two scripts that assemble a payload --
-    `Build-LocalInstaller.ps1` and `Invoke-ProofPackage.ps1` -- and by
-    `Enable-GraniteCuda.ps1`, which stages the same libraries into an installed
-    build. It exists as one file rather than as a function in each because they
-    would drift, and the drift lands as a payload that claims a provider it does
-    not carry, or as a staging script that copies libraries under names nothing
-    is looking for.
+    `Build-LocalInstaller.ps1` and `Invoke-ProofPackage.ps1`. It was also
+    dot-sourced by `Enable-GraniteCuda.ps1`, which staged the same libraries into
+    an installed build and was retired on 2026-08-26 when setup learned to fetch
+    a published worker itself. It exists as one file rather than as a function in
+    each because they would drift, and the drift lands as a payload that claims a
+    provider it does not carry, or as libraries copied under names nothing is
+    looking for.
 
     **The question it answers is "packaged", not "works".** A worker with its
     libraries beside it can still run on the processor -- a refusing driver, a
@@ -27,7 +28,13 @@
     fires. It was written before it was needed because the moment it is needed is
     the moment a CUDA worker is first packaged, and that is the worst moment to be
     writing it. `Get-RequiredCudaRuntimeFile` stopped being unused on 2026-08-21,
-    when `Enable-GraniteCuda.ps1` began staging from it.
+    when `Enable-GraniteCuda.ps1` began staging from it; that script is gone and
+    the packaging check here is what reads it now.
+
+    A CUDA worker *is* packaged as of 2026-08-26, but not into the payload: setup
+    fetches it from the trusted manifest at install time, so the shipped payload
+    is still CPU-only and these two functions still guard a case that does not
+    arise. That is the same reason they were written early, unchanged.
 #>
 
 Set-StrictMode -Version Latest
@@ -41,12 +48,13 @@ function Get-GraniteWorkerProvider {
     .DESCRIPTION
         Read out of the binary rather than inferred from how it was built, because
         the build flag and the file that ends up in the payload are two different
-        things -- `Enable-GraniteCuda.ps1` copies one over the other on purpose,
-        and a `--features cuda` build left in `target\release` outlives the
-        command that made it.
+        things: a `--features cuda` build left in `target\release` outlives the
+        command that made it, and `Stage-DevRuntime.ps1` copies whichever one is
+        sitting there. `Enable-GraniteCuda.ps1` used to copy one over the other on
+        purpose until it was retired on 2026-08-26.
 
-        The marker is `ggml-cuda`, which is what `Enable-GraniteCuda.ps1` already
-        uses to identify a staged worker. Size would also separate them today
+        The marker is `ggml-cuda`, which is what `granite_engine`'s own hardware
+        tests use to identify a staged worker. Size would also separate them today
         (57 MB against 4 MB) and is exactly the kind of threshold that stops
         being true.
     #>

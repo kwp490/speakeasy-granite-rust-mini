@@ -40,7 +40,7 @@ publish.workspace = true
 #    worker itself measured 54.4 MB for a single architecture.
 #
 # Proven, not theoretical: built and run 2026-08-10 (RTX 5090, toolkit 13.3) and
-# again 2026-08-14 (RTX 4070 Laptop, arch 89), staged by
+# again 2026-08-14 (RTX 4070 Laptop, arch 89), staged by the since-retired
 # `scripts/Enable-GraniteCuda.ps1`, and confirmed by `granite-worker.exe`
 # holding a CUDA context in `nvidia-smi` with `granite_warm` logging
 # `device=cuda`. Release-to-paste on a silent five-second capture went from
