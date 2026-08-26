@@ -75,6 +75,48 @@ mod granite_smoke;
 pub const TRANSCRIBE_PROMPT: &str =
     "transcribe the speech with proper punctuation and capitalization.";
 
+/// How many terms may reach the prompt, however many the profile holds.
+///
+/// A chosen bound, not a measured one. The seed reader already caps the file at
+/// 128 terms of 64 characters, and that cap stays — it guards the file. This is
+/// a second, smaller cap because the prompt competes for the same context
+/// window as the audio embedding (`GraniteOptions::n_ctx`), and a long term
+/// list both eats that budget and dilutes the bias across everything in it.
+/// Nobody has measured where the dilution starts; 32 is a judgement about a
+/// personal vocabulary's useful size, and revising it wants a measurement
+/// rather than an argument.
+pub const MAX_PROMPT_KEYWORDS: usize = 32;
+
+/// Builds the transcription instruction, biased toward `keywords`.
+///
+/// The suffix goes **inside** the instruction, which `build_prompt` then wraps
+/// in the GGUF's own `USER:` / ` ASSISTANT:` turn structure. That ordering is
+/// load-bearing: a bare instruction without the chat template returns an empty
+/// transcript with no error.
+///
+/// Taken from the predecessor app (`speakeasy/engine/granite_transcribe.py`),
+/// whose base instruction is byte-identical to [`TRANSCRIBE_PROMPT`], so the
+/// ` Keywords: …` suffix is the whole difference — and it worked there against
+/// the same checkpoint.
+///
+/// **An empty list returns [`TRANSCRIBE_PROMPT`] byte for byte.** The
+/// installer's engine smoke test compares a whole transcript against a bundled
+/// fixture's ground truth over an empty list, so that branch is what keeps the
+/// fixture a control rather than a thing to re-pin.
+#[must_use]
+pub fn transcribe_prompt_with_keywords(keywords: &[String]) -> String {
+    let terms: Vec<&str> = keywords
+        .iter()
+        .map(|term| term.trim())
+        .filter(|term| !term.is_empty())
+        .take(MAX_PROMPT_KEYWORDS)
+        .collect();
+    if terms.is_empty() {
+        return TRANSCRIBE_PROMPT.to_owned();
+    }
+    format!("{TRANSCRIBE_PROMPT} Keywords: {}", terms.join(", "))
+}
+
 /// Whether llama.cpp's CUDA backend is compiled into this build.
 ///
 /// The single source of truth for a fact that only the binary knows: the
@@ -602,4 +644,67 @@ fn piece_bytes(model: &LlamaModel, token: LlamaToken) -> Result<Vec<u8>, Granite
 fn utf8_path(path: &Path, stage: GraniteStage) -> Result<&str, GraniteError> {
     path.to_str()
         .ok_or_else(|| GraniteError::at(stage, "path is not valid UTF-8"))
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::{MAX_PROMPT_KEYWORDS, TRANSCRIBE_PROMPT, transcribe_prompt_with_keywords};
+
+    fn terms(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    /// The control the installer's engine smoke test depends on. Its pinned
+    /// ground-truth transcript was recorded against the unmodified instruction,
+    /// so an empty list has to reproduce that instruction exactly rather than
+    /// merely equivalently — a trailing space would be invisible here and a
+    /// re-pin there.
+    #[test]
+    fn an_empty_keyword_list_leaves_the_instruction_untouched() {
+        assert_eq!(transcribe_prompt_with_keywords(&[]), TRANSCRIBE_PROMPT);
+        assert_eq!(
+            transcribe_prompt_with_keywords(&terms(&["", "   ", "\t"])),
+            TRANSCRIBE_PROMPT
+        );
+    }
+
+    #[test]
+    fn keywords_are_appended_to_the_instruction() {
+        assert_eq!(
+            transcribe_prompt_with_keywords(&terms(&["LogicMonitor", "PagerDuty"])),
+            "transcribe the speech with proper punctuation and capitalization. \
+             Keywords: LogicMonitor, PagerDuty"
+        );
+    }
+
+    #[test]
+    fn blank_and_whitespace_only_terms_are_dropped_and_the_rest_trimmed() {
+        assert_eq!(
+            transcribe_prompt_with_keywords(&terms(&["  HUIT  ", "", "   ", "VLAN"])),
+            "transcribe the speech with proper punctuation and capitalization. \
+             Keywords: HUIT, VLAN"
+        );
+    }
+
+    /// The cap counts terms that survive trimming, not lines in the file: a
+    /// profile padded with blanks must not spend its budget on them.
+    #[test]
+    fn more_terms_than_the_cap_are_truncated_after_the_blanks_are_dropped() {
+        let mut values: Vec<String> = Vec::new();
+        for index in 0..MAX_PROMPT_KEYWORDS + 5 {
+            values.push(String::new());
+            values.push(format!("term{index}"));
+        }
+        let prompt = transcribe_prompt_with_keywords(&values);
+        let listed = prompt
+            .strip_prefix(&format!("{TRANSCRIBE_PROMPT} Keywords: "))
+            .expect("a non-empty list keeps the instruction as its prefix");
+        let listed: Vec<&str> = listed.split(", ").collect();
+        assert_eq!(listed.len(), MAX_PROMPT_KEYWORDS);
+        assert_eq!(listed.first(), Some(&"term0"));
+        assert_eq!(
+            listed.last(),
+            Some(&format!("term{}", MAX_PROMPT_KEYWORDS - 1).as_str())
+        );
+    }
 }

@@ -1072,7 +1072,7 @@ fn transcribe_and_deliver(app: &tauri::AppHandle) {
                 return;
             }
         };
-        let request = request_for_audio(&audio);
+        let request = request_for_audio(&app, &audio);
         let engine = final_engine_snapshot(&app);
         if let Ok(utterance_id) = app
             .state::<OrderedFinalizationQueue>()

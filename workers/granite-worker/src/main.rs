@@ -83,6 +83,11 @@ struct ActiveStream {
     session_id: WorkerSessionId,
     samples: Vec<f32>,
     next_sequence: u64,
+    /// The terms this utterance's decode is biased toward, taken at
+    /// `StartStream` and spent at `FinishStream`. Held per stream rather than
+    /// per worker so one dictation's vocabulary cannot leak into the next: the
+    /// model is resident across dictations, the bias is not.
+    keywords: Vec<String>,
 }
 
 struct Worker {
@@ -149,7 +154,8 @@ impl Worker {
             WorkerCommand::StartStream {
                 session_id,
                 sample_rate_hz,
-            } => self.start_stream(*session_id, *sample_rate_hz),
+                keywords,
+            } => self.start_stream(*session_id, *sample_rate_hz, keywords),
             WorkerCommand::PushAudio {
                 session_id,
                 sequence,
@@ -224,7 +230,12 @@ impl Worker {
         Ok(vec![WorkerEvent::ModelUnloaded])
     }
 
-    fn start_stream(&mut self, session_id: WorkerSessionId, sample_rate_hz: u32) -> WorkerResult {
+    fn start_stream(
+        &mut self,
+        session_id: WorkerSessionId,
+        sample_rate_hz: u32,
+        keywords: &[String],
+    ) -> WorkerResult {
         if self.active.is_some() {
             return Err(worker_error(
                 WorkerErrorCode::InvalidState,
@@ -247,6 +258,7 @@ impl Worker {
             session_id,
             samples: Vec::new(),
             next_sequence: 0,
+            keywords: keywords.to_vec(),
         });
         Ok(vec![WorkerEvent::StreamStarted { session_id }])
     }
@@ -316,7 +328,16 @@ impl Worker {
             .as_ref()
             .expect("a loaded model outlives every stream it started");
 
-        let outcome = model.transcribe_samples(&active.samples, &GraniteOptions::default());
+        // The only place this worker departs from `GraniteOptions::default`.
+        // The prompt is built in `speakeasy-granite` beside `TRANSCRIBE_PROMPT`
+        // rather than here, because the model's prompt contract belongs with
+        // the model — and because an empty list has to reproduce the default
+        // instruction byte for byte, which is easier to keep true in one place.
+        let options = GraniteOptions {
+            prompt: speakeasy_granite::transcribe_prompt_with_keywords(&active.keywords),
+            ..GraniteOptions::default()
+        };
+        let outcome = model.transcribe_samples(&active.samples, &options);
         // Consumes the buffered utterance regardless of outcome: a failed
         // transcription still ends the stream rather than leaving stale audio
         // for the next one to inherit.
@@ -462,6 +483,7 @@ mod tests {
         let (events, should_exit) = Worker::new().handle(&request(WorkerCommand::StartStream {
             session_id: WorkerSessionId(42),
             sample_rate_hz: SAMPLE_RATE_HZ,
+            keywords: Vec::new(),
         }));
         assert!(!should_exit);
         assert!(matches!(
@@ -533,6 +555,7 @@ mod tests {
                 session_id: WorkerSessionId(1),
                 samples: Vec::new(),
                 next_sequence: 0,
+                keywords: Vec::new(),
             }),
         };
 
@@ -590,6 +613,7 @@ mod tests {
                 session_id: WorkerSessionId(1),
                 samples: vec![0.0; MAX_UTTERANCE_SAMPLES],
                 next_sequence: 0,
+                keywords: Vec::new(),
             }),
         };
 

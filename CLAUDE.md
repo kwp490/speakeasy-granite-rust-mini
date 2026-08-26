@@ -333,6 +333,38 @@ Every one of these produced a plausible, wrong result rather than an error.
   dictation would have lost roughly a third of itself" alongside the correct
   ~400-tokens-per-120 s figure, and a four-minute dictation cannot be recorded.
   Both numbers were right; nobody divided one by the other for months.
+- **A keyword suffix on the prompt silently costs punctuation and casing, and
+  the cost scales with the list.** Measured 2026-08-26 on `smoke.wav` through
+  the release worker, greedy decode, each run repeated with an empty list
+  afterwards to prove determinism. The *words* were identical every time; only
+  the punctuation moved, and nothing catches that — `is_plausible` bounds how
+  much a transcript says, never how it is punctuated, and both readings are
+  perfectly plausible sentences.
+
+  | terms | transcript |
+  | --- | --- |
+  | 0 | `The quick brown fox jumps over the lazy dog. And Monday begins at dawn.` |
+  | 1 | `the quick brown fox jumps over the lazy dog, and Monday begins at dawn.` |
+  | 3 | `The quick brown fox jumps over the lazy dog and Monday begins at dawn` |
+  | 13 | `The quick brown fox jumps over the lazy dog and Monday begins at dawn` |
+
+  One term already loses the opening capital; three lose the terminal stop
+  entirely. **The cause is ordering, not the terms.** Moving the same list in
+  front of the instruction — `Keywords: … . transcribe the speech with proper
+  punctuation and capitalization.` — returned the 0-term string byte for byte at
+  both 3 and 13 terms. So the instruction is weakened by whatever follows it,
+  and this checkpoint reads the *last* thing asked as the thing to do, which is
+  the same "the prompt is part of the model's interface" fact one entry down
+  from a new direction.
+
+  The shipped form is still the suffix, deliberately: it is the predecessor
+  app's, which is the only form *proven* to fix the recognition failures this
+  was built for. **The prefix form's bias strength is unmeasured** — every
+  fixture in this repository is a clip containing none of the keywords, so it
+  can measure the cost and not the benefit, and swapping to it on half the
+  evidence is the shape of defect this file's "assembled out of an intention"
+  entry describes. Deciding between them needs a recorded clip that actually
+  says the terms.
 - **Assert whole transcripts for ASR, never a prefix or substring.** A
   `contains("ever tried")` assertion went green here on a transcript missing a
   third of the utterance. This is also why the installer's engine smoke test

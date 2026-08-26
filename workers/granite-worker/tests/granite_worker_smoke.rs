@@ -188,6 +188,7 @@ fn spawn_and_warm(model_root: &Path) -> (Child, ChildStdin, ChildStdout, WorkerS
         WorkerCommand::StartStream {
             session_id,
             sample_rate_hz: SAMPLE_RATE_HZ,
+            keywords: Vec::new(),
         },
     );
     assert!(matches!(
@@ -375,6 +376,7 @@ fn granite_worker_process_transcribes_two_dictations_each_preceded_by_load_model
         WorkerCommand::StartStream {
             session_id: second_session,
             sample_rate_hz: SAMPLE_RATE_HZ,
+            keywords: Vec::new(),
         },
     );
     assert!(matches!(

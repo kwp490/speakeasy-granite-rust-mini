@@ -566,7 +566,7 @@ async fn dictation_retry(
 ) -> Result<(), &'static str> {
     require_main_window(&window)?;
     let audio = app.state::<CaptureWizardCoordinator>().retained_audio()?;
-    let request = request_for_audio(&audio);
+    let request = request_for_audio(&app, &audio);
     let outcome = run_retained_transcription(&app, audio, request).await;
     log_event(
         &app,
@@ -605,12 +605,22 @@ fn is_no_speech(code: &str) -> bool {
     matches!(code, "runtime_no_speech_detected" | "no_speech")
 }
 
-fn request_for_audio(audio: &UtteranceAudio) -> AsrRequest {
+fn request_for_audio(app: &tauri::AppHandle, audio: &UtteranceAudio) -> AsrRequest {
     AsrRequest {
         correlation_id: CorrelationId::from_bytes(audio.session_id.into_bytes()),
         session_id: audio.session_id,
         language: AsrLanguage::English,
         task: AsrTask::Transcribe,
+        // `try_state`, not `state`, and not because this path is early: it is
+        // not. Both callers run long after `setup` has managed the
+        // coordinators. It is `try_state` because an absent coordinator must
+        // cost the bias rather than the dictation — `state` panics inside a
+        // callback that cannot unwind, and the process aborts with
+        // `0xc0000409`. There is no transcript worth that.
+        keywords: app
+            .try_state::<PersonalizationCoordinator>()
+            .map(|personalization| personalization.decode_bias_terms())
+            .unwrap_or_default(),
     }
 }
 

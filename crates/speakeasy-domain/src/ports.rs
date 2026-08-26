@@ -88,12 +88,24 @@ pub enum AsrTask {
     Translate,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// One utterance's ask of the engine.
+///
+/// **Not `Copy` since `keywords` arrived**, and that is the point rather than a
+/// cost: the terms are owned per request, so a caller cannot silently share one
+/// dictation's bias with another by letting the request fall out of a `let`.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AsrRequest {
     pub correlation_id: CorrelationId,
     pub session_id: SessionId,
     pub language: AsrLanguage,
     pub task: AsrTask,
+    /// Terms to bias the decode toward, in the order they reach the prompt.
+    ///
+    /// Empty is the ordinary case and must stay byte-identical to no bias at
+    /// all — see `speakeasy_granite::transcribe_prompt_with_keywords`, whose
+    /// empty-list branch returns the unmodified instruction so the installer's
+    /// pinned smoke transcript remains a control.
+    pub keywords: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

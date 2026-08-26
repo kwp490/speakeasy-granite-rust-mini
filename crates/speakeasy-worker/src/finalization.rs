@@ -126,6 +126,7 @@ mod tests {
             session_id: audio.session_id,
             language: AsrLanguage::English,
             task: AsrTask::Transcribe,
+            keywords: Vec::new(),
         }
     }
 

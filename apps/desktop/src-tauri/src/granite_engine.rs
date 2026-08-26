@@ -1373,6 +1373,7 @@ mod tests {
             session_id: audio.session_id,
             language: AsrLanguage::English,
             task: AsrTask::Transcribe,
+            keywords: Vec::new(),
         };
         let outcome = tauri::async_runtime::block_on(run_granite_final_pass(
             GraniteEnvironment {
@@ -1410,6 +1411,7 @@ mod tests {
             session_id: audio.session_id,
             language: AsrLanguage::English,
             task: AsrTask::Transcribe,
+            keywords: Vec::new(),
         };
         // A worker binary path and install root that do not exist: reaching
         // `verify_pack_files` or a process spawn would fail with a different
@@ -1585,6 +1587,7 @@ mod tests {
             session_id: audio.session_id,
             language: AsrLanguage::English,
             task: AsrTask::Transcribe,
+            keywords: Vec::new(),
         };
         // Paths that do not exist: if the memory gate did not short-circuit
         // first, resolution or the spawn would fail with an error rather than
@@ -1674,6 +1677,7 @@ mod tests {
             session_id: audio.session_id,
             language: AsrLanguage::English,
             task: AsrTask::Transcribe,
+            keywords: Vec::new(),
         };
         // The worker binary itself is never spawned: verification fails first.
         let outcome = tauri::async_runtime::block_on(run_granite_final_pass(
@@ -1998,6 +2002,7 @@ mod tests {
             session_id,
             language: AsrLanguage::English,
             task: AsrTask::Transcribe,
+            keywords: Vec::new(),
         };
         let outcome = tauri::async_runtime::block_on(run_granite_final_pass(
             GraniteEnvironment {
@@ -2084,6 +2089,7 @@ mod tests {
                 session_id,
                 language: AsrLanguage::English,
                 task: AsrTask::Transcribe,
+                keywords: Vec::new(),
             };
             tauri::async_runtime::block_on(run_granite_final_pass(
                 GraniteEnvironment {
@@ -2224,6 +2230,7 @@ mod tests {
                 session_id,
                 language: AsrLanguage::English,
                 task: AsrTask::Transcribe,
+                keywords: Vec::new(),
             };
             let started = std::time::Instant::now();
             let outcome = tauri::async_runtime::block_on(run_granite_final_pass(

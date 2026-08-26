@@ -41,7 +41,13 @@ use crate::{CancelToken, Deadline, DomainError};
 /// state. It used to take `scripts/Enable-GraniteCuda.ps1` staging a locally
 /// built worker over an installed one, which is why this was written. A
 /// mismatched pair reports what it is.
-pub const WORKER_PROTOCOL_VERSION: u32 = 2;
+///
+/// Bumped 2 -> 3 when `StartStream` gained `keywords`. `WorkerRequest` is
+/// `deny_unknown_fields`, so a version 2 worker beside a version 3 app would
+/// reject every `StartStream` frame as malformed rather than transcribe
+/// without the bias — the version check turns that into
+/// `ProtocolMismatch`, which names the actual problem.
+pub const WORKER_PROTOCOL_VERSION: u32 = 3;
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_AUDIO_SAMPLES_PER_REQUEST: usize = 16_000;
 
@@ -79,6 +85,16 @@ pub enum WorkerCommand {
     StartStream {
         session_id: WorkerSessionId,
         sample_rate_hz: u32,
+        /// Terms to bias this utterance's decode toward, carried through to
+        /// Granite's own transcription instruction as a `Keywords:` suffix.
+        ///
+        /// Named `keywords` rather than `hotwords` deliberately.
+        /// [`crate::StreamingAsrOptions::hotwords`] is a leftover from the
+        /// deleted streaming engine and means a sherpa decoder's hotword
+        /// list — a different mechanism with different guarantees. Reusing the
+        /// name would assert a capability this path does not have: a prompt
+        /// suffix makes a term likelier, it does not force it.
+        keywords: Vec<String>,
     },
     PushAudio {
         session_id: WorkerSessionId,
@@ -468,6 +484,7 @@ mod tests {
         request.command = WorkerCommand::StartStream {
             session_id: WorkerSessionId(1),
             sample_rate_hz: 1,
+            keywords: Vec::new(),
         };
         assert!(request.validate().is_err());
 

@@ -381,6 +381,12 @@ fn transcribe(
             WorkerCommand::StartStream {
                 session_id: session,
                 sample_rate_hz: 16_000,
+                // Deliberately unbiased. This check compares the whole
+                // transcript against the bundled fixture's ground truth, and
+                // that ground truth was recorded against the unmodified
+                // instruction — a keyword list here would change the prompt
+                // and turn a control into a thing to re-pin.
+                keywords: Vec::new(),
             },
             &cancel,
             Deadline::after(clock.as_ref(), TRANSCRIBE_DEADLINE),

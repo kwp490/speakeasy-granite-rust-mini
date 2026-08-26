@@ -119,9 +119,17 @@ pub const STEPS: &[Step] = &[
         // until 2026-08-20, which is more typing and more to remember.
         key: "Separate them with commas:   Kenneth, Anthropic, Granite",
         key_tone: Tone::Accent,
-        body: "Names, jargon and spellings to protect. They fix spelling in the finished \
-               transcript and do not change what the model hears, so a misheard word stays \
-               misheard.\n\
+        // "They do not change how speech is recognised, so a word that is
+        // misheard will still be misheard" stood here until 2026-08-26, and it
+        // was true: the terms only reached a find-and-replace over the finished
+        // transcript. They now also reach the model's own prompt. Both halves
+        // are stated because they are different mechanisms — the prompt makes a
+        // word likelier while the audio is read, the list fixes its spelling
+        // afterwards — and neither is a guarantee, which is why "likelier" is
+        // the word rather than "will".
+        body: "Names, jargon and spellings to protect. The model is told to listen for \
+               them, and their spelling is kept in the finished transcript — likelier, \
+               not guaranteed.\n\
                Optional — Settings has the same list.",
     },
     Step {
