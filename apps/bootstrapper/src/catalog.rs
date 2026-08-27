@@ -114,10 +114,14 @@ pub const STEPS: &[Step] = &[
     },
     Step {
         heading: "Add your words",
-        // The example is the instruction. A format described in prose gets read
-        // as prose; a format shown gets copied. The box took one word per line
-        // until 2026-08-20, which is more typing and more to remember.
-        key: "Separate them with commas:   Kenneth, Anthropic, Granite",
+        // The box is the example now. It arrives holding `DEFAULT_VOCABULARY`,
+        // so the comma format is demonstrated by the thing the user is about to
+        // edit rather than by a specimen list above it -- and a made-up example
+        // sitting over a box full of real words would read as the instruction
+        // for a box that was empty. Before 2026-08-27 the box started empty and
+        // this line carried "Kenneth, Anthropic, Granite"; before 2026-08-20 the
+        // box took one word per line, which was more typing to no end.
+        key: "Common tools are filled in already. Add your own, or clear the box.",
         key_tone: Tone::Accent,
         // "Spelling and spacing" rather than just spelling, since 2026-08-27: a
         // compound name also gets a rule for the two-word form a recogniser
@@ -328,6 +332,34 @@ pub fn shortcut_taken(binding: &str) -> String {
 /// No shortcut is selected, which the control should make impossible.
 pub const SHORTCUT_UNKNOWN: &str =
     "No shortcut is selected, so setup cannot check whether it is free. Choose one above.";
+
+/// The vocabulary the words page starts with, already in the box.
+///
+/// Every one of these is a name a speech recogniser gets wrong in a way the
+/// finishing pass can fix, and they were chosen by measurement rather than
+/// guessed: an unbiased pass over a recorded clip containing all of them wrote
+/// `logic monitor`, `Pager Duty` and `Jira`, and the entries below plus their
+/// spaced companions correct every one. `CLAUDE.md` carries the table.
+///
+/// # Why a default at all, and why it is only a default
+///
+/// Nobody reads an installer, and a page that opens empty is a page most people
+/// click past — so an empty box means the feature reaches only the users who
+/// already knew they wanted it. Starting filled inverts that: the common tools
+/// work out of the box, and the box is still an ordinary editable control that
+/// the user can add to or clear entirely.
+///
+/// It is **a starting value and never a policy**, which is the same contract
+/// every other seed here carries. The list is written to
+/// `install-vocabulary.txt` exactly as the box reads at Next, so clearing it
+/// installs nothing; and the app deletes the seed after applying it, so a term
+/// the user removes in Settings afterwards stays removed.
+///
+/// Ordered longest-compound first so the read-back on the page shows the shape
+/// of the list — commas, mixed case — before it scrolls.
+pub const DEFAULT_VOCABULARY: &str = "LogicMonitor, PagerDuty, ServiceNow, Atlassian, \
+                                      Anthropic, OpenAI, ChatGPT, Claude, Splunk, JIRA, \
+                                      VLAN, HUIT, Hellen";
 
 /// What the words page says back about an empty box.
 ///

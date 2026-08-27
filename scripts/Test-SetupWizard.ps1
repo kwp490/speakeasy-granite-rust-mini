@@ -371,6 +371,38 @@ try {
     Assert-Page -Window $window -Heading 'Add your words' -Number 6
     $edit = @(Get-Controls -Window $window | Where-Object { $_.Class -eq 'Edit' -and $_.Visible }) | Select-Object -First 1
     if (-not $edit) { throw 'The vocabulary page has no text box.' }
+
+    # **The box arrives holding the shipped default**, checked before anything
+    # overwrites it. Setup fills it from `catalog::DEFAULT_VOCABULARY` so the
+    # common tools work without the user knowing the feature exists, and an
+    # empty box is exactly what a regression here looks like -- silently, since
+    # every assertion below still passes against a box this script filled
+    # itself. Asserted as a count and two members rather than the whole string:
+    # pinning the list here would mean editing this script to add a word.
+    # `Get-Controls` reads every child's text with `GetWindowTextW`, which on an
+    # Edit returns its contents -- so the box was already captured above and
+    # needs no second round trip.
+    $prefilled = $edit.Text
+    $prefilledWords = @($prefilled -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if ($prefilledWords.Count -lt 10) {
+        throw "The vocabulary box did not arrive prefilled; it read '$prefilled'."
+    }
+    foreach ($expected in 'LogicMonitor', 'ServiceNow') {
+        if ($prefilledWords -notcontains $expected) {
+            throw "The prefilled vocabulary is missing '$expected': '$prefilled'."
+        }
+    }
+    Write-Host "  prefilled: $($prefilledWords.Count) words"
+
+    # And the page counts what it arrived holding, without anyone touching the
+    # box. `WM_SETTEXT` does not raise `EN_CHANGE` on a multi-line edit, so a
+    # page that only recomputed on change would say "No words yet" over a full
+    # box -- the exact shape of the defect the Back/Next dance below exists for.
+    $arrivalStatus = Get-Status -Window $window
+    if ($arrivalStatus -notmatch "^$($prefilledWords.Count) words will be added: ") {
+        throw "The words page did not count its own prefilled list: '$arrivalStatus'."
+    }
+
     # A comma-separated list, which is what the page now asks for. Deliberately
     # spaced unevenly and given a trailing comma: a box that only reads a tidy
     # list is a box that loses words for real users.

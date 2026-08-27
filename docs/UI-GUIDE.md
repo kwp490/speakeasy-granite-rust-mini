@@ -570,6 +570,25 @@ version could not:
   never describe a list the file disagrees with — and echoing the words is the
   only form in which a missing comma is visible before it is installed.
 
+  **The box arrives filled**, since 2026-08-27, from
+  `catalog::DEFAULT_VOCABULARY` — the common tools whose names a recogniser
+  reliably splits or mis-cases. Nobody reads an installer, so a page that opens
+  empty is a page most people click past, and the feature then reaches only
+  users who already knew they wanted it. Starting filled inverts that at no cost
+  to control: it is an ordinary editable box, and clearing it installs nothing.
+
+  Three rules follow. The default is **a starting value and never a policy** —
+  the same contract every seed here carries, so a word removed in Settings
+  afterwards stays removed. The **box is the example**: the key line no longer
+  carries a specimen list, because a made-up example sitting above a box full of
+  real words reads as the instruction for an empty one. And the page must
+  **count what it arrived holding** without anyone touching the box —
+  `WM_SETTEXT` does not raise `EN_CHANGE` on a multi-line edit, so a page that
+  recomputed only on change would say "No words yet" over a full box.
+  `Test-SetupWizard.ps1` asserts the arrival count before it overwrites
+  anything, because every later assertion passes against a box the script filled
+  itself.
+
   **A compound term also gets a spaced companion**, since 2026-08-27:
   `LogicMonitor` produces a second, visible entry rewriting `Logic Monitor` to
   it. That is how a recogniser writes a compound product name, and the identity

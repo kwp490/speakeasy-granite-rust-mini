@@ -594,7 +594,14 @@ impl Wizard {
             words: gui::Edit::new(
                 window,
                 gui::EditOpts {
-                    text: "",
+                    // Filled at creation rather than stuffed later with
+                    // `WM_SETTEXT`, which does not reliably raise `EN_CHANGE` on
+                    // a multi-line edit -- a box filled that way would sit there
+                    // full while the page said "No words yet". The count is
+                    // recomputed on arrival at the step from the control's own
+                    // text, so this reads correctly the first time the page is
+                    // shown and after every Back.
+                    text: catalog::DEFAULT_VOCABULARY,
                     position: gui::dpi(layout::MARGIN, layout::CONTROL_TOP),
                     width: gui::dpi_x(content_width),
                     height: gui::dpi_y(layout::EDIT_HEIGHT),

@@ -418,4 +418,52 @@ mod tests {
         assert_eq!(Provider::Processor.code(), "cpu");
         assert_eq!(Provider::GraphicsCard.code(), "cuda");
     }
+
+    /// The list the box arrives holding has to survive the parse that writes
+    /// the seed, or setup ships a default that quietly loses words.
+    ///
+    /// Every assertion here is against `parse_vocabulary`'s own answer rather
+    /// than against a second copy of the list, so a term added to the catalog
+    /// is covered by this the moment it is added.
+    #[test]
+    fn the_prefilled_vocabulary_survives_its_own_parse() {
+        let parsed = parse_vocabulary(crate::catalog::DEFAULT_VOCABULARY);
+
+        // Nothing lost. A dropped term means a typo, a duplicate differing only
+        // in case, or a word past the length bound -- all three are silent.
+        assert_eq!(
+            parsed.len(),
+            crate::catalog::DEFAULT_VOCABULARY.split(',').count(),
+            "the prefilled list lost a term to the parse: {parsed:?}"
+        );
+
+        // Round-trips, so what the app reads back is what the page showed.
+        assert_eq!(
+            parse_vocabulary(&parsed.join(", ")),
+            parsed,
+            "the prefilled list is not stable through a write/read cycle"
+        );
+
+        for term in &parsed {
+            assert!(
+                term.chars().count() <= MAX_TERM_CHARS,
+                "{term} is past the seed's own length bound"
+            );
+            assert_eq!(term.trim(), term, "{term} carries surrounding whitespace");
+            assert!(!term.is_empty(), "an empty term reached the parsed list");
+        }
+
+        // Case-insensitively unique, which is the condition the dictionary
+        // validator refuses the *whole batch* over. A default list that trips it
+        // would cost every user every word, on every install, silently.
+        let mut folded: Vec<String> = parsed.iter().map(|term| term.to_lowercase()).collect();
+        folded.sort();
+        let before = folded.len();
+        folded.dedup();
+        assert_eq!(
+            before,
+            folded.len(),
+            "the prefilled list has a case-only duplicate"
+        );
+    }
 }
