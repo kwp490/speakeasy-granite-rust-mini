@@ -920,7 +920,36 @@ impl PersonalizationCoordinator {
 /// name in the vocabulary is the one that gets said. The entries are visible in
 /// Settings and deletable, which is the whole reason they are entries rather
 /// than a rule buried in the transform.
-const MEASURED_MISHEARINGS: &[(&str, &str)] = &[("Hewitt", "HUIT"), ("Helen", "Hellen")];
+/// # What is deliberately absent, and why the list stops here
+///
+/// Five dictations of one sentence on 2026-08-27 produced **six failures and
+/// six distinct wrong forms**, not one of which this table had predicted: no
+/// run produced `Hewitt` or `Helen` at all. What they produced instead was
+/// `Project monitor` for `LogicMonitor`, and `Ellen` and `Haley` for `Hellen`.
+///
+/// None of those three is here, and each is refused for its own reason.
+/// `Project monitor` is a semantic substitution — the recogniser heard a
+/// different, ordinary phrase, and a rule rewriting it would fire on anyone
+/// dictating about a project monitor. `Ellen` and `Haley` are common given
+/// names; correcting them would corrupt every real Ellen and Haley in every
+/// transcript, for every user, which is a worse trade than the `Helen` row
+/// above and was declined on that basis. `Hellen` is accepted as unreliable
+/// (2 of 5) rather than pursued.
+///
+/// **The ceiling this table has is the point.** Every rule in it held across
+/// those five runs — the predicted forms simply never appeared — while the
+/// model invented new ones. Prediction catches the slice already seen, so rows
+/// are added from measurement and never from imagination, and a row is refused
+/// when the word it rewrites is one somebody might legitimately say.
+const MEASURED_MISHEARINGS: &[(&str, &str)] = &[
+    ("Hewitt", "HUIT"),
+    ("Helen", "Hellen"),
+    // Both from the 2026-08-27 dictations, and both safe in a way the refused
+    // three are not: `servenow` is not a word in any language, and `Jura` is a
+    // mountain range nobody is dictating about in a ticketing system.
+    ("Jura", "JIRA"),
+    ("servenow", "ServiceNow"),
+];
 
 fn protected_term_entries(terms: &[String]) -> Vec<DictionaryEntry> {
     // Every source that will exist, folded for comparison the same way the

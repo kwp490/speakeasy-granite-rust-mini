@@ -992,8 +992,17 @@ mod tests {
         let sources: Vec<&str> = entries.iter().map(|entry| entry.source.as_str()).collect();
         assert_eq!(
             sources,
-            vec!["ServiceNow", "Service Now", "OpenAI", "Open AI"],
+            // `servenow` is the measured mishearing of `ServiceNow` and rides
+            // along here; it is not part of what this test is about. What is:
+            // `Service Now` appears exactly once, as the term the user typed,
+            // and no second entry was derived onto the same source.
+            vec!["ServiceNow", "Service Now", "OpenAI", "servenow", "Open AI"],
             "the colliding companion is dropped; the unrelated one still arrives"
+        );
+        assert_eq!(
+            sources.iter().filter(|source| **source == "Service Now").count(),
+            1,
+            "a source may appear once, or the validator rejects the whole batch"
         );
         assert!(
             entries.iter().all(|entry| entry.source != "Service Now"
@@ -1046,11 +1055,21 @@ mod tests {
     }
 
     /// The correction has to actually reach a transcript, not merely exist as a
-    /// row. Asserted on whole strings through the real transform.
+    /// row. Asserted on whole strings through the real transform, and on the
+    /// **verbatim** output of dictations that actually happened rather than on
+    /// invented examples -- a row exists because a recogniser produced that
+    /// exact string, so that string is what it has to be tested against.
     #[test]
     fn the_measured_mishearings_rewrite_a_transcript() {
-        let entries = protected_term_entries(&["HUIT".to_owned(), "Hellen".to_owned()]);
+        let entries = protected_term_entries(&[
+            "HUIT".to_owned(),
+            "Hellen".to_owned(),
+            "JIRA".to_owned(),
+            "ServiceNow".to_owned(),
+        ]);
         let set = speakeasy_transforms::DictionarySet::new(entries).expect("must validate");
+
+        // From the 55 s recording of 2026-08-27.
         assert_eq!(
             set.apply("the rest of the Hewitt team could follow along.", "en-US")
                 .0,
@@ -1060,6 +1079,49 @@ mod tests {
             set.apply("Helen took the handoff at noon.", "en-US").0,
             "Hellen took the handoff at noon."
         );
+
+        // From runs 3 and 5 of the five acceptance dictations, quoted exactly.
+        assert_eq!(
+            set.apply("Ellen filed it in Jura for the HUIT team.", "en-US").0,
+            // `Ellen` is deliberately left alone: it is a common given name and
+            // correcting it would corrupt every real Ellen. Only `Jura` moves.
+            "Ellen filed it in JIRA for the HUIT team."
+        );
+        assert_eq!(
+            set.apply("paged me about servenow this morning.", "en-US").0,
+            "paged me about ServiceNow this morning."
+        );
+    }
+
+    /// The rows refused on 2026-08-27, pinned so nobody adds them later without
+    /// re-reading why they were refused.
+    ///
+    /// Each would rewrite a word somebody might legitimately say: `Ellen` and
+    /// `Haley` are common given names, and a project monitor is a thing that
+    /// exists. A correction is unconditional, so the cost lands on every user
+    /// who says the ordinary word -- which is a different trade from `servenow`,
+    /// which is not a word at all.
+    #[test]
+    fn the_refused_mishearings_stay_refused() {
+        let entries = protected_term_entries(&[
+            "Hellen".to_owned(),
+            "LogicMonitor".to_owned(),
+            "HUIT".to_owned(),
+            "JIRA".to_owned(),
+            "ServiceNow".to_owned(),
+        ]);
+        let set = speakeasy_transforms::DictionarySet::new(entries).expect("must validate");
+        for untouched in [
+            "Ellen filed the ticket.",
+            "Haley filed the ticket.",
+            "We ran a project monitor over the release.",
+        ] {
+            assert_eq!(
+                set.apply(untouched, "en-US").0,
+                untouched,
+                "an ordinary sentence must survive the correction table"
+            );
+        }
     }
 
     /// A `heard` form the user typed as a word of its own keeps it, and the
