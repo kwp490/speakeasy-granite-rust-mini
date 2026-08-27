@@ -369,6 +369,41 @@ Every one of these produced a plausible, wrong result rather than an error.
   byte for byte, which is what a single short sentence does rather than what the
   model does. The conclusion survived one afternoon. Measure prompt changes on a
   clip with several sentences in it.
+- **A correction table buys a specific string, not a term — and the microphone
+  decides which string.** Measured 2026-08-27, ten dictations of one sentence
+  containing five protected terms, on an installed release build.
+
+  | | array mic | close-talk headset |
+  | --- | --- | --- |
+  | terms correct | 19 of 25 | **21 of 25** |
+  | word-perfect runs | 1 of 5 | 2 of 5 |
+  | `Hellen` | 2/5 | 4/5 |
+  | `JIRA` | 4/5 | **2/5** |
+
+  `JIRA` went *down*, and that is the entry. `Jura` — added to
+  `MEASURED_MISHEARINGS` hours earlier from the array-mic runs — **did not
+  appear once** on the headset; the model had switched to `Gira`. A correction
+  cannot influence recognition, so nothing about the rule caused it: changing
+  the microphone changed which plausible word the model spells a
+  correctly-heard sound as. Across the first five runs there were six failures
+  in six *distinct* wrong forms, none of them a string the table predicted.
+
+  Two things follow. **Check the microphone before writing a rule** — the
+  headset moved four of five terms and no rule could have. And **rows come from
+  measurement, never from imagination**: a row is worth adding when the string
+  it rewrites is safe and the failure is common, but expecting the set to
+  converge is a different and wrong belief. `Ellen`, `Haley` and
+  `Project monitor` were refused for rewriting words somebody might legitimately
+  say, and a test pins the refusal so nobody re-adds them without re-reading
+  why.
+
+  **One term can mishear two ways, and the id scheme assumed it could not.**
+  `Jura` and `Gira` both target `JIRA`, and `installer-{index}-heard` generated
+  one id twice — a `DuplicateId` that rejects the *whole batch*, which is the
+  same all-or-nothing failure that once cost a user every word they had typed.
+  The row index is in the id now. It was fine right up to the first term that
+  had two, which is the shape of every id collision; it surfaced only because
+  the transcript test drives four terms rather than one.
 - **Assert whole transcripts for ASR, never a prefix or substring.** A
   `contains("ever tried")` assertion went green here on a transcript missing a
   third of the utterance. This is also why the installer's engine smoke test
