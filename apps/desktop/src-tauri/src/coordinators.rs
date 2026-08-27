@@ -890,6 +890,38 @@ impl PersonalizationCoordinator {
 /// A free function rather than a method so the entry shape can be asserted
 /// without a repository on disk — the collision guard below is the part that has
 /// already caused a silent, total loss of a user's vocabulary once.
+/// What the recogniser writes instead of a term, where somebody has measured it.
+///
+/// `(heard, meant)`. A term gains an entry from this table only when the *meant*
+/// side is a word the user actually protects, so a profile without `HUIT` never
+/// rewrites anybody's `Hewitt`.
+///
+/// # Why this is a hand-written table and has to stay small
+///
+/// These are the failures no rule predicts. A spacing rule reaches a compound
+/// the recogniser split; nothing reaches a *phonetic* substitution, because the
+/// wrong answer is not a transformation of the right one — `Hewitt` is what the
+/// model hears when a Harvard speaker says `HUIT`, and no amount of edit
+/// distance or fuzzy matching derives one from the other. So each row is a
+/// measurement, and a row nobody measured is a guess that silently rewrites
+/// correct transcripts.
+///
+/// Both rows below were measured on 2026-08-27 against a 55 s recording of real
+/// speech: `Hewitt` came back in **every one of nine passes**, biased and
+/// unbiased alike, and `Helen` in every unbiased pass.
+///
+/// # Each row costs something, and `Helen` costs the most
+///
+/// A correction is unconditional, so it fires on the ordinary word too: with
+/// this row live, a user dictating about a person called Helen gets `Hellen`.
+/// That is not a defect to be fixed later, it is the trade — the audio cannot
+/// distinguish the two, so the only alternative is that `Hellen` is never right.
+/// Shipped on the owner's decision of 2026-08-27, for an audience where the
+/// name in the vocabulary is the one that gets said. The entries are visible in
+/// Settings and deletable, which is the whole reason they are entries rather
+/// than a rule buried in the transform.
+const MEASURED_MISHEARINGS: &[(&str, &str)] = &[("Hewitt", "HUIT"), ("Helen", "Hellen")];
+
 fn protected_term_entries(terms: &[String]) -> Vec<DictionaryEntry> {
     // Every source that will exist, folded for comparison the same way the
     // matcher folds them. A derived variant that collides with a term the
@@ -914,6 +946,34 @@ fn protected_term_entries(terms: &[String]) -> Vec<DictionaryEntry> {
             protected: true,
             enabled: true,
         });
+        // The measured mishearings for this term, if any. **Before** the spaced
+        // companion below, not after: that block ends in a `continue` for a
+        // term with no lower-to-upper transition, and `HUIT` and `Hellen` are
+        // exactly such terms -- so ordering these second silently skipped every
+        // row in the table. Caught by the test that asserts a transcript rather
+        // than the one that counts entries.
+        //
+        // Same guard as the companion: a `heard` form the user typed as a word
+        // in its own right keeps its identity rule and gets no correction,
+        // because two entries with one source reject the whole batch.
+        for (heard, meant) in MEASURED_MISHEARINGS {
+            if !meant.eq_ignore_ascii_case(term) || !claimed.insert(heard.to_lowercase()) {
+                continue;
+            }
+            derived.push(DictionaryEntry {
+                id: format!("installer-{index}-heard"),
+                locale: "en-US".to_owned(),
+                source: (*heard).to_owned(),
+                replacement: term.clone(),
+                case_policy: CasePolicy::InsensitiveCanonical,
+                boundary_policy: BoundaryPolicy::UnicodeWord,
+                origin: DictionaryOrigin::UserEntry,
+                precedence: 0,
+                protected: false,
+                enabled: true,
+            });
+        }
+
         let Some(spaced) = speakeasy_transforms::spaced_variant(term) else {
             continue;
         };
@@ -937,6 +997,7 @@ fn protected_term_entries(terms: &[String]) -> Vec<DictionaryEntry> {
             protected: false,
             enabled: true,
         });
+
     }
     entries.extend(derived);
     entries

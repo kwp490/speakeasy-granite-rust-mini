@@ -1021,4 +1021,60 @@ mod tests {
         assert!(ids.contains("installer-0"));
         assert!(ids.contains("installer-0-spaced"));
     }
+
+    /// The failures no rule predicts, corrected because somebody measured them.
+    ///
+    /// Scoped to the term: a profile that does not protect `HUIT` must not
+    /// rewrite anybody's `Hewitt`, because the correction is unconditional and
+    /// would otherwise fire on a surname nobody asked about.
+    #[test]
+    fn a_measured_mishearing_is_corrected_only_for_a_term_the_profile_protects() {
+        let with = protected_term_entries(&["HUIT".to_owned(), "Hellen".to_owned()]);
+        let pairs: Vec<(&str, &str)> = with
+            .iter()
+            .map(|entry| (entry.source.as_str(), entry.replacement.as_str()))
+            .collect();
+        assert!(pairs.contains(&("Hewitt", "HUIT")), "{pairs:?}");
+        assert!(pairs.contains(&("Helen", "Hellen")), "{pairs:?}");
+
+        // Neither term present: neither correction, and nothing else appears.
+        let without = protected_term_entries(&["Splunk".to_owned()]);
+        assert_eq!(without.len(), 1, "{without:?}");
+        assert_eq!(without[0].source, "Splunk");
+
+        speakeasy_transforms::DictionarySet::new(with).expect("must validate");
+    }
+
+    /// The correction has to actually reach a transcript, not merely exist as a
+    /// row. Asserted on whole strings through the real transform.
+    #[test]
+    fn the_measured_mishearings_rewrite_a_transcript() {
+        let entries = protected_term_entries(&["HUIT".to_owned(), "Hellen".to_owned()]);
+        let set = speakeasy_transforms::DictionarySet::new(entries).expect("must validate");
+        assert_eq!(
+            set.apply("the rest of the Hewitt team could follow along.", "en-US")
+                .0,
+            "the rest of the HUIT team could follow along."
+        );
+        assert_eq!(
+            set.apply("Helen took the handoff at noon.", "en-US").0,
+            "Hellen took the handoff at noon."
+        );
+    }
+
+    /// A `heard` form the user typed as a word of its own keeps it, and the
+    /// correction is dropped rather than becoming a `ConflictingRule` that
+    /// rejects every entry in the batch.
+    #[test]
+    fn a_mishearing_colliding_with_a_typed_term_is_dropped() {
+        let entries = protected_term_entries(&["HUIT".to_owned(), "Hewitt".to_owned()]);
+        let sources: Vec<&str> = entries.iter().map(|entry| entry.source.as_str()).collect();
+        assert_eq!(sources, vec!["HUIT", "Hewitt"], "{sources:?}");
+        assert!(
+            entries.iter().all(|entry| entry.source != "Hewitt"
+                || entry.replacement == "Hewitt"),
+            "the typed word must keep its own identity rule"
+        );
+        speakeasy_transforms::DictionarySet::new(entries).expect("must validate");
+    }
 }

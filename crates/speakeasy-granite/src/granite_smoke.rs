@@ -1,38 +1,56 @@
-//! Proof that Granite Speech genuinely transcribes on this machine.
+//! Granite Speech's own measurement rigs.
 //!
-//! # The trap this exists to avoid
+//! # What is left here, and what left on 2026-08-27
 //!
-//! Granite Speech is an instruction model with an audio projector bolted on,
-//! which means it will happily answer the prompt *without* the audio. Hand it a
-//! projector that failed to attach, or samples it could not decode, and it does
-//! not error — it generates fluent text from the instruction alone. "It
-//! returned a non-empty string" therefore proves nothing at all about whether
-//! any audio was read, which is the same shape of failure as ONNX Runtime
-//! silently falling back to CPU did.
+//! This module used to hold the *correctness* proofs too — a whole-transcript
+//! comparison against `.tools/fixtures/beckett.wav`'s known ground truth, the
+//! residency check, and the one that fed the model a vision-only projector to
+//! prove it was refused rather than answered from the prompt. All five read a
+//! fixture that has not existed in any checkout for months, so they had been
+//! reporting nothing while reading as merely `#[ignore]`d. They were deleted
+//! rather than re-pointed: they cannot join the quality gate at any price,
+//! because they need 2.1 GB of weights no checkout carries, and
+//! `apps/desktop`'s `granite_final_pass_transcribes_the_fixture_through_the_
+//! real_worker_process` already asserts a whole transcript against a
+//! **committed** clip through more of the stack than any of them did.
 //!
-//! What distinguishes the two is *content*: only a run that actually consumed
-//! the waveform can produce the words that are in it. So the assertion is the
-//! whole transcript against the fixture's known ground truth, never a substring
-//! and never a length check. A `contains` assertion here would pass on a
-//! transcript missing a third of the utterance — which is precisely the bug that
-//! went green in this repository once before, when sherpa's endpointing was
-//! dropping audio.
+//! The trap they guarded is still real and is worth restating where the next
+//! person will look. Granite Speech is an instruction model with an audio
+//! projector bolted on, so it will happily answer the prompt *without* the
+//! audio: hand it a projector that failed to attach and it does not error, it
+//! generates fluent text from the instruction alone. "It returned a non-empty
+//! string" proves nothing. Only content does — which is why every surviving
+//! proof of this engine, here and in `apps/bootstrapper`'s `smoke.rs`, compares
+//! a **whole** transcript against known text rather than a substring.
 //!
-//! # Running it
+//! # What these do
+//!
+//! Timing and budget rigs over a two-minute utterance: the thread-count sweep
+//! whose table `CLAUDE.md` quotes, the `Q4_K_M`/`Q8_0` comparison that chose the
+//! shipped quantization, and the check that the generation budget clears the
+//! longest dictation the capture ceiling allows. They exist so those numbers
+//! get **re-measured** rather than argued about.
+//!
+//! **They are as unrunnable as the ones that were deleted**, and for the same
+//! reason: `.tools/downloads/Obama.wav` is gone too. They are kept because they
+//! are the recorded provenance of decisions `CLAUDE.md` still cites, and
+//! because re-creating a two-minute clip is a download rather than a lost
+//! recording. Anyone reviving them needs that file back first.
+//!
+//! # Running them
 //!
 //! ```text
 //! cargo test -p speakeasy-granite granite -- --ignored --nocapture
 //! ```
 //!
-//! Needs, and fails loudly without, the two GGUF files under gitignored
-//! `.tools/`. Failing rather than skipping is deliberate: a proof that skips
-//! when its subject is absent reports the same thing whether the engine works or
-//! was never tried.
+//! Fails loudly rather than skipping when a fixture is absent, deliberately: a
+//! proof that skips when its subject is missing reports the same thing whether
+//! the engine works or was never tried.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::{GraniteModel, GraniteOptions, GraniteStage, transcribe_samples, transcribe_wav_file};
+use crate::{GraniteModel, GraniteOptions};
 
 /// Workspace root, derived from this crate's manifest directory.
 fn workspace_root() -> PathBuf {
@@ -65,25 +83,6 @@ fn shipped_model() -> PathBuf {
     granite_dir().join("granite-speech-4.1-2b-Q4_K_M.gguf")
 }
 
-/// What is literally written in `beckett.wav`.
-///
-/// The same fixture the sherpa streaming and CUDA proofs use, so the engines are
-/// directly comparable on one utterance. For the record, on this fixture sherpa
-/// on CPU returned `Evered ever failed no matter, try again, fail again fail
-/// better` — losing "Ever tried" outright and carrying no sentence casing.
-const GROUND_TRUTH: &str =
-    "Ever tried. Ever failed. No matter. Try again. Fail again. Fail better.";
-
-/// What Granite actually returns, pinned exactly.
-///
-/// It differs from [`GROUND_TRUTH`] in one respect: `?` rather than `.` after
-/// the two opening clauses. That is a defensible reading of a rhetorical line
-/// rather than a recognition error — every word, every capital and every
-/// sentence boundary is right — so it is pinned as-is rather than softened into
-/// a substring match. Decoding is greedy, so this is reproducible; if this
-/// string changes, something in the pipeline changed.
-const EXPECTED: &str = "Ever tried? Ever failed? No matter. Try again. Fail again. Fail better.";
-
 /// Collapses runs of whitespace so the comparison is about words and
 /// punctuation rather than whether a decoder emitted a leading space.
 fn normalize(text: &str) -> String {
@@ -105,55 +104,6 @@ fn words(text: &str) -> Vec<String> {
         })
         .filter(|word: &String| !word.is_empty())
         .collect()
-}
-
-#[test]
-#[ignore = "hardware: needs the Granite GGUF files under .tools/granite-speech-4.1-2b/"]
-fn granite_transcribes_the_fixture_on_cpu() {
-    let model = shipped_model();
-    let projector = granite_dir().join("mmproj-model-f16.gguf");
-    let audio = workspace_root()
-        .join(".tools")
-        .join("fixtures")
-        .join("beckett.wav");
-
-    for path in [&model, &projector, &audio] {
-        assert!(
-            path.is_file(),
-            "missing {}; see this module's documentation",
-            path.display()
-        );
-    }
-
-    let options = GraniteOptions {
-        use_gpu: false,
-        ..GraniteOptions::default()
-    };
-
-    let started = Instant::now();
-    let transcript = transcribe_wav_file(&model, &projector, &audio, &options)
-        .expect("Granite must transcribe the fixture");
-    let elapsed = started.elapsed();
-
-    println!("granite cpu elapsed={elapsed:?} transcript={transcript:?}");
-
-    // The words are checked against what is actually said, so a dropped or
-    // misheard word fails here even if the punctuation looks plausible. A model
-    // that never received the audio still generates fluent text from the
-    // prompt, so this is what distinguishes a real transcription from one.
-    assert_eq!(
-        words(&transcript),
-        words(GROUND_TRUTH),
-        "the transcribed words must match what is said in the fixture"
-    );
-    // And the whole string is pinned, so any change in the pipeline — a prompt
-    // tweak, a quantization change, an upstream bump — shows up as a diff
-    // rather than passing quietly.
-    assert_eq!(
-        normalize(&transcript),
-        normalize(EXPECTED),
-        "the transcript no longer matches the pinned output"
-    );
 }
 
 /// A minimal RIFF/WAVE reader for 16 kHz mono 16-bit PCM, the one shape the
@@ -198,159 +148,6 @@ fn read_wave_samples(path: &Path) -> Vec<f32> {
         .iter()
         .map(|pair| f32::from(i16::from_le_bytes(*pair)) / 32_768.0)
         .collect()
-}
-
-/// The same fixture and pinned transcript as
-/// [`granite_transcribes_the_fixture_on_cpu`], but through [`transcribe_samples`]
-/// instead of [`transcribe_wav_file`] — the path a supervised worker process
-/// actually uses, since it receives buffered `PushAudio` samples, not a file on
-/// disk. Proves the `MtmdBitmap::from_audio_data` path is behaviour-preserving
-/// relative to `MtmdBitmap::from_file`, not just that it runs.
-#[test]
-#[ignore = "hardware: needs the Granite GGUF files under .tools/granite-speech-4.1-2b/"]
-fn granite_transcribes_the_fixture_on_cpu_from_buffered_samples() {
-    let model = shipped_model();
-    let projector = granite_dir().join("mmproj-model-f16.gguf");
-    let audio = workspace_root()
-        .join(".tools")
-        .join("fixtures")
-        .join("beckett.wav");
-
-    for path in [&model, &projector, &audio] {
-        assert!(
-            path.is_file(),
-            "missing {}; see this module's documentation",
-            path.display()
-        );
-    }
-
-    let samples = read_wave_samples(&audio);
-    let options = GraniteOptions {
-        use_gpu: false,
-        ..GraniteOptions::default()
-    };
-
-    let started = Instant::now();
-    let transcript = transcribe_samples(&model, &projector, &samples, &options)
-        .expect("Granite must transcribe the buffered samples");
-    let elapsed = started.elapsed();
-
-    println!("granite cpu (samples) elapsed={elapsed:?} transcript={transcript:?}");
-
-    assert_eq!(
-        words(&transcript),
-        words(GROUND_TRUTH),
-        "the transcribed words must match what is said in the fixture"
-    );
-    assert_eq!(
-        normalize(&transcript),
-        normalize(EXPECTED),
-        "the transcript no longer matches the pinned output"
-    );
-}
-
-/// Proves a loaded [`GraniteModel`] can transcribe more than one independent
-/// utterance without reloading — the whole premise of making
-/// `workers/granite-worker` resident. Runs the fixture twice against the
-/// *same* loaded model and projector: if the second call's KV cache carried
-/// any state from the first, or the model somehow needed to be reloaded, this
-/// would either fail outright or return a transcript that has drifted from
-/// the first call's, since decoding is greedy and therefore deterministic
-/// given identical, independent starting state each time.
-#[test]
-#[ignore = "hardware: needs the Granite GGUF files under .tools/granite-speech-4.1-2b/"]
-fn a_loaded_granite_model_transcribes_two_independent_utterances_identically() {
-    let model_path = shipped_model();
-    let projector_path = granite_dir().join("mmproj-model-f16.gguf");
-    let audio = workspace_root()
-        .join(".tools")
-        .join("fixtures")
-        .join("beckett.wav");
-
-    for path in [&model_path, &projector_path, &audio] {
-        assert!(
-            path.is_file(),
-            "missing {}; see this module's documentation",
-            path.display()
-        );
-    }
-
-    let options = GraniteOptions {
-        use_gpu: false,
-        ..GraniteOptions::default()
-    };
-
-    let load_started = Instant::now();
-    let model =
-        GraniteModel::load(&model_path, &projector_path, &options).expect("Granite must load once");
-    let load_elapsed = load_started.elapsed();
-
-    let first_started = Instant::now();
-    let first = model
-        .transcribe_wav_file(&audio, &options)
-        .expect("the first utterance must transcribe against the loaded model");
-    let first_elapsed = first_started.elapsed();
-
-    let second_started = Instant::now();
-    let second = model
-        .transcribe_wav_file(&audio, &options)
-        .expect("the second utterance must transcribe against the same loaded model");
-    let second_elapsed = second_started.elapsed();
-
-    println!(
-        "granite resident: load={load_elapsed:?} first={first_elapsed:?} second={second_elapsed:?}"
-    );
-
-    for (label, transcript) in [("first", &first), ("second", &second)] {
-        assert_eq!(
-            words(transcript),
-            words(GROUND_TRUTH),
-            "the {label} call's words must match what is said in the fixture"
-        );
-        assert_eq!(
-            normalize(transcript),
-            normalize(EXPECTED),
-            "the {label} call's transcript no longer matches the pinned output"
-        );
-    }
-    assert_eq!(
-        first, second,
-        "two independent calls against one loaded model must produce the identical transcript"
-    );
-}
-
-/// The audio-support guard has to fire, because the failure it catches is
-/// otherwise indistinguishable from a bad transcription.
-///
-/// Passing the *model* where the projector belongs is the cheapest way to get a
-/// GGUF that loads but carries no audio projector.
-#[test]
-#[ignore = "hardware: needs the Granite GGUF files under .tools/granite-speech-4.1-2b/"]
-fn a_projector_without_audio_is_refused_rather_than_answered_from_the_prompt() {
-    let model = shipped_model();
-    let audio = workspace_root()
-        .join(".tools")
-        .join("fixtures")
-        .join("beckett.wav");
-    assert!(model.is_file(), "missing {}", model.display());
-
-    let options = GraniteOptions {
-        use_gpu: false,
-        ..GraniteOptions::default()
-    };
-    let outcome = transcribe_wav_file(&model, &model, &audio, &options);
-
-    let Some(stage) = outcome.as_ref().err().map(super::GraniteError::stage) else {
-        panic!("a non-audio projector must fail, got {outcome:?}")
-    };
-    assert!(
-        matches!(
-            stage,
-            GraniteStage::ProjectorLoad | GraniteStage::AudioUnsupported
-        ),
-        "expected the projector to be refused, got {}",
-        stage.code()
-    );
 }
 
 /// Where the longer, real-speech corpus recording lives -- the same file
@@ -447,67 +244,6 @@ fn granite_transcribes_a_two_minute_utterance_on_cpu_resident() {
         "produced only {word_count} words from {duration_seconds}s of real speech -- looks like \
          the model answered the prompt rather than reading the audio"
     );
-}
-
-/// The measurement that reversed the quantization decision, kept as a
-/// regression guard rather than retired with it.
-///
-/// `Q8_0` used to be install-eligible by *decision*, not measurement; this test
-/// supplied the measurement, and `Q4_K_M` became the shipped pack on the
-/// strength of it. It stays because the claim it proves -- that the two
-/// quantizations agree on this fixture -- is what lets every other proof in
-/// this module keep the same pinned string across the swap. Same fixture, same
-/// options, nothing but the GGUF differing.
-///
-/// Correctness is checked by word match against the same ground truth every
-/// other `beckett.wav` proof in this module pins -- not by exact-string pin,
-/// because quantization is expected to change punctuation/casing choices,
-/// which is exactly one of the two things this measurement exists to compare.
-#[test]
-#[ignore = "hardware: needs both Granite quantizations under .tools/granite-speech-4.1-2b/"]
-fn granite_q4_k_m_versus_q8_0_on_beckett() {
-    let projector = granite_dir().join("mmproj-model-f16.gguf");
-    let q8 = granite_dir().join("granite-speech-4.1-2b-Q8_0.gguf");
-    let q4 = granite_dir().join("granite-speech-4.1-2b-Q4_K_M.gguf");
-    let audio = workspace_root()
-        .join(".tools")
-        .join("fixtures")
-        .join("beckett.wav");
-    for path in [&projector, &q8, &q4, &audio] {
-        assert!(
-            path.is_file(),
-            "missing {}; see this module's documentation",
-            path.display()
-        );
-    }
-
-    let options = GraniteOptions {
-        use_gpu: false,
-        ..GraniteOptions::default()
-    };
-
-    for (label, model_path) in [("q8_0", &q8), ("q4_k_m", &q4)] {
-        let load_started = Instant::now();
-        let model = GraniteModel::load(model_path, &projector, &options)
-            .unwrap_or_else(|error| panic!("{label} must load: {error}"));
-        let load_elapsed = load_started.elapsed();
-
-        let started = Instant::now();
-        let transcript = model
-            .transcribe_wav_file(&audio, &options)
-            .unwrap_or_else(|error| panic!("{label} must transcribe beckett.wav: {error}"));
-        let elapsed = started.elapsed();
-
-        println!(
-            "granite {label} beckett.wav: load={load_elapsed:?} transcribe={elapsed:?} \
-             transcript={transcript:?}"
-        );
-        assert_eq!(
-            words(&transcript),
-            words(GROUND_TRUTH),
-            "{label}'s transcribed words must match what is said in the fixture"
-        );
-    }
 }
 
 /// The same comparison as [`granite_q4_k_m_versus_q8_0_on_beckett`], but on
