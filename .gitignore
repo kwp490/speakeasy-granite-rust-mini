@@ -14,6 +14,19 @@
 # regenerates this one from Windows' own synthesiser.
 !apps/bootstrapper/fixtures/smoke.wav
 
+# That exception is the ONLY one, and it is a synthesised clip on purpose.
+#
+# `crates/speakeasy-audio/examples/record_fixture.rs` records real speech from a
+# real microphone, and those recordings are a person's voice. They stay on the
+# machine that made them: this is a public repository, and a voice is not a
+# fixture you can un-publish. `.tools/` already covers them and `*.wav` covers
+# them again -- both deliberately, so removing one does not expose them.
+#
+# **Do not add a second `!` exception for a recorded clip.** If a proof needs
+# real speech, it needs the recorder and a local recording, not a committed
+# voice. That is the standing decision (owner, 2026-08-27) and it is why the
+# recorder is committed while its output never is.
+
 # Production workspace output
 /target/
 /artifacts/streaming-qualification/
