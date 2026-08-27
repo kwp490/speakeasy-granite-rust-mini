@@ -1,10 +1,12 @@
 //! Proof that the compiled worker *process* — not just the library function —
 //! genuinely transcribes over the framed protocol.
 //!
-//! `speakeasy-granite`'s own hardware proofs (`granite_smoke.rs`) already
-//! cover `transcribe_wav_file`/`transcribe_samples` in-process. What those
-//! cannot prove is that this crate's `main.rs` wires the protocol to those
-//! functions correctly end to end — that `LoadModel` accepts the real
+//! `speakeasy-granite`'s own hardware proofs (`granite_smoke.rs`) used to
+//! cover `transcribe_wav_file`/`transcribe_samples` in-process; they were
+//! deleted on 2026-08-27, having read fixtures that no longer existed in any
+//! checkout. What they could never prove anyway is that this crate's `main.rs`
+//! wires the protocol to those functions correctly end to end — that
+//! `LoadModel` accepts the real
 //! artifact, that buffered `PushAudio` samples survive to `FinishStream`, and
 //! that the response frames the desktop app's `ProcessWorkerClient` expects
 //! actually arrive. So this test spawns the real compiled binary and drives it
@@ -16,8 +18,8 @@
 //! target has no library for an integration test to import from either — so
 //! the handful of wire-protocol literals below (the artifact id, the GGUF
 //! filenames, the sample rate) are deliberately duplicated from `main.rs`
-//! rather than shared, the same trade already made for the WAV reader in
-//! `speakeasy-granite`'s own `granite_smoke` module.
+//! rather than shared, the same trade `speakeasy-desktop`'s
+//! `transcript_quality` makes for the WAV reader.
 //!
 //! ```text
 //! cargo test -p speakeasy-granite-worker --test granite_worker_smoke -- --ignored --nocapture
@@ -63,8 +65,8 @@ fn granite_dir() -> PathBuf {
 }
 
 /// A minimal RIFF/WAVE reader for 16 kHz mono 16-bit PCM — the same small,
-/// deliberately duplicated reader as `speakeasy-granite`'s `granite_smoke`
-/// module and `speakeasy-desktop`'s `transcript_quality`; see either for why a
+/// deliberately duplicated reader as `speakeasy-desktop`'s
+/// `transcript_quality` and its `granite_engine` tests; see either for why a
 /// shared dependency is not worth it for nine lines of chunk-walking.
 fn read_wave_samples(path: &Path) -> Vec<f32> {
     let bytes = std::fs::read(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));

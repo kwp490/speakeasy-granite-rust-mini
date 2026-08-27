@@ -866,6 +866,18 @@ Every one of these produced a plausible, wrong result rather than an error.
   decision: ~21% faster than Q8_0 on a 120 s utterance with an identical
   transcript but for one punctuation choice. Q8_0 stays in the catalog as the
   recorded alternative, not as a second thing to keep working.
+
+  **The rigs that produced this and the thread-count table are gone**, deleted
+  2026-08-27 with `speakeasy-granite`'s whole `granite_smoke` module. All nine
+  read fixtures from gitignored `.tools/` — `beckett.wav` and a two-minute
+  `Obama.wav` slice — that had not existed in any checkout for months, so they
+  reported nothing while reading as merely `#[ignore]`d, and they could never
+  join the gate anyway: they need 2.1 GB of weights no checkout carries. The
+  *numbers* survive here because they are what the defaults are for. Revising
+  one means building a new rig and saying so, not editing the table. Correctness
+  is unaffected — `granite_final_pass_transcribes_the_fixture_through_the_real_worker_process`
+  asserts a whole transcript against a **committed** clip, through more of the
+  stack than any of the deleted proofs reached.
 - **Two destructive cleanup rules never run.** `immediate_repetitions` and
   `self_corrections` are forced off in `apply_final_personalization` and have no
   settings toggles. `resolve_self_correction` discards everything before

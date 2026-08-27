@@ -57,9 +57,6 @@ use llama_cpp_2::mtmd::{
 use llama_cpp_2::sampling::LlamaSampler;
 use llama_cpp_2::token::LlamaToken;
 
-#[cfg(test)]
-mod granite_smoke;
-
 /// The instruction Granite Speech is prompted with to transcribe rather than
 /// summarise or answer.
 ///
@@ -205,9 +202,14 @@ pub struct GraniteOptions {
 ///
 /// Measured on this project's development machine (i9-14900KF, 8 P-cores +
 /// 16 E-cores = 24 cores / 32 logical) against a 120 s utterance.
-/// `granite_thread_count_sweep_on_a_two_minute_utterance` in this crate's
-/// `granite_smoke` module is the rig, and re-running it is how these numbers
-/// get revised rather than argued about:
+///
+/// **The rig that produced this table is gone**, deleted 2026-08-27 with the
+/// rest of `granite_smoke`: it read a two-minute clip from gitignored `.tools/`
+/// that had not existed in any checkout for months, so it reported nothing
+/// while reading as merely `#[ignore]`d. The numbers are kept because they are
+/// what the default is *for*, and the shape of the finding — a flat plateau,
+/// then a cliff — is the part that has to survive. Revising them means building
+/// a new rig and saying so, not editing the table.
 ///
 /// | threads | transcribe | versus 4 |
 /// | --- | --- | --- |

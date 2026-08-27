@@ -1695,11 +1695,11 @@ mod tests {
     }
 
     /// A minimal RIFF/WAVE reader for 16 kHz mono 16-bit PCM -- the same small,
-    /// deliberately duplicated reader `transcript_quality.rs`,
-    /// `speakeasy-granite`'s `granite_smoke` module and
-    /// `workers/granite-worker`'s own smoke test each carry; see any of them
-    /// for why a shared dependency is not worth it for nine lines of
-    /// chunk-walking.
+    /// deliberately duplicated reader `transcript_quality.rs` and
+    /// `workers/granite-worker`'s own smoke test each carry; see either for why
+    /// a shared dependency is not worth it for nine lines of chunk-walking.
+    /// `speakeasy-granite`'s `granite_smoke` carried a fourth copy until that
+    /// module was deleted on 2026-08-27.
     fn read_wave(path: &std::path::Path) -> Vec<i16> {
         let bytes =
             std::fs::read(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));

@@ -364,7 +364,10 @@ Q4_K_M is the shipped quantization on measurement rather than by decision — ~2
 faster than Q8_0 on a 120 s utterance (RTF 0.277 versus 0.352) with an identical
 transcript but for one punctuation choice. `granite-speech-4.1-2b-q8_0-cpu`
 stays in the catalog as the recorded alternative, not as a second configuration
-to keep working.
+to keep working. The comparison rig was deleted on 2026-08-27 along with the
+rest of `speakeasy-granite`'s `granite_smoke` module, whose fixtures had been
+missing from every checkout for months; the figures stand as the record of a
+measurement that was taken, not as something re-runnable today.
 
 The packs are the schema-v3 archive-less shape: Hugging Face serves the GGUFs as
 loose files, so there is no single archive digest and each required file carries
