@@ -941,13 +941,39 @@ impl PersonalizationCoordinator {
 /// model invented new ones. Prediction catches the slice already seen, so rows
 /// are added from measurement and never from imagination, and a row is refused
 /// when the word it rewrites is one somebody might legitimately say.
+///
+/// # The clearest evidence of that ceiling, measured the same day
+///
+/// The five runs above were dictated through a laptop microphone array. Five
+/// more of the *same sentence* through a close-talk headset scored 21 of 25
+/// against 19 — `LogicMonitor` and `ServiceNow` went to 5 of 5, and `Hellen`
+/// from 2 to 4. But `JIRA` went **down**, 4 of 5 to 2, and the reason is the
+/// whole argument: `Jura` — added to this table hours earlier from the first
+/// set — did not appear once. The model had switched to `Gira`.
+///
+/// Nothing about the rule caused that; a correction cannot influence
+/// recognition. Changing the microphone changed which wrong form the model
+/// produced for a word it hears correctly and spells as a plausible name.
+/// `Jura` stays anyway, because it was measured and costs nothing, but it is
+/// now a row guarding a form nobody has seen since the day it was written.
+///
+/// So a row here buys a *specific* string, not a term. Adding one is worth
+/// doing when the string is safe and the failure is common; expecting the set
+/// to converge is not.
 const MEASURED_MISHEARINGS: &[(&str, &str)] = &[
     ("Hewitt", "HUIT"),
     ("Helen", "Hellen"),
-    // Both from the 2026-08-27 dictations, and both safe in a way the refused
-    // three are not: `servenow` is not a word in any language, and `Jura` is a
-    // mountain range nobody is dictating about in a ticketing system.
+    // All three from the 2026-08-27 dictations, and safe in a way the refused
+    // candidates are not: `servenow` is not a word in any language, and `Jura`
+    // and `Gira` are a mountain range and an Italian verb, neither of which
+    // anybody is dictating about in a ticketing system.
+    //
+    // `Jura` and `Gira` are the same mishearing twice. The speaker says JIRA,
+    // the model hears the sound correctly and spells it as a plausible word,
+    // and *which* word depends on the microphone. Both are kept; neither
+    // should be read as having closed the case.
     ("Jura", "JIRA"),
+    ("Gira", "JIRA"),
     ("servenow", "ServiceNow"),
 ];
 
@@ -985,12 +1011,19 @@ fn protected_term_entries(terms: &[String]) -> Vec<DictionaryEntry> {
         // Same guard as the companion: a `heard` form the user typed as a word
         // in its own right keeps its identity rule and gets no correction,
         // because two entries with one source reject the whole batch.
-        for (heard, meant) in MEASURED_MISHEARINGS {
+        for (row, (heard, meant)) in MEASURED_MISHEARINGS.iter().enumerate() {
             if !meant.eq_ignore_ascii_case(term) || !claimed.insert(heard.to_lowercase()) {
                 continue;
             }
             derived.push(DictionaryEntry {
-                id: format!("installer-{index}-heard"),
+                // The row is in the id, not just the term. One term can have
+                // several measured mishearings -- `JIRA` has two, `Jura` and
+                // `Gira` -- and an id keyed on the term alone made them a
+                // `DuplicateId` that rejected the batch. Caught by the
+                // validator the moment the second row landed, which is what it
+                // is for; a scheme that assumed one-per-term was fine right up
+                // to the first term that had two.
+                id: format!("installer-{index}-heard-{row}"),
                 locale: "en-US".to_owned(),
                 source: (*heard).to_owned(),
                 replacement: term.clone(),

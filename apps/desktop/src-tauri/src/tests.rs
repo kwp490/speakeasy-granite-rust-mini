@@ -1031,6 +1031,29 @@ mod tests {
         assert!(ids.contains("installer-0-spaced"));
     }
 
+    /// One term can carry several measured mishearings -- `JIRA` has both
+    /// `Jura` and `Gira` -- and an id keyed on the term alone made them a
+    /// `DuplicateId` that rejected the entire batch. Asserted directly, because
+    /// the shape that broke was invisible until a second row for one term
+    /// existed.
+    #[test]
+    fn a_term_with_two_measured_mishearings_gets_two_distinct_entries() {
+        let entries = protected_term_entries(&["JIRA".to_owned()]);
+        let corrections: Vec<(&str, &str)> = entries
+            .iter()
+            .filter(|entry| entry.source != entry.replacement)
+            .map(|entry| (entry.source.as_str(), entry.replacement.as_str()))
+            .collect();
+        assert_eq!(corrections, vec![("Jura", "JIRA"), ("Gira", "JIRA")]);
+
+        let ids: std::collections::BTreeSet<&str> =
+            entries.iter().map(|entry| entry.id.as_str()).collect();
+        assert_eq!(ids.len(), entries.len(), "duplicate id: {ids:?}");
+
+        speakeasy_transforms::DictionarySet::new(entries)
+            .expect("two mishearings for one term must validate");
+    }
+
     /// The failures no rule predicts, corrected because somebody measured them.
     ///
     /// Scoped to the term: a profile that does not protect `HUIT` must not
@@ -1090,6 +1113,16 @@ mod tests {
         assert_eq!(
             set.apply("paged me about servenow this morning.", "en-US").0,
             "paged me about ServiceNow this morning."
+        );
+
+        // And from the headset runs, where `Jura` never appeared and `Gira`
+        // took its place three times out of five. Both forms are asserted here
+        // deliberately: the pair is the record that one term can mis-transcribe
+        // two different ways depending on the microphone.
+        assert_eq!(
+            set.apply("Hellen filed it in Gira for the HUIT team.", "en-US")
+                .0,
+            "Hellen filed it in JIRA for the HUIT team."
         );
     }
 
