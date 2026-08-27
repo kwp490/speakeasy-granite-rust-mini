@@ -360,6 +360,37 @@ pub fn record_installed_provider(provider: Provider) -> bool {
     write_one(&directory, PROVIDER, provider.code())
 }
 
+/// Discard the provider record, for an install that ran no engine check.
+///
+/// **A stale record is worse than no record**, and this exists because one was
+/// measured on 2026-08-27. `--install` places the payload's own processor worker
+/// and never runs `smoke::verify_engine`, so it has nothing to record — but the
+/// file is not a seed and the app never consumes it, so a `cuda` written by an
+/// *earlier* wizard install survives the reinstall and goes on describing a
+/// configuration no longer on disk. The app then correctly reported
+/// `engine=cpu_gpu_runtime_missing device=cpu installed=cuda
+/// provider=gpu_install_not_operational`: a real fault banner, on a machine
+/// whose only problem was that nobody had corrected the record.
+///
+/// Clearing rather than writing `cpu` is the same rule
+/// [`record_installed_provider`] states: a check that never ran writes nothing,
+/// and `apps/desktop` reads absence as `"unrecorded"`. Writing `cpu` here would
+/// be a claim about a configuration nobody verified — true by accident today,
+/// because a silent install happens to place the processor worker, and a lie
+/// the moment that stops being so.
+///
+/// Missing already is success: the post-condition is that no record is left, not
+/// that a file was deleted.
+pub fn clear_installed_provider() -> bool {
+    let Some(directory) = directory() else {
+        return false;
+    };
+    match std::fs::remove_file(directory.join(PROVIDER)) {
+        Ok(()) => true,
+        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+    }
+}
+
 /// `"1"` or `"0"`, the whole vocabulary of the boolean seeds.
 ///
 /// Spelled as the app parses them: `consume_installer_logging_seed` matches the
@@ -603,5 +634,38 @@ mod tests {
             !should_seed_silently(&["Kenneth".to_owned()]),
             "an existing list must survive"
         );
+    }
+
+    /// Clearing is idempotent, and absence is the success condition rather
+    /// than a delete having happened. A silent install runs on machines with
+    /// and without a prior record, and both have to end in the same state.
+    #[test]
+    fn clearing_the_provider_record_is_idempotent_and_leaves_nothing() {
+        let Some(directory) = directory() else {
+            return;
+        };
+        let path = directory.join(PROVIDER);
+        let restore = std::fs::read_to_string(&path).ok();
+
+        assert!(std::fs::create_dir_all(&directory).is_ok());
+        assert!(write_one(
+            &directory,
+            PROVIDER,
+            Provider::GraphicsCard.code()
+        ));
+        assert!(path.exists(), "the fixture must be in place to be cleared");
+
+        assert!(
+            clear_installed_provider(),
+            "a present record must be removed"
+        );
+        assert!(!path.exists());
+        assert!(clear_installed_provider(), "already absent is success");
+
+        // Put back whatever this machine had, so running the suite does not
+        // silently reconfigure the developer's own installation.
+        if let Some(previous) = restore {
+            assert!(write_one(&directory, PROVIDER, &previous));
+        }
     }
 }

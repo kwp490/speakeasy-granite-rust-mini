@@ -350,12 +350,21 @@ fn place(install_root: Option<&std::ffi::OsStr>, destination: console::Destinati
             // product whose word list is empty forever. Refuses to overwrite a
             // profile that already has words -- see `seed::vocabulary_to_offer`.
             let seeded = seed::write_default_vocabulary();
+            // No engine check ran here, so there is nothing to record -- and a
+            // record left over from an earlier *wizard* install would describe
+            // a configuration this one just replaced. Measured: a silent
+            // reinstall over a graphics-card install left `installed=cuda`
+            // standing beside the processor worker it had placed, and the app
+            // raised `gpu_install_not_operational` about a machine whose only
+            // fault was the stale claim.
+            let provider = seed::clear_installed_provider();
             repair::report(
                 &format!(
-                    "installed version={} root={} vocabulary={}",
+                    "installed version={} root={} vocabulary={} provider={}",
                     env!("CARGO_PKG_VERSION"),
                     root.display(),
-                    if seeded { "seeded" } else { "kept" }
+                    if seeded { "seeded" } else { "kept" },
+                    if provider { "unrecorded" } else { "stale" }
                 ),
                 destination,
                 repair::Severity::Information,

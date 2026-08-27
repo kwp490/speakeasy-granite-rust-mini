@@ -595,6 +595,17 @@ version could not:
   empty forever. It reports `vocabulary=seeded` or `vocabulary=kept` on the
   install line, so which of the two happened is never a guess.
 
+  **And it clears `install-provider.txt`**, since 2026-08-27. That file is not a
+  seed and the app never consumes it, so a `cuda` written by an earlier *wizard*
+  install outlives a silent reinstall and goes on describing a configuration
+  that was just replaced. Measured: a silent install over a graphics-card one
+  left the processor worker on disk beside `installed=cuda`, and the app
+  correctly raised `gpu_install_not_operational` — a real fault banner on a
+  machine whose only fault was the stale claim. Clearing rather than writing
+  `cpu` follows the rule the record already carries: a check that never ran
+  writes nothing, and absence reads as `unrecorded`. The install line says
+  `provider=unrecorded` or `provider=stale`.
+
   Three rules follow. The default is **a starting value and never a policy** —
   the same contract every seed here carries, so a word removed in Settings
   afterwards stays removed. The **box is the example**: the key line no longer
