@@ -930,4 +930,95 @@ mod tests {
             );
         }
     }
+
+    /// Setup's words become entries, and a compound also gets its spaced
+    /// companion so a recogniser that heard two words is corrected.
+    #[test]
+    fn setup_terms_gain_a_spaced_companion_for_every_compound() {
+        let terms = ["LogicMonitor", "Splunk", "PagerDuty"]
+            .iter()
+            .map(|term| (*term).to_owned())
+            .collect::<Vec<_>>();
+        let entries = protected_term_entries(&terms);
+
+        let sources: Vec<(&str, &str)> = entries
+            .iter()
+            .map(|entry| (entry.source.as_str(), entry.replacement.as_str()))
+            .collect();
+        assert_eq!(
+            sources,
+            vec![
+                ("LogicMonitor", "LogicMonitor"),
+                ("Splunk", "Splunk"),
+                ("PagerDuty", "PagerDuty"),
+                ("Logic Monitor", "LogicMonitor"),
+                ("Pager Duty", "PagerDuty"),
+            ],
+            "every term keeps its identity rule; only compounds gain a companion"
+        );
+
+        // The identity rules stay protected -- they exist to stop the finishing
+        // pass rewriting a word it got right. The companions are corrections of
+        // a form the user did not want, so they are not.
+        for entry in &entries {
+            assert_eq!(
+                entry.protected,
+                entry.source == entry.replacement,
+                "{} has the wrong protected flag",
+                entry.id
+            );
+            assert!(entry.enabled, "{} must be live", entry.id);
+        }
+
+        // Whatever this produces has to survive the validator it is handed to,
+        // or the batch is rejected whole and the user gets nothing.
+        speakeasy_transforms::DictionarySet::new(entries)
+            .expect("the seeded entry set must validate");
+    }
+
+    /// The guard that matters. A derived variant colliding with a word the user
+    /// actually typed is a `ConflictingRule`, and that rejects **every** entry
+    /// in the batch rather than the duplicate -- which is how a user once ended
+    /// up with none of their vocabulary and no error. Two spellings of the same
+    /// compound is an entirely ordinary thing to type.
+    #[test]
+    fn a_spaced_variant_that_collides_with_a_typed_term_is_dropped_not_conflicting() {
+        let terms = ["ServiceNow", "Service Now", "OpenAI"]
+            .iter()
+            .map(|term| (*term).to_owned())
+            .collect::<Vec<_>>();
+        let entries = protected_term_entries(&terms);
+
+        let sources: Vec<&str> = entries.iter().map(|entry| entry.source.as_str()).collect();
+        assert_eq!(
+            sources,
+            vec!["ServiceNow", "Service Now", "OpenAI", "Open AI"],
+            "the colliding companion is dropped; the unrelated one still arrives"
+        );
+        assert!(
+            entries.iter().all(|entry| entry.source != "Service Now"
+                || entry.replacement == "Service Now"),
+            "the term the user typed keeps its own identity rule"
+        );
+
+        speakeasy_transforms::DictionarySet::new(entries)
+            .expect("a colliding pair must not reach the validator as a conflict");
+    }
+
+    /// Ids are the marker `replace_user_entry_terms` uses to decide what this
+    /// page owns, so a companion has to be replaced on a second install rather
+    /// than orphaned under a position the new list no longer has.
+    #[test]
+    fn every_seeded_entry_id_is_unique_and_namespaced() {
+        let terms = ["LogicMonitor", "PagerDuty", "ChatGPT"]
+            .iter()
+            .map(|term| (*term).to_owned())
+            .collect::<Vec<_>>();
+        let entries = protected_term_entries(&terms);
+        let ids: std::collections::BTreeSet<&str> =
+            entries.iter().map(|entry| entry.id.as_str()).collect();
+        assert_eq!(ids.len(), entries.len(), "duplicate id in the seeded set");
+        assert!(ids.contains("installer-0"));
+        assert!(ids.contains("installer-0-spaced"));
+    }
 }

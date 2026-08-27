@@ -13,7 +13,7 @@ mod snippets;
 pub use cleanup::{RuleCleanupConfig, RuleCleanupMode, RuleCleanupResult, apply_rule_cleanup};
 pub use dictionary::{
     BoundaryPolicy, CasePolicy, DictionaryEntry, DictionaryOrigin, DictionarySet,
-    DictionaryValidationError, ReplacementProvenance,
+    DictionaryValidationError, ReplacementProvenance, spaced_variant,
 };
 pub use hotwords::{
     DecoderIdentity, HotwordDecision, HotwordMeasurement, HotwordMeasurementStatus,

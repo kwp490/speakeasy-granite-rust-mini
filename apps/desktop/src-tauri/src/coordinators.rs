@@ -843,29 +843,29 @@ impl PersonalizationCoordinator {
     /// `ConflictingRule` that rejected every word the user typed, silently. An
     /// ordinary uninstall keeps `personalization.json` on purpose, so a second
     /// install is the common case rather than an odd one.
+    ///
+    /// # The spaced companion, since 2026-08-27
+    ///
+    /// A compound term also gets a second entry keyed on its spaced form —
+    /// `Logic Monitor` -> `LogicMonitor` — because that is how the recogniser
+    /// actually writes a compound name and the identity rule cannot match it.
+    /// See `speakeasy_transforms::spaced_variant` for the measurement.
+    ///
+    /// **They are ordinary visible entries on purpose.** Making the matcher
+    /// quietly accept a spaced form would fix the same transcripts and leave no
+    /// way to find out why "I need service now" had become "I need
+    /// `ServiceNow`".
+    /// An entry the user can read in the settings list and delete is the
+    /// inspectable version of the same behaviour, and this app's conventions
+    /// prefer that to magic even when it costs list length.
     fn add_protected_terms(&self, terms: &[String]) -> Result<(), &'static str> {
-        let entries = terms
-            .iter()
-            .enumerate()
-            .map(|(index, term)| DictionaryEntry {
-                id: format!("installer-{index}"),
-                locale: "en-US".to_owned(),
-                source: term.clone(),
-                replacement: term.clone(),
-                case_policy: CasePolicy::InsensitiveCanonical,
-                boundary_policy: BoundaryPolicy::UnicodeWord,
-                origin: DictionaryOrigin::UserEntry,
-                precedence: 0,
-                protected: true,
-                enabled: true,
-            })
-            .collect();
         self.repository
             .lock()
             .map_err(|_| "personalization_state_unavailable")?
-            .replace_user_entry_terms(entries)
+            .replace_user_entry_terms(protected_term_entries(terms))
             .map_err(|_| "personalization_terms_rejected")
     }
+
 
     fn view(&self) -> Result<PersonalizationView, &'static str> {
         let repository = self
@@ -882,6 +882,64 @@ impl PersonalizationCoordinator {
             snippets: repository.state().snippets.clone(),
         })
     }
+}
+
+
+/// Builds the dictionary entries for a list of protected terms.
+///
+/// A free function rather than a method so the entry shape can be asserted
+/// without a repository on disk — the collision guard below is the part that has
+/// already caused a silent, total loss of a user's vocabulary once.
+fn protected_term_entries(terms: &[String]) -> Vec<DictionaryEntry> {
+    // Every source that will exist, folded for comparison the same way the
+    // matcher folds them. A derived variant that collides with a term the
+    // user actually typed must be dropped rather than added: two entries
+    // with one source are a `ConflictingRule`, and that rejects **every**
+    // word in the batch rather than the duplicate -- the 2026-08-20 defect
+    // that silently left a user with none of their vocabulary.
+    let mut claimed: std::collections::BTreeSet<String> =
+        terms.iter().map(|term| term.to_lowercase()).collect();
+    let mut entries = Vec::with_capacity(terms.len());
+    let mut derived = Vec::new();
+    for (index, term) in terms.iter().enumerate() {
+        entries.push(DictionaryEntry {
+            id: format!("installer-{index}"),
+            locale: "en-US".to_owned(),
+            source: term.clone(),
+            replacement: term.clone(),
+            case_policy: CasePolicy::InsensitiveCanonical,
+            boundary_policy: BoundaryPolicy::UnicodeWord,
+            origin: DictionaryOrigin::UserEntry,
+            precedence: 0,
+            protected: true,
+            enabled: true,
+        });
+        let Some(spaced) = speakeasy_transforms::spaced_variant(term) else {
+            continue;
+        };
+        if !claimed.insert(spaced.to_lowercase()) {
+            continue;
+        }
+        derived.push(DictionaryEntry {
+            // A distinct id namespace, so `replace_user_entry_terms` on the
+            // next install replaces these too rather than leaving orphans
+            // keyed on a position the new list no longer has.
+            id: format!("installer-{index}-spaced"),
+            locale: "en-US".to_owned(),
+            source: spaced,
+            replacement: term.clone(),
+            case_policy: CasePolicy::InsensitiveCanonical,
+            boundary_policy: BoundaryPolicy::UnicodeWord,
+            origin: DictionaryOrigin::UserEntry,
+            precedence: 0,
+            // Not `protected`: this is a correction rather than a word to
+            // leave alone. The spaced form is what the user did *not* want.
+            protected: false,
+            enabled: true,
+        });
+    }
+    entries.extend(derived);
+    entries
 }
 
 impl ProfileCoordinator {

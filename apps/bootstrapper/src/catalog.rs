@@ -119,9 +119,14 @@ pub const STEPS: &[Step] = &[
         // until 2026-08-20, which is more typing and more to remember.
         key: "Separate them with commas:   Kenneth, Anthropic, Granite",
         key_tone: Tone::Accent,
-        body: "Names, jargon and spellings to protect. They fix spelling in the finished \
-               transcript and do not change what the model hears, so a misheard word stays \
-               misheard.\n\
+        // "Spelling and spacing" rather than just spelling, since 2026-08-27: a
+        // compound name also gets a rule for the two-word form a recogniser
+        // writes, so `Logic Monitor` becomes `LogicMonitor`. The second
+        // sentence is unchanged and still the honest one -- these act on the
+        // finished transcript, never on what was heard.
+        body: "Names, jargon and spellings to protect. They fix spelling and spacing in the \
+               finished transcript and do not change what the model hears, so a misheard word \
+               stays misheard.\n\
                Optional — Settings has the same list.",
     },
     Step {

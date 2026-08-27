@@ -570,6 +570,24 @@ version could not:
   never describe a list the file disagrees with — and echoing the words is the
   only form in which a missing comma is visible before it is installed.
 
+  **A compound term also gets a spaced companion**, since 2026-08-27:
+  `LogicMonitor` produces a second, visible entry rewriting `Logic Monitor` to
+  it. That is how a recogniser writes a compound product name, and the identity
+  rule cannot match it — the term is one needle and a space is not in it.
+  Measured on a recorded clip, an unbiased pass wrote `logic monitor` twice and
+  `Pager Duty` twice while the shipped dictionary correctly fixed `Jira` to
+  `JIRA` on the same transcript; the companions take that transcript from 10 of
+  16 term occurrences to 14, with all eight sentence stops intact.
+
+  Two rules about them. **They are visible entries, not matcher behaviour** — a
+  user who finds "I need service now" rewritten to "ServiceNow" has to be able
+  to see the rule that did it and delete it, and a quietly fuzzy matcher offers
+  nowhere to look. And **a companion that collides with a term the user actually
+  typed is dropped, never added**: two entries with one source are a
+  `ConflictingRule`, which rejects the whole batch, which is precisely the defect
+  the next paragraph exists for. Typing both `ServiceNow` and `Service Now` is an
+  ordinary thing to do.
+
   **The words must actually arrive**, and for months they did not. Setup writes
   them to a one-shot seed; the app applies them as dictionary entries named
   `installer-0`, `installer-1`, … by position. An uninstall run with

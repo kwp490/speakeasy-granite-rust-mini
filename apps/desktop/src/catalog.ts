@@ -427,7 +427,7 @@ export const messages = {
   inventoryOnly: "Detected only, not runtime-qualified.",
   personalization: "Personalization",
   localeQualification: "Only limited en-US normalization and sentence capitalization are qualified. Other locales remain unchanged.",
-  hotwordLimitation: "This exact decoder/tokenizer does not declare hotword support. Protected terms use final postprocessing only; decoder gain, latency, and churn are unmeasured.",
+  hotwordLimitation: "Protected terms are applied after the transcript is finished, correcting the spelling and the spacing of words that were recognised. They do not change what the model hears, so a word that is misheard stays misheard. Adding them to the model's prompt instead was measured and rejected: it recognised more names and returned the whole dictation without any sentence punctuation.",
   contactsDisabled: "Contacts import is disabled. No contact source is read or scraped.",
   correctionObserved: "Recognized text",
   correctionCorrected: "Always replace with",

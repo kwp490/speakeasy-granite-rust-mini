@@ -204,6 +204,49 @@ impl DictionarySet {
     }
 }
 
+/// The spaced form of a compound term: `LogicMonitor` becomes `Logic Monitor`.
+///
+/// Returns `None` when the term has no lower-to-upper transition to split at,
+/// so a single-case term like `Splunk`, `HUIT` or `VLAN` contributes nothing
+/// and no caller has to filter the result.
+///
+/// # Why this exists
+///
+/// A recogniser hearing a compound product name writes it as two ordinary
+/// words, and an identity rule keyed on `LogicMonitor` cannot match
+/// `logic monitor` — the whole term is one needle, and a space is not in it.
+/// That is not a hypothetical: measured 2026-08-27 on a recorded clip, an
+/// unbiased pass returned `logic monitor` twice and `Pager Duty` twice, and the
+/// shipped dictionary reached neither while correctly fixing `Jira` to `JIRA`
+/// on the same transcript.
+///
+/// **This is the half of the problem that is safely fixable after the fact.**
+/// Biasing the decode instead was built and reverted the same day: it fixed
+/// more terms and cost the transcript every sentence boundary it had. See
+/// `CLAUDE.md`. What this cannot reach is a *phonetic* substitution — `Hewitt`
+/// for `HUIT` — which no spacing rule predicts and which the user can already
+/// correct themselves with an ordinary observed/corrected pair.
+///
+/// Splitting on the transition rather than on runs of capitals is deliberate.
+/// `OpenAI` yields `Open AI` and `ChatGPT` yields `Chat GPT`, which are what a
+/// recogniser actually writes; splitting inside `AI` or `GPT` would produce
+/// forms nobody says.
+#[must_use]
+pub fn spaced_variant(term: &str) -> Option<String> {
+    let mut out = String::with_capacity(term.len() + 4);
+    let mut previous: Option<char> = None;
+    let mut split = false;
+    for character in term.chars() {
+        if previous.is_some_and(char::is_lowercase) && character.is_uppercase() {
+            out.push(' ');
+            split = true;
+        }
+        out.push(character);
+        previous = Some(character);
+    }
+    split.then_some(out)
+}
+
 fn valid_term(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_TERM_BYTES
@@ -492,5 +535,52 @@ mod tests {
         assert_eq!(set.apply("東京へ", "ja").0, "東京都へ");
         assert_eq!(set.apply("سلام، عالم", "ar").0, "سَلام، عالم");
         assert_eq!(set.apply("東京へ", "en-US").0, "東京へ");
+    }
+
+    /// The four shapes that matter, named rather than swept into one loop: a
+    /// compound splits, an all-caps acronym and an all-lower word do not, and
+    /// a trailing initialism splits only at the transition into it.
+    #[test]
+    fn a_spaced_variant_is_derived_only_where_there_is_a_transition() {
+        assert_eq!(
+            spaced_variant("LogicMonitor").as_deref(),
+            Some("Logic Monitor")
+        );
+        assert_eq!(spaced_variant("PagerDuty").as_deref(), Some("Pager Duty"));
+        assert_eq!(spaced_variant("ServiceNow").as_deref(), Some("Service Now"));
+        // Splits into the initialism, never inside it: `Open A I` is not a
+        // thing any recogniser writes.
+        assert_eq!(spaced_variant("OpenAI").as_deref(), Some("Open AI"));
+        assert_eq!(spaced_variant("ChatGPT").as_deref(), Some("Chat GPT"));
+
+        for single_case in ["Splunk", "HUIT", "VLAN", "JIRA", "Claude", "jira", ""] {
+            assert_eq!(
+                spaced_variant(single_case),
+                None,
+                "{single_case} has no lower-to-upper transition to split at"
+            );
+        }
+    }
+
+    /// The behaviour the whole rule exists for, asserted end to end on the real
+    /// failure: a term the user typed as one word, spoken as one word, and
+    /// written by the recogniser as two.
+    #[test]
+    fn a_spaced_companion_entry_recovers_a_split_compound() {
+        let identity = entry("t", "LogicMonitor", "LogicMonitor");
+        let spaced = entry("t-spaced", "Logic Monitor", "LogicMonitor");
+        let set = DictionarySet::new(vec![identity, spaced]).unwrap();
+
+        // The whole sentence, so a rule that also ate the surrounding words
+        // would fail here rather than pass a substring check.
+        assert_eq!(
+            set.apply("why logic monitor kept flapping.", "en-US").0,
+            "why LogicMonitor kept flapping."
+        );
+        // And the already-correct form is still left alone.
+        assert_eq!(
+            set.apply("why LogicMonitor kept flapping.", "en-US").0,
+            "why LogicMonitor kept flapping."
+        );
     }
 }
