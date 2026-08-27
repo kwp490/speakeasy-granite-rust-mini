@@ -50,9 +50,10 @@
   --hud-ready: #6fd18f;
   --hud-busy: #f2c14e;
   --hud-level: #66b985;
-  /* The dock waveform's two louder bands. Green is `--hud-level` above and is
+  /* The dock waveform's two louder bands. Green is `--hud-level` above and was
      shared with the record button's fill, so the quiet end of the dock's meter
-     and the default HUD's meter are the same green rather than two greens.
+     and the deleted default HUD's meter were the same green rather than two
+     greens.
 
      Measured against `--hud-surface`, which is the only surface these ever
      appear on: `--hud-level` 6.87:1, `--hud-level-mid` 6.53:1,
@@ -128,6 +129,9 @@ body:has(.hud-dock) {
 }
 
 /* ── The compact transcriber ───────────────────────────────────────────────
+   The window these rules dressed was deleted by the fork; they are kept because
+   the dock reuses several of them, and are described below as they were.
+
    Fixed 420x280 logical and not resizable, so the layout is a column where
    every fixed-height row is a control and the transcript takes whatever is
    left. The window itself never scrolls; only the transcript does.
@@ -623,10 +627,11 @@ body:has(.hud-dock) {
 }
 
 /* ── The side dock ──────────────────────────────────────────────────────────
-   A second presentation of the compact transcriber: a narrow card that clings
-   to a screen edge instead of floating mid-screen. Fixed 130x360 logical,
-   matching the `hud-dock` entry in `tauri.conf.json` — there is no size to
-   negotiate here either, same reasoning as `.capture-hud`'s own fixed 420x280.
+   The app's only HUD: a narrow card that clings to a screen edge instead of
+   floating mid-screen. It was a second presentation of the compact transcriber
+   until the fork deleted that 420x280 window. Fixed 130x360 logical, matching
+   the `hud-dock` entry in `tauri.conf.json` — there is no size to negotiate
+   here.
 
    62 wide, where this was 130 and then 96 (owner decision 2026-08-13: 35%
    thinner again). 130 was a measured floor and the floor is real — Windows
@@ -817,9 +822,9 @@ body:has(.hud-dock) {
   }
 }
 
-/* Same accommodation `.hud-level` takes on the default HUD: the system palette
-   has no translucency and no second accent to spend on decoration, and the
-   clock and the Stop button below already say a dictation is running. */
+/* Same accommodation `.hud-level` took on the deleted default HUD: the system
+   palette has no translucency and no second accent to spend on decoration, and
+   the clock and the Stop button below already say a dictation is running. */
 @media (forced-colors: active) {
   .hud-dock-level-bars {
     display: none;
@@ -854,10 +859,10 @@ body:has(.hud-dock) {
 
 /* The record button's recording tone, exactly (owner decision 2026-08-12).
    This was the quiet raised treatment `.hud-chip` uses, on the argument that
-   the waveform should hold the eye — but the two presentations are the same
-   control in two windows, and the default HUD paints *its* stop as
-   `.hud-primary[data-tone="recording"]`. A user who has seen one and then
-   docks should not have to learn a second appearance for the same press.
+   the waveform should hold the eye — but the two presentations were the same
+   control in two windows, and the deleted default HUD painted *its* stop as
+   `.hud-primary[data-tone="recording"]`. A user who had seen one and then
+   docked should not have had to learn a second appearance for the same press.
 
    So the fill below is `.hud-primary[data-tone="recording"]`'s and is meant to
    stay equal to it: `--recording` fill and border, `--hud-text` label at 4.56:1

@@ -8,8 +8,8 @@ import type { HotkeyStatus } from "./types";
 import type { ProfileController } from "./useProfile";
 
 /**
- * General: the shortcut, the transcriber window, Windows startup, and the
- * keyboard paths that compensate for the transcriber never taking focus.
+ * General: the shortcut, the side dock, recording feedback, Windows startup,
+ * and the keyboard paths that compensate for the dock never taking focus.
  *
  * Registration state is reported in plain language — "Shortcut active", not
  * "HOTKEY REGISTRATION / Registered" (UI-GUIDE "Two vocabulary registers").

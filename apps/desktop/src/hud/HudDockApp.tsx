@@ -38,9 +38,9 @@ import { useDragToMove } from "./useDragToMove";
  *
  * Drag persists the landing edge and y through `hud_dock_placement_configure`
  * rather than a raw position — see that command for why. Right-click opens the
- * native menu (`hud_dock_context_menu`) for Settings, Close and Return to
- * default HUD; there is deliberately no left-click equivalent, so a drag in
- * progress can never be mistaken for one of those three.
+ * native menu (`hud_dock_context_menu`) for Settings and Close; there is
+ * deliberately no left-click equivalent, so a drag in progress can never be
+ * mistaken for one of those two.
  */
 export function HudDockApp() {
   const { model, stop } = useHudStatus();
@@ -128,9 +128,10 @@ export function HudDockApp() {
  * Three states earn a mark and the rest deliberately do not:
  *
  * - **working** — `stopping` and `transcribing`. Three dots that fade in
- *   sequence, in the same `--hud-busy` amber the record button uses for its own
- *   processing tone, so the two presentations agree about what "the app is
- *   thinking" looks like. This is the state the dock had no answer for.
+ *   sequence, in the same `--hud-busy` amber the deleted HUD's record button
+ *   used for its own processing tone — one colour for "the app is thinking",
+ *   kept so the vocabulary survived the window. This is the state the dock had
+ *   no answer for.
  * - **refused** — delivered, but the target app would not take the text, so it
  *   is on the clipboard. A clipboard mark rather than a warning colour, because
  *   *what to do next* is the message and it is a different action from a
@@ -203,8 +204,8 @@ function formatError(code: string): string {
  * What the window says about itself on hover: the shortcut when one is
  * actually registered, and what the window is when none is.
  *
- * `shortcutUnavailable` is not reused here — it ends by pointing at the record
- * button, which is on the other presentation.
+ * `shortcutUnavailable` is not reused here — it ends by pointing at "Start
+ * recording", a control the deleted HUD carried and the dock does not.
  */
 function shortcutTooltip(model: TranscriberModel): string {
   if (model.hotkeyRegistration !== "registered" || model.hotkeyBinding === "") {
@@ -223,8 +224,9 @@ function CloseGlyph() {
 
 /**
  * Two sheets, for "the text is on the clipboard". Deliberately the same drawing
- * as the default HUD's Copy button — it reports the same fact, and two glyphs
- * for one meaning is how a user learns that they are different meanings.
+ * the deleted default HUD's Copy button used — it reports the same fact, and
+ * two glyphs for one meaning is how a user learns that they are different
+ * meanings.
  */
 function ClipboardGlyph() {
   return (

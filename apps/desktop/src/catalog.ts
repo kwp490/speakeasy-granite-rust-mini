@@ -15,7 +15,6 @@ export const messages = {
   // streaming tiers and the qualification wording are the exceptions — they
   // stay precise everywhere, because truthful disclosure depends on them.
   transcriber: "SpeakEasy transcriber",
-  transcriberHeader: "Transcriber controls — drag to move",
   transcriberStates: {
     setupRequired: "Setup needed",
     loadingModel: "Loading model",
@@ -74,8 +73,8 @@ export const messages = {
   stayOnTopOn: "Staying on top of other windows",
   stayOnTopOff: "Not staying on top of other windows",
   switchToSideDock: "Switch to side dock",
-  // The side dock's one command. The default HUD's record button names the
-  // *state* it is in ("Recording") because it is also that window's state
+  // The side dock's one command. The deleted default HUD's record button named
+  // the *state* it was in ("Recording") because it was also that window's state
   // readout; the dock has a level meter and a clock for that, so its button is
   // free to name the action instead. Short by necessity — the dock is 130px
   // wide — and `stopDictationName` is the longer accessible name it agrees
@@ -152,8 +151,6 @@ export const messages = {
     microphone_missing: "Connect a microphone before dictating.",
     shortcut_unavailable: "Choose a working keyboard shortcut before dictating.",
   },
-  transcriberNotKeyboardOperable:
-    "The transcriber never takes keyboard focus, so it cannot be operated by keyboard. Use the shortcut to start and stop, and settings for everything else.",
   // ── The settings workspace ───────────────────────────────────────────────
   // Six pages behind a nav rail (UI-GUIDE "Information architecture").
   // Everyday register throughout except Advanced, which is where contract

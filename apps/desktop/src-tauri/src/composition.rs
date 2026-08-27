@@ -141,7 +141,7 @@ pub fn run() {
         // Shared by the tray's own menu-event hook below and the side dock's
         // popup menu (`hud_dock_context_menu`), which dispatches through the
         // app-wide handler rather than a tray-specific one — the two are
-        // different attachment points in tauri's menu API, but the same three
+        // different attachment points in tauri's menu API, but the same two
         // ids should mean the same thing regardless of where they were
         // clicked.
         app.on_menu_event(|app, event| dispatch_menu_action(app, event.id().as_ref()));
@@ -298,10 +298,11 @@ fn configure_hud(app: &mut tauri::App) -> tauri::Result<()> {
 }
 
 // ── The side dock ────────────────────────────────────────────────────────
-// A second presentation of the compact transcriber, narrow enough to sit
-// against a screen edge rather than floating mid-screen. Declared in
-// `tauri.conf.json` (96x360 logical, `visible: false`) alongside `hud`,
-// which is why its own size lives there rather than as a Rust constant.
+// The app's only HUD: a narrow card that clings to a screen edge rather than
+// floating mid-screen. It was a second presentation of the compact transcriber
+// until the fork deleted that window. Declared in `tauri.conf.json` (96x360
+// logical, `visible: false`), which is why its own size lives there rather than
+// as a Rust constant.
 
 /// Re-applies the dock's declared size, because creating the window at that
 /// size does not produce it.
@@ -405,9 +406,10 @@ fn edge_x(work: PhysicalBounds, edge: HudDockEdge, dock_width: u32, margin: i64)
     }
 }
 
-/// Keeps a `dock_height`-tall window's y inside `work`, the same clamp
-/// `clamp_to_bounds` does for the default HUD's y — factored out because the
-/// dock's x is never clamped this way, it is snapped to an edge instead.
+/// Keeps a `dock_height`-tall window's y inside `work`, the same clamp the
+/// deleted default HUD's `clamp_to_bounds` did for its y — factored out
+/// because the dock's x is never clamped this way, it is snapped to an edge
+/// instead.
 fn clamp_y_to_bounds(work: PhysicalBounds, y: i32, dock_height: u32) -> i32 {
     let maximum_y = i64::from(work.y) + i64::from(work.height.saturating_sub(dock_height));
     saturating_i32(i64::from(y).clamp(i64::from(work.y).min(maximum_y), maximum_y))

@@ -11,5 +11,4 @@ pub const QUIT_DURING_DICTATION_MESSAGE: &str = concat!(
     "Choose No to keep recording, then use Stop & transcribe to finish."
 );
 pub const HUD_DOCK_MENU_SETTINGS: &str = "Settings";
-pub const HUD_DOCK_MENU_RETURN: &str = "Return to default HUD";
 pub const HUD_DOCK_MENU_CLOSE: &str = "Close SpeakEasy";

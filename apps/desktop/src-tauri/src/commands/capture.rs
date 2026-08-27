@@ -434,11 +434,11 @@ fn show_settings_window(app: &tauri::AppHandle) {
 /// Persists where the user dragged the side dock, snapping it flush against
 /// whichever edge it landed nearest.
 ///
-/// Mirrors `hud_placement_configure`'s signature exactly — raw physical
-/// coordinates in — so the frontend's drag handler is a copy of the default
-/// HUD's. What this command does that `hud_placement_configure` does not is
-/// decide the edge: the dock is never left floating mid-screen the way the
-/// default HUD can be.
+/// Takes raw physical coordinates in, which is what the deleted default HUD's
+/// `hud_placement_configure` took — the frontend drag handler was written
+/// against that signature and still is. What this one does that the deleted
+/// command did not is decide the edge: the dock is never left floating
+/// mid-screen the way that window could be.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn hud_dock_placement_configure(
@@ -507,10 +507,9 @@ fn hud_dock_placement_configure(
 
 /// Pops the side dock's right-click menu at the cursor.
 ///
-/// Reuses the `"settings"` and `"quit"` ids `dispatch_menu_action` already
-/// handles for the tray, plus a `"hud_dock_return"` id of its own — "Close"
-/// here is genuinely the same action as the tray's "Quit," just relabeled for
-/// where it's clicked from.
+/// Both ids are the tray's — `dispatch_menu_action` already handles them, and
+/// "Close" here is genuinely the same action as the tray's "Quit," just
+/// relabeled for where it's clicked from.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn hud_dock_context_menu(
@@ -526,14 +525,6 @@ fn hud_dock_context_menu(
         None::<&str>,
     )
     .map_err(|_| "menu_unavailable")?;
-    let return_to_default = MenuItem::with_id(
-        &app,
-        "hud_dock_return",
-        native_catalog::HUD_DOCK_MENU_RETURN,
-        true,
-        None::<&str>,
-    )
-    .map_err(|_| "menu_unavailable")?;
     let close = MenuItem::with_id(
         &app,
         "quit",
@@ -542,8 +533,7 @@ fn hud_dock_context_menu(
         None::<&str>,
     )
     .map_err(|_| "menu_unavailable")?;
-    let menu =
-        Menu::with_items(&app, &[&settings, &return_to_default, &close]).map_err(|_| "menu_unavailable")?;
+    let menu = Menu::with_items(&app, &[&settings, &close]).map_err(|_| "menu_unavailable")?;
     window.popup_menu(&menu).map_err(|_| "menu_unavailable")
 }
 

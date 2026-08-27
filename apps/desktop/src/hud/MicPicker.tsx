@@ -40,8 +40,10 @@ function resolveDevice(devices: ReadonlyArray<CaptureDevice>, preferredId: strin
  * microphone, and a picker reading "Select a microphone" while a microphone is
  * in fact selected states something untrue about the next dictation.
  *
- * Long device names truncate in CSS rather than widening the window: the
- * transcriber is a fixed 420x280 and has no room to grow.
+ * Long device names truncate in CSS rather than widening the window. That rule
+ * was written for the large 420x280 transcriber, which the fork deleted; no
+ * window mounts this component today, and the side dock at 96x360 has even less
+ * room to grow, so the rule holds for wherever it lands next.
  */
 export function MicPicker({
   preferredId,

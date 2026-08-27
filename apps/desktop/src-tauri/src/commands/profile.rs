@@ -39,10 +39,10 @@ fn require_main_or_log_window(window: &tauri::WebviewWindow) -> Result<(), &'sta
 /// still forbidden. See `hud_transcript_copy` for why that narrower grant is not
 /// forgeable.
 ///
-/// `hud-dock` is the transcriber's other presentation, not a different
-/// authority: the side dock is the same no-activate window family as `hud`,
-/// just narrower content, so it shares this exact gate rather than getting a
-/// gate of its own.
+/// `hud-dock` was the transcriber's other presentation and is now the only one,
+/// but it is not a different authority: it is a no-activate window carrying the
+/// same controls in narrower content, so it shares this exact gate rather than
+/// getting a gate of its own.
 fn require_main_or_hud_window(window: &tauri::WebviewWindow) -> Result<(), &'static str> {
     matches!(window.label(), "main" | "hud-dock")
         .then_some(())

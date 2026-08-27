@@ -85,7 +85,6 @@ export type ModelInstallStatus = {
 export type ProfileStatus = {
   schema_version: number;
   startup_with_windows: boolean;
-  /** Which presentation of the compact transcriber is showing. */
   history_enabled: boolean;
   history_retention_days: number;
   history_plaintext_disclosure_accepted: boolean;

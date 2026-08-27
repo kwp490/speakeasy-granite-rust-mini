@@ -5,11 +5,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
  * Makes a no-activate window's chrome drag the window, and reports the
  * settled position to `persist` once the drag ends.
  *
- * Shared by the default HUD and the side dock, which are the same
+ * Shared by the side dock and the pinned transcript log, which are the same
  * no-activate window family (UI-GUIDE "Main window and focus") and move the
  * same way — only
  * where each persists its landing position differs, which is why this takes
- * `persist` as a parameter rather than a hard-coded command name.
+ * `persist` as a parameter rather than a hard-coded command name. The deleted
+ * default HUD was the third.
  *
  * Verified against a running no-activate, undecorated window before any of
  * this was built: the cursor delta and the window delta match

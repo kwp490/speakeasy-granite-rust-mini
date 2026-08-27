@@ -885,9 +885,9 @@ Stop and nothing else, which meant that from the moment a dictation ended until
 the text appeared — Granite's pass plus finalization, comfortably over a second
 — the dock was indistinguishable from idle, and a failure was indistinguishable
 from idle permanently. Three dots now fade in sequence while the app is
-stopping or transcribing, in the same `--hud-busy` amber the record button uses
-for its own processing tone, so the two presentations agree on what "working"
-looks like instead of each inventing a colour. They are three separate
+stopping or transcribing, in the same `--hud-busy` amber the deleted HUD's
+record button used for its own processing tone — one colour for "working"
+across the app, rather than each surface inventing one. They are three separate
 elements and the animation is a phase offset per dot, so under
 `prefers-reduced-motion` the mark degrades to three static dots rather than to
 nothing.
@@ -906,15 +906,14 @@ Stop is on the dock, though it was not on the first version of it. The
 argument for leaving it off was that dictation is hotkey-driven — but the
 hotkey has three activation modes and hands-free has no key that ends a
 recording at all, so a dock without Stop leaves the user's only way out on the
-window they docked to get away from. It paints exactly as the default HUD's
-record button does while recording — the `--recording` fill, on a rule scoped
-to the listening state rather than to the button, because red carries one
-operational meaning here and that has to be true of the stylesheet and not only
-of the component that renders it. The two are the same control in two windows,
-and a user who docks should not have to learn a second appearance for the same
-press. Its own close button, and "Close" on its right-click menu, quit the app
-exactly the way the default HUD's close button does, mid-dictation confirmation
-included; the menu's other two items are Settings and "Return to default HUD."
+window they docked to get away from. It paints in the `--recording` fill while
+recording, on a rule scoped to the listening state rather than to the button,
+because red carries one operational meaning here and that has to be true of the
+stylesheet and not only of the component that renders it. That fill was the
+deleted HUD's record button's, kept so a user who had seen both did not have to
+learn a second appearance for the same press. Its own close button, and "Close"
+on its right-click menu, quit the app through the graceful path, mid-dictation
+confirmation included; the menu's only other item is Settings.
 
 Dragging the dock snaps it against whichever edge (left or right) it lands
 nearest, seated 24 logical pixels in from that edge — flush would clip the

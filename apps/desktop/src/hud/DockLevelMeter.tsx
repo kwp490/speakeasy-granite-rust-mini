@@ -6,8 +6,9 @@ import { HISTORY, ROWS, barTone, barWidth, clampLevel, shapeLevel } from "./leve
 /**
  * Input level for the side dock, drawn as a symmetric waveform.
  *
- * The default HUD paints the level as its record button's fill (`LevelMeter`),
- * which needs a wide horizontal box to read as anything. The dock has a narrow
+ * The deleted default HUD painted the level as its record button's fill
+ * (`LevelMeter`), which needed a wide horizontal box to read as anything —
+ * this exists because that shape does not fit here. The dock has a narrow
  * column instead, so the same value is drawn as a stack of centred horizontal
  * bars: one row per sample, the newest in the middle, older samples spreading
  * outward in both directions. That is why the shape is symmetric — both halves
