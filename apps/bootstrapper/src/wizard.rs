@@ -557,6 +557,11 @@ impl Wizard {
         let graphics_card = machine.admissibility.preferred_provider()
             == speakeasy_models::ExecutionProvider::Cuda
             && download::graphics_card_configuration_available().is_ok();
+        // Read once, here, rather than at the words step: the controls are all
+        // built together and this one has to hold its text from creation. A
+        // profile with words gets its own back, so pressing Next re-seeds the
+        // same set instead of replacing a curated list with a canned one.
+        let vocabulary = seed::vocabulary_to_offer();
         Questions {
             provider: gui::RadioGroup::new(
                 window,
@@ -601,7 +606,7 @@ impl Wizard {
                     // recomputed on arrival at the step from the control's own
                     // text, so this reads correctly the first time the page is
                     // shown and after every Back.
-                    text: catalog::DEFAULT_VOCABULARY,
+                    text: &vocabulary,
                     position: gui::dpi(layout::MARGIN, layout::CONTROL_TOP),
                     width: gui::dpi_x(content_width),
                     height: gui::dpi_y(layout::EDIT_HEIGHT),

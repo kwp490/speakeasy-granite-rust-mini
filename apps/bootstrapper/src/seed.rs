@@ -186,6 +186,106 @@ pub fn write(answers: &Answers) -> Written {
     written
 }
 
+/// The protected words this profile already has, or an empty list.
+///
+/// Read-only, and side-effect free: `PersonalizationRepository::open` reads the
+/// file when it exists and holds an in-memory default when it does not, writing
+/// nothing either way. Setup must be able to ask this question without creating
+/// the profile it is asking about.
+///
+/// Only the *identity* entries — those whose source and replacement are the same
+/// word, which is what "protect this word" means and what setup collects. The
+/// spaced companions the app derives (`Logic Monitor` -> `LogicMonitor`) are
+/// deliberately excluded: they are generated from these, so listing them back
+/// would show the user rules they never typed and re-seed them as terms in their
+/// own right.
+#[must_use]
+pub fn existing_protected_terms() -> Vec<String> {
+    let Some(directory) = directory() else {
+        return Vec::new();
+    };
+    let Ok(repository) =
+        speakeasy_storage::PersonalizationRepository::open(directory.join("personalization.json"))
+    else {
+        return Vec::new();
+    };
+    repository
+        .state()
+        .dictionary
+        .iter()
+        .filter(|entry| entry.enabled && entry.source == entry.replacement)
+        .map(|entry| entry.source.clone())
+        .collect()
+}
+
+/// What the words box should start with, and what a silent install should seed.
+///
+/// A profile that already has words gets its own back; one that has none gets
+/// [`crate::catalog::DEFAULT_VOCABULARY`].
+///
+/// **This is the guard against setup replacing a vocabulary somebody curated.**
+/// `add_protected_terms` *replaces* every entry setup owns rather than merging —
+/// deliberately, because the id-keyed merge it replaced left stale entries that
+/// collided with the new list and cost the user every word. The cost of that
+/// choice is that any non-empty seed is authoritative, so a reinstall that
+/// seeded a canned list over a customised one would silently discard the
+/// customisation. Returning the existing words makes the re-seed idempotent
+/// instead: the same set goes back, and the derived companions are regenerated.
+#[must_use]
+pub fn vocabulary_to_offer() -> String {
+    offer_from(&existing_protected_terms())
+}
+
+/// [`vocabulary_to_offer`]'s decision, without the disk.
+///
+/// Separated so the rule can be asserted directly: the two callers differ only
+/// in what they do with the answer, and the answer is the part worth pinning.
+fn offer_from(existing: &[String]) -> String {
+    if existing.is_empty() {
+        crate::catalog::DEFAULT_VOCABULARY.to_owned()
+    } else {
+        existing.join(", ")
+    }
+}
+
+/// Whether an install with no wizard behind it should seed the default list.
+///
+/// Only onto a profile with no words of its own. A scripted reinstall must be
+/// able to run against a machine somebody has been using without discarding
+/// what they added — and because the seed *replaces*, "write it anyway" and
+/// "overwrite their list" are the same act.
+const fn should_seed_silently(existing: &[String]) -> bool {
+    existing.is_empty()
+}
+
+/// Writes the vocabulary seed alone, for an install with no wizard behind it.
+///
+/// `--install` asks the user nothing, so it has no answers to record — every
+/// other seed would be setup asserting a choice nobody made, and the app's own
+/// defaults are already the right answer for those. The vocabulary is the
+/// exception because there is no app-side default for it: without this, a
+/// scripted deployment gets an empty dictionary and the feature reaches nobody.
+///
+/// **Writes nothing when the profile already has words.** See
+/// [`vocabulary_to_offer`] for why that is not merely polite.
+///
+/// Returns whether a seed was written, so the caller can say so.
+pub fn write_default_vocabulary() -> bool {
+    if !should_seed_silently(&existing_protected_terms()) {
+        return false;
+    }
+    let Some(directory) = directory() else {
+        return false;
+    };
+    if std::fs::create_dir_all(&directory).is_err() {
+        return false;
+    }
+    // Through the same parse the wizard's count comes from, so a silent install
+    // cannot seed a list the interactive one would have rejected or trimmed.
+    let terms = parse_vocabulary(crate::catalog::DEFAULT_VOCABULARY);
+    !terms.is_empty() && write_one(&directory, VOCABULARY, &terms.join(", "))
+}
+
 /// The longest word the app will accept from the vocabulary seed.
 ///
 /// Matched to `consume_installer_vocabulary_seed`, which enforces the same bound
@@ -464,6 +564,44 @@ mod tests {
             before,
             folded.len(),
             "the prefilled list has a case-only duplicate"
+        );
+    }
+
+    /// The guard that keeps a reinstall from discarding a curated word list.
+    ///
+    /// `add_protected_terms` *replaces* rather than merges, so any non-empty
+    /// seed is authoritative -- which means offering a canned list to a profile
+    /// that already has one would silently overwrite it. Asserted on the
+    /// decision itself rather than through the filesystem, because the two
+    /// callers differ only in what they do with the answer.
+    #[test]
+    fn a_profile_with_words_is_offered_its_own_and_an_empty_one_gets_the_default() {
+        // The shape of the answer for a profile with nothing: the shipped list,
+        // verbatim, so the box and the silent seed agree with the catalog.
+        assert_eq!(
+            offer_from(&[]),
+            crate::catalog::DEFAULT_VOCABULARY,
+            "an empty profile gets the default"
+        );
+
+        // And for a profile with words: its own, never the default. A returning
+        // user pressing Next re-seeds what they already had.
+        let existing = vec!["Kenneth".to_owned(), "Hellen".to_owned()];
+        assert_eq!(offer_from(&existing), "Kenneth, Hellen");
+        assert_ne!(offer_from(&existing), crate::catalog::DEFAULT_VOCABULARY);
+
+        // Round-trips through the parse that writes the file, so re-seeding an
+        // existing list cannot lose a word to the formatting.
+        assert_eq!(parse_vocabulary(&offer_from(&existing)), existing);
+    }
+
+    /// A silent install seeds only when there is nothing to lose.
+    #[test]
+    fn the_silent_seed_is_written_for_an_empty_profile_and_withheld_otherwise() {
+        assert!(should_seed_silently(&[]), "a fresh profile must be seeded");
+        assert!(
+            !should_seed_silently(&["Kenneth".to_owned()]),
+            "an existing list must survive"
         );
     }
 }

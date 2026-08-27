@@ -121,7 +121,7 @@ pub const STEPS: &[Step] = &[
         // for a box that was empty. Before 2026-08-27 the box started empty and
         // this line carried "Kenneth, Anthropic, Granite"; before 2026-08-20 the
         // box took one word per line, which was more typing to no end.
-        key: "Common tools are filled in already. Add your own, or clear the box.",
+        key: "The box is already filled in. Add your own, or clear it.",
         key_tone: Tone::Accent,
         // "Spelling and spacing" rather than just spelling, since 2026-08-27: a
         // compound name also gets a rule for the two-word form a recogniser

@@ -343,11 +343,19 @@ fn place(install_root: Option<&std::ffi::OsStr>, destination: console::Destinati
     };
     match install::perform(payload.directory(), &root) {
         Ok(()) => {
+            // The one answer a wizard-less install still gets to give. Every
+            // other seed would assert a choice nobody made and the app already
+            // has the right default for those; the vocabulary has no app-side
+            // default at all, so without this a scripted deployment installs a
+            // product whose word list is empty forever. Refuses to overwrite a
+            // profile that already has words -- see `seed::vocabulary_to_offer`.
+            let seeded = seed::write_default_vocabulary();
             repair::report(
                 &format!(
-                    "installed version={} root={}",
+                    "installed version={} root={} vocabulary={}",
                     env!("CARGO_PKG_VERSION"),
-                    root.display()
+                    root.display(),
+                    if seeded { "seeded" } else { "kept" }
                 ),
                 destination,
                 repair::Severity::Information,

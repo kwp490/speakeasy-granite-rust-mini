@@ -577,6 +577,24 @@ version could not:
   users who already knew they wanted it. Starting filled inverts that at no cost
   to control: it is an ordinary editable box, and clearing it installs nothing.
 
+  **A profile that already has words is offered its own**, never the default,
+  and this is a guard rather than a nicety. `add_protected_terms` *replaces*
+  every entry setup owns rather than merging — deliberately, because the merge
+  it replaced left stale entries that collided with the new list and cost the
+  user every word. The price of that choice is that any non-empty seed is
+  authoritative, so a reinstall offering a canned list over a curated one would
+  discard the curation silently. Handing the existing words back makes pressing
+  Next idempotent instead. `seed::vocabulary_to_offer` is the one place the rule
+  lives, and it reads the profile without creating one.
+
+  **A silent install seeds the default too, and only onto an empty profile.**
+  `--install` asks nothing, so it records no other answer — every other seed
+  would assert a choice nobody made, and the app has its own defaults for those.
+  The vocabulary is the exception because there is no app-side default for it at
+  all: without this a scripted deployment installs a product whose word list is
+  empty forever. It reports `vocabulary=seeded` or `vocabulary=kept` on the
+  install line, so which of the two happened is never a guess.
+
   Three rules follow. The default is **a starting value and never a policy** —
   the same contract every seed here carries, so a word removed in Settings
   afterwards stays removed. The **box is the example**: the key line no longer
