@@ -495,6 +495,29 @@ Every one of these produced a plausible, wrong result rather than an error.
   read `$LASTEXITCODE`. The receiving side is the other half: a program taking a
   path should refuse an argument list it cannot consume whole rather than use
   the first fragment — see `Mode::classify` in `apps/bootstrapper/src/main.rs`.
+- **A menu item built with an id nothing dispatches is a control that reports
+  success by not erroring.** The dock's "Return to default HUD" was built with
+  `hud_dock_return`; `dispatch_menu_action` matched `"settings"` and `"quit"` and
+  fell through to `_ => {}`, so clicking it did nothing at all, silently, from
+  the fork until 2026-08-27. **The `_ => {}` arm is correct and stays** — an
+  unrecognised id arriving at runtime must not panic — and that is the whole
+  difficulty: the arm that makes the app robust is the same arm that makes a dead
+  id invisible, so the only place the two can be told apart is against the
+  source. `every_menu_id_that_is_built_has_a_handler` does that, and was proved
+  able to fail by restoring the real item. Note that it checks one direction
+  only: a *handled* id nobody builds is harmless dead code, a *built* id nobody
+  handles is a lie.
+
+  Nothing tests a native popup's **contents**, so verify a menu change by
+  enumerating the running `HMENU` rather than by eye, and read a control build
+  first — every assertion is a count, and a probe that cannot see popups reports
+  a low count too. Three instruments failed before one worked on 2026-08-27:
+  `Add-Type -MemberDefinition` defaults to `CharSet.Ansi` and returns a **single
+  character** from `GetMenuStringW`; a no-activate window's popup never takes
+  keyboard focus, so synthesized Down/Enter go to whatever the user is actually
+  using; and a cursor-restore in one script raced the click in another. All three
+  present as "the item did nothing", which is indistinguishable from the bug
+  above.
 - **`cargo doc` does not check the doc links on private items, so a broken one
   passes.** Almost every doc comment in `apps/desktop/src-tauri` is on a private
   item, so `RUSTDOCFLAGS='-D rustdoc::broken_intra_doc_links' cargo doc` exits
@@ -504,8 +527,10 @@ Every one of these produced a plausible, wrong result rather than an error.
   the check passed with the broken link in place, which is the shape of a
   verification that cannot fail. `HEAD` at `cf9c434` had three real ones
   (`StreamingPackAdapter`, `speakeasy_asr::FinalSourceReason`,
-  `resident_retained_pass`), all pointing at things deleted by the fork, and the
-  gate does not run this:
+  `resident_retained_pass`), all pointing at things deleted by the fork.
+
+  **The gate runs this now** (2026-08-27), so the trap is the flag rather than
+  the check. Run it alone with:
 
   ```powershell
   $env:RUSTDOCFLAGS = '-D rustdoc::broken_intra_doc_links'
@@ -514,8 +539,10 @@ Every one of these produced a plausible, wrong result rather than an error.
 
   Two warnings are expected and pre-existing (`Self::INSPECT_DEADLINE`, and a
   `///`-indented CLI example in `apps/bootstrapper/src/main.rs` that rustdoc
-  reads as Rust). A dead doc link is worth more than it looks: it is the only one
-  of these citation classes a tool can find for you.
+  reads as Rust); neither is a broken link, which is why adopting the check
+  needed no allowlist. A dead doc link is worth more than it looks: it is the
+  only one of these citation classes a tool can find for you. The other two — the
+  bare `§9.4` and the prose "the handoff" — still need a human.
 - **Invisible C1 control characters survive review and every test.** Eight
   U+009D bytes sat in comments across five files from the first commit, each one
   immediately after an em-dash from some encoding round-trip. They render as

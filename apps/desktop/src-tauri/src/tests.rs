@@ -931,6 +931,144 @@ mod tests {
         }
     }
 
+    /// Every id a menu item is built with is an id `dispatch_menu_action`
+    /// matches.
+    ///
+    /// The dock's menu carried "Return to default HUD" built with the id
+    /// `hud_dock_return`, and nothing handled it: the dispatcher matched
+    /// `"settings"` and `"quit"` and fell through to `_ => {}`. Clicking it did
+    /// nothing at all, silently, from the fork until 2026-08-27 — a control
+    /// reporting success by not erroring, which is the shape this repository
+    /// exists to remove. Review did not catch it and no test could, because
+    /// nothing anywhere read the menu.
+    ///
+    /// The `_ => {}` arm is correct and stays: an unrecognised id arriving at
+    /// runtime must not panic. That is exactly why the check has to be here —
+    /// the arm that makes the app robust is the same arm that makes a dead id
+    /// invisible, so the only place the two can be told apart is against the
+    /// source.
+    ///
+    /// One direction only. A *handled* id nobody builds is harmless dead code;
+    /// a *built* id nobody handles is a control that lies.
+    #[test]
+    fn every_menu_id_that_is_built_has_a_handler() {
+        // The id is the first string literal inside the call: the shape is
+        // `MenuItem::with_id(app, "quit", ..)` on one line and `&app,` then
+        // `"settings",` across several, and both put the handle first. Bounded
+        // by the call's own matching paren rather than by a line count, so a
+        // literal belonging to the next statement cannot be read as an id.
+        fn built_ids(source: &str) -> Vec<String> {
+            let mut ids = Vec::new();
+            let mut rest = source;
+            while let Some(at) = rest.find("MenuItem::with_id(") {
+                let open = at + "MenuItem::with_id(".len();
+                let mut depth = 1usize;
+                let bytes = rest.as_bytes();
+                let mut end = open;
+                while end < bytes.len() && depth > 0 {
+                    match bytes[end] {
+                        b'(' => depth += 1,
+                        b')' => depth -= 1,
+                        _ => {}
+                    }
+                    end += 1;
+                }
+                let call = &rest[open..end.min(rest.len())];
+                if let Some(first) = call.find('"')
+                    && let Some(len) = call[first + 1..].find('"')
+                {
+                    ids.push(call[first + 1..first + 1 + len].to_owned());
+                }
+                rest = &rest[end.min(rest.len())..];
+            }
+            ids
+        }
+
+        // Match-arm patterns in the dispatcher's body. A guard is allowed
+        // between the pattern and the arrow (`"quit" if request_quit(app) =>`),
+        // so the literal is taken from everything left of `=>`.
+        fn handled_ids(source: &str) -> Vec<String> {
+            let start = source
+                .find("fn dispatch_menu_action")
+                .expect("dispatch_menu_action must exist");
+            let end = source[start..]
+                .find("\nfn ")
+                .map_or(source.len(), |offset| start + offset);
+            let mut ids = Vec::new();
+            for line in source[start..end].lines() {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with("//") {
+                    continue;
+                }
+                let Some(arrow) = trimmed.find("=>") else {
+                    continue;
+                };
+                let pattern = &trimmed[..arrow];
+                if let Some(first) = pattern.find('"')
+                    && let Some(len) = pattern[first + 1..].find('"')
+                {
+                    ids.push(pattern[first + 1..first + 1 + len].to_owned());
+                }
+            }
+            ids
+        }
+
+        let capture = include_str!("commands/capture.rs");
+        let composition = include_str!("composition.rs");
+
+        let mut built = built_ids(capture);
+        built.extend(built_ids(composition));
+        built.sort_unstable();
+        built.dedup();
+        let handled = handled_ids(capture);
+
+        // Instrument self-checks. Every assertion below is of the form "nothing
+        // was found", and a parser that reads nothing reports exactly that — so
+        // the reading is worthless until both extractors are shown to work.
+        assert!(
+            built.len() >= 2,
+            "the id extractor found {} ids; the dock and the tray build four \
+             menu items between them, so it is broken rather than the code \
+             being clean",
+            built.len()
+        );
+        assert!(
+            built.contains(&"settings".to_owned()) && built.contains(&"quit".to_owned()),
+            "the id extractor missed ids that are plainly in the source: {built:?}"
+        );
+        assert!(
+            handled.contains(&"settings".to_owned()) && handled.contains(&"quit".to_owned()),
+            "the dispatcher extractor missed arms that are plainly there: {handled:?}"
+        );
+        // And proved able to fail: the extractor must see a dead id when one is
+        // present. This is the deleted `hud_dock_return` call, restored as a
+        // literal so the test that replaced it can demonstrate it would have
+        // caught it.
+        let regression = r#"
+            let return_to_default = MenuItem::with_id(
+                &app,
+                "hud_dock_return",
+                native_catalog::HUD_DOCK_MENU_RETURN,
+                true,
+                None::<&str>,
+            )
+        "#;
+        assert_eq!(
+            built_ids(regression),
+            vec!["hud_dock_return".to_owned()],
+            "the extractor cannot see the very id this test exists to catch"
+        );
+
+        for id in &built {
+            assert!(
+                handled.contains(id),
+                "the menu item built with the id `{id}` has no arm in \
+                 dispatch_menu_action, so clicking it does nothing and reports \
+                 nothing. Add an arm, or delete the item."
+            );
+        }
+    }
+
     /// Setup's words become entries, and a compound also gets its spaced
     /// companion so a recogniser that heard two words is corrected.
     #[test]

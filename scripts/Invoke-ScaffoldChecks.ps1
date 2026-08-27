@@ -138,6 +138,27 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'cargo clippy failed.' }
     & cargo test @cargoScope --locked
     if ($LASTEXITCODE -ne 0) { throw 'cargo test failed.' }
+
+    # A dead doc link is the one citation class a tool can find, and until
+    # 2026-08-27 nothing ran this. `HEAD` at cf9c434 carried three real ones --
+    # `StreamingPackAdapter`, `speakeasy_asr::FinalSourceReason`,
+    # `resident_retained_pass` -- all pointing at things the fork deleted, all
+    # reading as authoritative, all resolving to nothing. The other two citation
+    # classes, the bare `Phase 6` and the prose "the handoff", still need a human.
+    #
+    # `--document-private-items` is not optional and is the whole reason this is
+    # worth running. Almost every doc comment in `apps/desktop/src-tauri` is on a
+    # private item, and without the flag rustdoc never parses them: the same
+    # command over the same broken link exits 0. Verified both ways on 2026-08-19
+    # by restoring a known-broken link as a control.
+    $previousRustDocFlags = $env:RUSTDOCFLAGS
+    $env:RUSTDOCFLAGS = '-D rustdoc::broken_intra_doc_links'
+    try {
+        & cargo doc @cargoScope --no-deps --document-private-items --locked
+        if ($LASTEXITCODE -ne 0) { throw 'cargo doc found a broken intra-doc link.' }
+    } finally {
+        $env:RUSTDOCFLAGS = $previousRustDocFlags
+    }
     # ripgrep and gitleaks are pinned in dependency-policy/tools.json alongside the
     # three cargo tools. They were not, and this gate's own gitleaks error told the
     # reader to "install the pinned version recorded in the local tool setup" when no
