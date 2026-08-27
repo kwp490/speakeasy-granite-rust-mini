@@ -344,19 +344,18 @@ is where the claims are easiest to overstate:
   because a speech model whose audio projector failed to attach writes fluent
   text without listening to anything. "It produced a transcript" is not
   evidence; matching content is.
-- **Keywords bias recognition; they do not command it.** Since 2026-08-26 the
-  enabled terms are appended to Granite's own transcription instruction as a
-  `Keywords:` suffix, so they act while the audio is read — and they still
-  correct spelling in the finished transcript, which is a second, deterministic
-  mechanism rather than the same one restated. Copy must state both and promise
-  neither: a biased term is likelier, not certain, and a term the model still
-  mishears is not a malfunction. This bullet read "**Keywords do not improve
-  recognition.**" until that date, which was accurate about what the code did
-  and is the reason the obligation survives the fix rather than being deleted —
-  the overstatement it guards against has simply moved from "they help" to
-  "they work". `catalog.ts`'s `hotwordLimitation` carries the user-facing
-  wording, and keeps the honest admission that the size of the gain is
-  unmeasured.
+- **Keywords do not change what is heard.** They correct spelling and spacing in
+  the finished transcript. Copy must not imply a misheard word becomes correctly
+  heard — `catalog.ts`'s `hotwordLimitation` records why.
+
+  **Do not reach for prompt bias to close this gap; it was tried.** Appending the
+  terms to Granite's transcription instruction was built, measured on a recorded
+  55 s clip, and reverted on 2026-08-27. It genuinely worked — 16 of 16 term
+  occurrences against 9 without it — and it returned the entire dictation as one
+  unpunctuated run-on. The cause is not the keywords: an appended sentence about
+  the weather cost the punctuation just as completely. `CLAUDE.md` carries the
+  table. The obligation this bullet has always stated is what the measurement
+  then confirmed, so it is stronger now rather than weaker.
 - **A collected answer that does not arrive is a defect, not a detail.** Every
   answer setup takes has to be visible in the app afterwards, and the vocabulary
   page failed this from the fork until 2026-08-20 — see the vocabulary rules

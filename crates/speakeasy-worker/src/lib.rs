@@ -115,7 +115,7 @@ impl<C: WorkerClient, K: Clock> WorkerFinalAdapter<C, K> {
     fn run(
         &self,
         audio: &UtteranceAudio,
-        request: &AsrRequest,
+        request: AsrRequest,
         cancel: &CancelToken,
         deadline: Deadline,
     ) -> Result<FinalTranscript, AsrError> {
@@ -124,7 +124,7 @@ impl<C: WorkerClient, K: Clock> WorkerFinalAdapter<C, K> {
             model_root: &self.model_root,
             artifact_id: &self.artifact_id,
         };
-        validate_batch_request(audio, request)?;
+        validate_batch_request(audio, &request)?;
         check_active(&self.clock, cancel, deadline)?;
         let mut client = self
             .client
@@ -179,7 +179,7 @@ impl<K: Clock> BatchFinalPass<'_, K> {
         &self,
         client: &mut impl WorkerClient,
         audio: &UtteranceAudio,
-        request: &AsrRequest,
+        request: AsrRequest,
         cancel: &CancelToken,
         deadline: Deadline,
     ) -> Result<FinalTranscript, AsrError> {
@@ -199,12 +199,6 @@ impl<K: Clock> BatchFinalPass<'_, K> {
             WorkerCommand::StartStream {
                 session_id: worker_session,
                 sample_rate_hz: audio.sample_rate_hz,
-                // Sent at `StartStream` rather than `FinishStream` because
-                // that is where the worker learns what this utterance is: the
-                // terms belong to the stream, and a worker that took them at
-                // finish time would have to hold a bias with nothing to apply
-                // it to if the stream were cancelled instead.
-                keywords: request.keywords.clone(),
             },
             cancel,
             deadline,
@@ -308,7 +302,7 @@ impl<C: WorkerClient, K: Clock> FinalAsr for WorkerFinalAdapter<C, K> {
         cancel: CancelToken,
         deadline: Deadline,
     ) -> BoxFuture<'_, Result<FinalTranscript, AsrError>> {
-        Box::pin(async move { self.run(&audio, &request, &cancel, deadline) })
+        Box::pin(async move { self.run(&audio, request, &cancel, deadline) })
     }
 }
 
@@ -444,7 +438,6 @@ mod tests {
             session_id: domain_session(),
             language: AsrLanguage::English,
             task: AsrTask::Transcribe,
-            keywords: Vec::new(),
         }
     }
 

@@ -829,15 +829,6 @@ impl PersonalizationCoordinator {
     /// not teach the recogniser anything, it stops the finishing pass from
     /// rewriting a word it got right.
     ///
-    /// Since 2026-08-26 that is no longer the whole of what these terms do.
-    /// This function is unchanged and its description above still describes it
-    /// exactly — but the same list is now read back by
-    /// [`Self::decode_bias_terms`] and appended to Granite's transcription
-    /// instruction, so the terms reach the decode as well as the finishing
-    /// pass. The two are deliberately both kept: the prompt bias is
-    /// probabilistic and acts while the audio is read, the dictionary is the
-    /// deterministic backstop for casing afterwards.
-    ///
     /// `DictionaryOrigin::UserEntry` rather than `ImportedProfile`, which is
     /// the origin the v1 import path uses: nobody imported these, someone typed
     /// them into setup. The distinction is visible in the settings list and in
@@ -876,32 +867,6 @@ impl PersonalizationCoordinator {
             .map_err(|_| "personalization_terms_rejected")
     }
 
-    /// The terms to bias one dictation's decode toward.
-    ///
-    /// The `source` side of every **enabled** dictionary entry, in the
-    /// repository's own order. Exposed as its own accessor rather than by
-    /// making the repository public so the "enabled only" rule has one home: a
-    /// rule the user has switched off must not steer the recogniser, which is
-    /// the difference between a dictionary the user controls and one that only
-    /// grows.
-    ///
-    /// Returns an empty list rather than an error when the lock is poisoned.
-    /// The bias is an improvement, not a precondition — refusing to transcribe
-    /// because a vocabulary could not be read would trade a slightly worse
-    /// transcript for no transcript at all.
-    fn decode_bias_terms(&self) -> Vec<String> {
-        let Ok(repository) = self.repository.lock() else {
-            return Vec::new();
-        };
-        repository
-            .state()
-            .dictionary
-            .iter()
-            .filter(|entry| entry.enabled)
-            .map(|entry| entry.source.clone())
-            .collect()
-    }
-
     fn view(&self) -> Result<PersonalizationView, &'static str> {
         let repository = self
             .repository
@@ -911,11 +876,7 @@ impl PersonalizationCoordinator {
             schema_version: speakeasy_transforms::PERSONALIZATION_SCHEMA_VERSION,
             transform_pipeline_version: speakeasy_transforms::TRANSFORM_PIPELINE_VERSION,
             locale_status: "en_us_limited_other_locales_identity".to_owned(),
-            // Both halves of what a protected term now does, because the two
-            // are separate mechanisms with separate guarantees and reporting
-            // only one of them was how the missing half went unnoticed for
-            // months. Read by nothing that branches on it; it is disclosure.
-            hotword_path: "prompt_bias_enabled_terms_and_final_postprocess".to_owned(),
+            hotword_path: "final_postprocess_only_manifest_no_hotwords".to_owned(),
             contacts_import_enabled: false,
             dictionary: repository.state().dictionary.clone(),
             snippets: repository.state().snippets.clone(),
