@@ -1,9 +1,41 @@
 # Changelog
 
-## 1.7.0 — 2026-08-28
+## 1.7.1 — 2026-08-28
 
-Three things the dock and setup were getting wrong, and the words you protect now
+Settings told graphics-card users they were running on the processor. Plus three
+things the dock and setup were getting wrong, and the words you protect now
 survive being misheard.
+
+> **1.7.0 was never released.** It was built and installed here, the install was
+> tested, and the testing found the Settings defects below — so the number moved
+> rather than shipping two different binaries as one version. Everything 1.7.0
+> was going to carry is in this release.
+
+### Settings said "Processor (CPU)" while dictation ran on the card — 2026-08-28
+
+Reported from use, on a machine that really was using its graphics card. Two
+separate fields were wrong and one sentence could never be right.
+
+**Advanced → PROVIDER** showed the processor on every machine. It was reporting
+which *model file* was selected rather than which device was running it, and
+there is only one model file — it is named for the processor and the graphics card
+runs that same file. It reports the real device now.
+
+**Advanced was also frozen at the moment the window was created**, which on a
+graphics-card machine meant it reported the engine as unavailable for as long as
+the app stayed open. The page now reads fresh figures each time you open it, so
+the speed measurements on it stop being stuck too.
+
+**"The graphics-card engine … has not passed its local execution check yet"** is
+gone. That sentence could only ever say "not yet", however well the card was
+working, and it sat directly beneath a line saying dictation was running on the
+card. The two lines above it answer the same question and are checked against the
+graphics driver, so nothing was lost. The **Re-test graphics-card engine** button
+stays and still does what it says.
+
+Nothing about dictation, speed or transcripts changed here — only what the app
+told you about itself. If you looked at Settings on a graphics-card machine and
+concluded you were on the processor, that was this.
 
 ### The dock tells you the truth about being ready — 2026-08-28
 
