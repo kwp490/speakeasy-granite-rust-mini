@@ -312,8 +312,11 @@ function formatError(code: string): string {
  * What the window says about itself on hover: the shortcut when one is
  * actually registered, and what the window is when none is.
  *
- * `shortcutUnavailable` is not reused here — it ends by pointing at "Start
- * recording", a control the deleted HUD carried and the dock does not.
+ * There was a `shortcutUnavailable` string for the no-shortcut case and this
+ * deliberately did not reuse it: it ended by pointing at "Start recording", a
+ * control the deleted HUD carried and the dock does not. Saying so here was the
+ * only thing referencing it, which kept it in `catalog.ts` reading as live copy
+ * until the unreachable-entry sweep on 2026-08-28 removed it.
  */
 function shortcutTooltip(model: TranscriberModel): string {
   if (model.hotkeyRegistration !== "registered" || model.hotkeyBinding === "") {

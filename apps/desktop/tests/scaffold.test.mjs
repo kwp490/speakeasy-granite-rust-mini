@@ -2340,3 +2340,90 @@ test("setup's download policy and the app's are the same policy", async () => {
       "than here",
   );
 });
+
+test("every catalog entry is reachable from something that renders it", async () => {
+  // 59 of 296 entries were referenced nowhere on 2026-08-27 — 20% of the app's
+  // user-facing copy — and eight of them were the deleted streaming engine's
+  // truthful-disclosure strings. `liveQualifiedDisclosure` read "Live
+  // transcription is qualified for the supported en-US CPU and CUDA
+  // configurations. The final transcript is what gets written." There is no live
+  // transcription in this fork. That is the hazard the rest of the sweep is
+  // incidental to: copy sitting in the file, ready for someone to wire up in
+  // good faith, making a claim the product cannot back.
+  //
+  // This runs in the gate so the file cannot regrow.
+  const src = fileURLToPath(new URL("../src/", import.meta.url));
+  const catalogPath = join(src, "catalog.ts");
+
+  // `src/` alone is not the corpus. The scaffold suite asserts catalog copy from
+  // `tests/*.mjs`, and the Rust side reads `catalog.ts` as source — a key
+  // referenced only from either would read dead, and deleting it would break the
+  // test that existed to protect it. Two entries were nearly lost that way.
+  const roots = [
+    src,
+    fileURLToPath(new URL("./", import.meta.url)),
+    fileURLToPath(new URL("../src-tauri/src/", import.meta.url)),
+  ];
+  const files = [];
+  for (const root of roots) {
+    const entries = await readdir(root, { recursive: true, withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || !/\.(ts|tsx|mjs|rs)$/.test(entry.name)) continue;
+      const full = join(entry.parentPath, entry.name);
+      if (full !== catalogPath) files.push(full);
+    }
+  }
+  // Comment-only lines are dropped before searching. **This test's own prose is
+  // in the corpus**, so naming a dead key while explaining why it is dead marks
+  // it live — which is exactly what happened on the first run: the paragraph
+  // above quotes `liveQualifiedDisclosure`, and that alone resurrected it. Any
+  // comment anywhere in the tree does the same, so a key surviving only in
+  // somebody's explanation of it would read reachable forever.
+  //
+  // Whole-line comments only (`//`, `*`, `/*`). Stripping to end-of-line from
+  // any `//` would cut a URL in a string literal and take whatever followed it
+  // on that line with it, and losing a real reference is the direction that
+  // deletes copy the app renders.
+  const withoutComments = (text) =>
+    text
+      .split("\n")
+      .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+      .join("\n");
+  const corpus = withoutComments(
+    (await Promise.all(files.map((file) => readFile(file, "utf8")))).join("\n"),
+  );
+  const source = await readFile(catalogPath, "utf8");
+
+  // Top-level keys only: two-space indent, an identifier, a colon. Nested tables
+  // are reached through their parent, which this sees.
+  const keys = [...source.matchAll(/^ {2}([A-Za-z][A-Za-z0-9_]*)\s*:/gm)].map((match) => match[1]);
+  const used = (key) => new RegExp(String.raw`\b${key}\b`).test(corpus);
+
+  // Instrument self-check, and it is not optional here: every assertion below is
+  // "nothing was found", which is exactly what a scanner reading an empty corpus
+  // reports. The first version of this claimed all 296 keys were dead, because
+  // its regex did not survive shell quoting — a clean, confident, wrong answer.
+  assert.ok(files.length > 30, `corpus is too small to be real: ${files.length} files`);
+  assert.ok(corpus.length > 100_000, `corpus is too small to be real: ${corpus.length} bytes`);
+  assert.ok(keys.length > 200, `only ${keys.length} top-level keys parsed; the key regex is wrong`);
+  for (const live of ["transcriber", "transcriberStates", "errors"]) {
+    assert.ok(used(live), `self-check: "${live}" is rendered and must read live`);
+  }
+  // Deleted in Phase 2. If the key parser is matching something it should not,
+  // this is where it shows.
+  assert.ok(
+    !keys.includes("transcriberHeader"),
+    "self-check: transcriberHeader was deleted and must not parse as a key",
+  );
+
+  // Deliberately one-directional: a key whose name is also a common identifier
+  // (`copy`, `install`, `cancel`, `engine`) reads live because something *else*
+  // uses that word, so this under-reports. It may miss a dead key; it must never
+  // call a live one dead, because acting on that deletes copy the app renders.
+  const dead = keys.filter((key) => !used(key));
+  assert.deepEqual(
+    dead,
+    [],
+    `catalog entries nothing references: ${dead.join(", ")} — delete them, or wire up whatever was supposed to render them`,
+  );
+});

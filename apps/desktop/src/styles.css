@@ -129,8 +129,24 @@ body:has(.hud-dock) {
 }
 
 /* ── The compact transcriber ───────────────────────────────────────────────
-   The window these rules dressed was deleted by the fork; they are kept because
-   the dock reuses several of them, and are described below as they were.
+   The window these rules dressed was deleted by the fork; they are kept, and
+   are described below as they were.
+
+   Checked on 2026-08-28, during the unreachable-catalog-entry sweep, because
+   dead copy and dead CSS are the same question asked twice. **No element in the
+   tree carries `.capture-hud`, `.hud-primary`, `.hud-settings`, `.hud-mic`,
+   `.hud-chip`, `.hud-transcript` or `.hud-footer`** — `capture-hud-dock` in
+   `HudDockApp.tsx` is a `data-testid`, not a class. Of the whole block only
+   `.hud-icon` styles anything, through the shared rule below.
+
+   Kept anyway, deliberately. Five dock rules are written to *match* values
+   defined here and say so by name — the recording fill, the command row's
+   height, the absence of a hover change — so deleting these would turn dead CSS
+   into five dead citations, and this repository rates a citation that resolves
+   to nothing as the worse of the two. The rules are the record of where the
+   dock's numbers came from. Delete them only together with the comments that
+   depend on them, and only after moving those values somewhere they can still
+   be read.
 
    Fixed 420x280 logical and not resizable, so the layout is a column where
    every fixed-height row is a control and the transcript takes whatever is

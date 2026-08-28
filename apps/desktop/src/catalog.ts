@@ -1,6 +1,5 @@
 export const catalogMetadata = {
   locale: "en-US",
-  reviewStatus: "source-language-owner-review-required",
   translatedLocales: [] as const,
 } as const;
 
@@ -57,50 +56,7 @@ export const messages = {
   // a machine that has yet to install the model.
   engineChipUnconfigured: "No speech engine is installed yet. Finish setup to dictate.",
   engineChipFailed: (reason: string) => `Speech engine unavailable. ${reason}`,
-  // The one control (UI-GUIDE "Main window and focus"). Its label and colour
-  // are the transcriber's primary state readout, which is why every entry here
-  // names a state rather than an action: "Recording" is what is happening, and
-  // pressing it is what stops it. Sentence case throughout, matching the rest
-  // of this catalog.
-  recordButton: {
-    loadingModel: "Loading model",
-    runSetup: "Set up SpeakEasy",
-    ready: "Start recording",
-    // Not "Recording": capture has not begun yet, and claiming it had would be
-    // the same lie UI-GUIDE's truthful-disclosure rule forbids about delivery.
-    starting: "Starting…",
-    recording: "Recording",
-    processing: "Processing…",
-    tryAgain: "Try again",
-  },
-  modelLoadingHint: "Preparing the transcription model — this takes a moment",
-  // `startDictation`, `stopAndTranscribe`, `done`, `tryAgain` and `runSetup`
-  // lived here until the one control absorbed all five. Keeping them would leave
-  // five plausible names for a button that no longer answers to any of them.
-  cancelDictation: "Cancel",
-  // Clears a finished outcome. The state table always specified this for
-  // `complete`; the reducer and its tests were written and then never wired to
-  // anything, so a finished transcript sat on screen until the next dictation.
-  dismissResult: "Done",
-  // The transcriber's own copy control. Its command resolves the text in Rust,
-  // so this button names no transcript — it asks for the last one.
-  copyTranscript: "Copy",
-  // Past tense, and it expires: the button reports what happened rather than
-  // what it offers, and only for as long as this window can vouch for it.
-  copiedConfirmation: "Copied",
-  openSettings: "Open settings",
-  // The caption under the gear. Kept shorter than `openSettings`, which stays the
-  // accessible name: the visible word is a substring of it, so the two agree
-  // (WCAG 2.5.3) while the name still says what pressing it does.
-  settingsButton: "Settings",
-  minimizeTranscriber: "Minimize",
   closeTranscriber: "Close SpeakEasy",
-  // Both names state the current setting rather than the action, because the
-  // button is a toggle that shows its own state (WCAG 4.1.2 needs the state
-  // conveyed, and `aria-pressed` carries it here too).
-  stayOnTopOn: "Staying on top of other windows",
-  stayOnTopOff: "Not staying on top of other windows",
-  switchToSideDock: "Switch to side dock",
   // The side dock's one command. The deleted default HUD's record button named
   // the *state* it was in ("Recording") because it was also that window's state
   // readout; the dock has a level meter and a clock for that, so its button is
@@ -109,11 +65,7 @@ export const messages = {
   // with (WCAG 2.5.3: the visible word is a substring of it).
   stopDictation: "Stop",
   stopDictationName: "Stop recording",
-  chooseMicrophone: "Choose microphone",
   shortcutHint: (binding: string) => `${binding} to start`,
-  shortcutUnavailable: "No shortcut is active — use Start recording",
-  elapsedAndDevice: (elapsed: string, device: string) =>
-    device === "" ? elapsed : `${elapsed} · ${device}`,
   capturedSeconds: (seconds: string) => `${seconds} seconds captured`,
   // Truthful about what happened, per UI-GUIDE's truthful-disclosure rule: a
   // refusal is never dressed up as an insertion. `deliveredInsertedDetail`,
@@ -167,17 +119,6 @@ export const messages = {
     // Not a malfunction, so it must not read as one.
     no_speech:
       "The recording held no speech. If you did speak, check the microphone selected in Audio — the level meter there should move while you talk.",
-  },
-  // Short enough for the status line's side slot, which is where the ceiling
-  // lives now. It used to be a full sentence in a notice row of its own, which
-  // appeared mid-dictation and pushed the transcript down while it was being
-  // read.
-  ceilingShort: (minutes: string) => `Auto-stops in ${minutes} min`,
-  setupReasons: {
-    setup_incomplete: "Finish setup before dictating.",
-    model_missing: "Install the transcription model before dictating.",
-    microphone_missing: "Connect a microphone before dictating.",
-    shortcut_unavailable: "Choose a working keyboard shortcut before dictating.",
   },
   // ── The settings workspace ───────────────────────────────────────────────
   // Six pages behind a nav rail (UI-GUIDE "Information architecture").
@@ -319,35 +260,11 @@ export const messages = {
   },
   back: "Back",
   continue: "Continue",
-  completeSetup: "Complete setup",
-  stepProgress: (current: number, total: number) => `Step ${current} of ${total}`,
-  stepDone: "Done",
-  stepCurrent: "Current step",
-  tryItPending: "No transcript yet.",
-  tryItReady: "A transcript is ready, so dictation is working on this computer.",
-  closeSetup: "Close setup",
-  importNotFound: "No v1 source was detected.",
-  importFound: "A read-only v1 import preview is available.",
   runningV1Warning: "SpeakEasy v1 is running. Close it before import so the source cannot change.",
-  importCategories: "Import categories",
-  importSettings: "Settings",
-  importPresets: "Presets",
-  collisionPolicy: "When a v2 item already exists",
-  keepV2: "Keep the v2 item",
-  renameV1: "Import the v1 item with a new name",
-  replaceFromV1: "Replace the v2 item from the read-only v1 source",
-  credentialPresenceOnly: "Credential checks report presence and access state only. Secret values are never imported into this window.",
-  importSelected: "Import selected categories",
-  importComplete: "The selected v1 categories were imported. The v1 source was not changed.",
-  importFailed: "Import stopped safely. Review the source warning and preview again.",
   sharedProgramDataWarning: "The v1 source is machine-wide. Review the preview to confirm it belongs to this profile.",
   corruptSettingsWarning: "Unreadable v1 settings were excluded.",
   corruptPresetWarning: "An unreadable v1 preset was excluded.",
   importWarning: "The import preview contains a warning.",
-  importReportSummary: (settings: boolean, presets: number, collisions: number) =>
-    `Report: settings ${settings ? "written" : "not written"}; ${presets} presets written; ${collisions} collisions resolved.`,
-  privacyDefaults: "Private defaults",
-  privacyDefaultsDetail: "History is session-only. Audio, transcripts, credentials, and logs are not persisted by default.",
   hotkeyRegistration: "Hotkey registration",
   hotkeyBinding: "Global hotkey",
   hotkeyMode: "Activation mode",
@@ -358,15 +275,12 @@ export const messages = {
   saveHotkey: "Save hotkey",
   hotkeySaved: "Hotkey saved.",
   hotkeySaveFailed: "Hotkey could not be saved. Check the binding and try again.",
-  hotkeyDetail: "Works even when this window is closed. The transcriber's record button does exactly the same thing.",
   recordingFeedback: "Play a Windows sound when recording starts and stops",
   recordingFeedbackDetail: "Visual recording status is always shown. Windows sound settings control audible volume.",
   diagnosticLogging: "Keep a local diagnostic log",
   diagnosticLoggingDetail: "Sanitized event names and error codes only, never transcript text or audio. Stays on this device and is never uploaded.",
   startupWithWindows: "Start SpeakEasy with Windows",
   history: "Persisted history",
-  historyOff: "Session-only (recommended)",
-  historyOn: "Store transcript history",
   historyDisclosure: "History is plaintext in your per-user app data. Secure targets are always excluded.",
   retentionDays: "Retention in days",
   acceptHistoryDisclosure: "I understand the plaintext-at-rest disclosure",
@@ -407,7 +321,6 @@ export const messages = {
   sanitizedLogs: "Logs and export are sanitized",
   exportDiagnostics: "Export sanitized diagnostics",
   diagnosticsExported: "Sanitized diagnostics exported:",
-  credentialStatus: "Credential status",
   legacyOpenAiCredential: "Legacy OpenAI credential",
   legacyRemoteCredential: "Legacy remote credential",
   credentialPresent: "Present in the primary legacy service",
@@ -416,7 +329,6 @@ export const messages = {
   credentialAccessDenied: "Access denied",
   credentialUnavailable: "Credential Manager unavailable",
   credentialsNeverShown: "Credential values are never shown or returned to this window.",
-  resetProfile: "Reset fresh profile",
   previewReset: "Preview reset",
   resetExclusions: "Reset excludes v1, custom models, and credentials.",
   resetNow: "Reset v2 settings, history, personalization, and logs",
@@ -432,18 +344,9 @@ export const messages = {
   selectMicrophone: "Select a microphone",
   defaultDeviceSuffix: " (default)",
   captureFailed: "Recording or transcription stopped safely:",
-  installBeforeCapture: "Install and verify the local model before dictating.",
   vad: "Voice activity",
   level: "Level",
   inputLevel: "Microphone input level",
-  liveTranscript: "Live transcript",
-  mutableHypothesis: "Changing",
-  stableDisplay: "Stable display",
-  stableDisplayDisclosure: "Display-stable text may still change in the final transcript and is never written to another application.",
-  finalTranscript: "Final",
-  finalOnlyDisclosure: "Live partial text is not shown. The final transcript appears once you stop recording.",
-  liveQualifiedDisclosure: "Live transcription is qualified for the supported en-US CPU and CUDA configurations. The final transcript is what gets written.",
-  localModels: "Local models",
   provisioning: "Provisioning",
   build: "build",
   unknown: "unknown",
@@ -596,16 +499,12 @@ export const messages = {
    * because a user comparing a download against their remaining disk needs the
    * actual figures.
    */
-  localResult: "Local result",
-  recoverableResult: "Recoverable transcript",
-  noResult: "Your completed local transcript will remain available here.",
   provenance: "Source",
   resultFailed: "Transcription stopped safely:",
   copy: "Copy",
   copied: "Copied",
   copyFailed: "Copy failed. The result remains available.",
   retry: "Retry",
-  recoverWorker: "Recover transcription worker",
   yes: "Yes",
   no: "No",
   millisecondSuffix: " ms",
@@ -751,46 +650,6 @@ export const messages = {
     // copy, and it would have rendered as "The operation stopped safely".
     memory_below_granite_floor:
       "This computer has too little memory to run the speech engine, which needs 8 GB.",
-  },
-  degradationReasons: {
-    "degradation.microphone_denied": "Microphone access was denied.",
-    "degradation.microphone_unavailable": "The selected microphone is unavailable.",
-    "degradation.audio_overflow": "Audio processing could not keep up.",
-    "degradation.streaming_unavailable": "Live transcription is unavailable.",
-    "degradation.final_engine_failed": "Final transcription did not complete.",
-    "degradation.worker_quarantined": "Transcription was paused after repeated worker failures.",
-    "degradation.accelerator_lost": "The optional accelerator became unavailable.",
-    "degradation.model_unavailable": "The local model is missing or failed verification.",
-    "degradation.target_changed": "The original text target changed.",
-    "degradation.target_refused": "This text target cannot be used safely.",
-    "degradation.clipboard_unavailable": "The clipboard could not be used safely.",
-    "degradation.optional_network_unavailable": "The optional network service is unavailable.",
-    "degradation.optional_storage_unavailable": "Optional storage is unavailable.",
-    "degradation.lifecycle_interrupted": "Windows interrupted this dictation session.",
-    "degradation.shutdown_in_progress": "SpeakEasy is shutting down.",
-    "degradation.protocol_too_new": "An optional component uses a newer protocol.",
-    "degradation.disk_full": "There is not enough free disk space.",
-    "degradation.dictation_busy": "This operation waits until dictation finishes.",
-  },
-  degradationActions: {
-    "action.review_microphone_permission": "Review microphone permission and retry.",
-    "action.choose_microphone": "Choose an available microphone and retry.",
-    "action.finish_and_review": "Finish and review the recoverable result.",
-    "action.continue_final_only": "Continue in final-only mode.",
-    "action.review_recoverable_result": "Review the last recoverable result.",
-    "action.recover_worker": "Use manual worker recovery before retrying.",
-    "action.retry_on_cpu": "Retry using the private CPU provider.",
-    "action.verify_model": "Verify or reinstall the local model.",
-    "action.open_result_view": "Open the recoverable result.",
-    "action.open_private_result": "Review the result privately in SpeakEasy.",
-    "action.retry_copy": "Retry the explicit copy action.",
-    "action.use_local_result": "Continue with the raw local result.",
-    "action.continue_without_history": "Continue without optional history.",
-    "action.retry_after_resume": "Retry after Windows resumes the session.",
-    "action.restart_later": "Restart after dictation is safe.",
-    "action.update_optional_component": "Update the optional component.",
-    "action.free_disk_space": "Free disk space and retry.",
-    "action.retry_after_dictation": "Retry after dictation finishes.",
   },
   states: {
     starting: "Starting",
