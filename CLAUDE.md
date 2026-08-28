@@ -664,6 +664,31 @@ Every one of these produced a plausible, wrong result rather than an error.
   for one hardware test landed in a sibling with a similar name, and because the
   test filter selected the other one, everything passed while producing nothing —
   check *which* test ran, not just that one did.
+- **Proving a test can fail destroys uncommitted work, if the control undoes
+  itself with `git checkout`.** A control is: break the thing, confirm the test
+  goes red, put it back. Putting it back with `git checkout -- <file>` reverts
+  the file to **HEAD**, not to the state before the patch — so on 2026-08-28 two
+  files that had just gained a new function and a new test were controlled, and
+  both lost everything uncommitted in them. The gate then passed, because **a
+  test that is absent cannot fail**, and the commit that followed shipped a
+  comment citing a test that no longer existed — the exact defect it was written
+  to fix. Commit first and control against the commit, or copy the file aside and
+  copy it back; never revert to HEAD.
+
+  **The tell was a count, and "0 failed" is not one.** The bootstrapper's binary
+  tests ran 76 with the new test and 75 without it, and both runs said `0 failed`.
+  A suite that silently got smaller reads exactly like a suite that passed. Read
+  the total, not the verdict — this is the same lesson as `--lib` skipping the
+  `--bin` targets, one level in: there, a target filter hid a whole crate; here,
+  a revert hid one test.
+
+  Also worth knowing: **a weak control proves nothing and looks identical to a
+  strong one.** Two controls that day passed while the invariant was genuinely
+  broken — adding a delivery call *inside* the one function allowed to deliver
+  does not violate "only that function delivers", and restoring `"hud" |
+  "hud-dock"` leaves `"hud-dock" =>` still matching a regex that reads one label
+  per arm. A control that does not go red has verified nothing, so treat a
+  passing control as a bug in the control until proven otherwise.
 - **A fixture under `.tools/` is a test with a deletion date.** The three
   granite_engine hardware tests read `.tools/fixtures/beckett.wav`, which is
   gitignored, existed only on the machine that made it, and **was gone** by
