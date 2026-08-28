@@ -509,6 +509,30 @@ fn verify_provider(
 /// That is what makes inverting the default safe — the destructive answer is
 /// only taken where somebody was there to see the whole scope named. A silent
 /// run cannot ask, so it proceeds: `/S` is a caller asserting it already knows.
+/// What the command line asks for: everything, unless `--keep-user-data` says
+/// otherwise.
+///
+/// The **inversion lives here and only here.** `Removals::default()` selects
+/// nothing, deliberately and permanently, because a *caller* that forgot to ask
+/// must delete nothing — this is the one place in the product where the wrong
+/// default cannot be undone. The user-facing default inverted on 2026-08-21, at
+/// the command line, where somebody has actually been asked.
+///
+/// Extracted from `remove` on 2026-08-28 so that inversion can be pinned. It was
+/// two lines inside a function that refuses a running app, attaches a console,
+/// resolves an install root and then deletes a program directory and a profile,
+/// so nothing could test it without either a heavy refactor or a real uninstall.
+/// `the_api_default_removes_nothing_and_everything_removes_all_of_it` in
+/// `uninstall.rs` guards the API end and said in a comment that this end was
+/// pinned too; it was not.
+fn removals_for(keep_user_data: bool) -> uninstall::Removals {
+    if keep_user_data {
+        uninstall::Removals::default()
+    } else {
+        uninstall::Removals::everything()
+    }
+}
+
 fn remove(silent: bool, keep_user_data: bool) -> ExitCode {
     if install::app_is_running() {
         repair::report(
@@ -525,11 +549,7 @@ fn remove(silent: bool, keep_user_data: bool) -> ExitCode {
     // What a *silent* run removes. The interactive path replaces this below
     // with what the user chose on the page; it is computed here because the
     // refusals above return before either.
-    let removals = if keep_user_data {
-        uninstall::Removals::default()
-    } else {
-        uninstall::Removals::everything()
-    };
+    let removals = removals_for(keep_user_data);
     // Resolved before `perform`, which is not incidental: `perform` clears the
     // registration first, so reading the recorded location afterwards would find
     // the key already gone and silently fall back to the default directory.
@@ -678,6 +698,36 @@ mod tests {
             classify(&["--install"]),
             Mode::Install { install_root: None }
         ));
+    }
+
+    /// The command-line end of the inverted default, which nothing pinned until
+    /// 2026-08-28.
+    ///
+    /// `the_api_default_removes_nothing_and_everything_removes_all_of_it` in
+    /// `uninstall.rs` guards the *API* default — a caller that forgot to ask
+    /// deletes nothing — and its comment claimed this end was guarded too, by a
+    /// test that has never existed. So the half that actually deletes a user's
+    /// 2.14 GB of weights, their settings and their vocabulary was the unguarded
+    /// half, and the recorded data loss on 2026-08-26 came from exactly this
+    /// area: `--uninstall --keep-user-data` without `/S` drew a page with every
+    /// box checked and 4.28 GB went.
+    ///
+    /// Parsing is asserted above; this is the step after it, where the parsed
+    /// flag becomes a set of things to delete.
+    #[test]
+    fn the_command_line_removes_everything_unless_told_to_keep_user_data() {
+        for item in uninstall::Removable::ALL {
+            assert!(
+                removals_for(false).includes(item),
+                "{} must be removed when nothing asked to keep it",
+                item.label()
+            );
+            assert!(
+                !removals_for(true).includes(item),
+                "{} must be kept when --keep-user-data asked for it",
+                item.label()
+            );
+        }
     }
 
     #[test]

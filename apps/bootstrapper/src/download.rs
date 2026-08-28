@@ -497,11 +497,15 @@ fn label_for(pack: &Pack) -> &'static str {
 /// artifacts (`model_download_policy` in `apps/desktop`). Duplicated rather than
 /// shared for now because the two crates do not otherwise depend on each other.
 ///
-/// **Nothing pins the two together.** They are identical today, by inspection
-/// only, so a host added on one side and not the other fails on a user's
-/// download rather than in the gate. `every_planned_url_is_one_the_policy_would_follow`
-/// checks the narrower half — every host this crate pins is one this crate's own
-/// policy allows — which does not see the app's copy at all.
+/// Pinned together as **source** by `setup's download policy and the app's are
+/// the same policy` in `apps/desktop/tests/scaffold.test.mjs`, which is where a
+/// cross-crate comparison has to live: these two share no crate, and adding a
+/// dependency between them to share five hostnames would be the larger change.
+/// It said `the_policy_matches_the_app` did this until 2026-08-28; no test by
+/// that name had ever existed, so the comment described a guarantee instead of
+/// recording one. `every_planned_url_is_one_the_policy_would_follow` covers the
+/// narrower half — every host this crate pins is one this crate's own policy
+/// allows — and does not see the app's copy at all.
 fn policy() -> DownloadPolicy {
     DownloadPolicy {
         redirect_hosts: vec![
