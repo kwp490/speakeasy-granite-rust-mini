@@ -7,7 +7,6 @@ mod clipboard;
 mod commit;
 mod confirm;
 mod credentials;
-mod diagnostic_wav;
 mod diagnostics;
 mod input;
 mod startup;
@@ -25,9 +24,6 @@ pub use credentials::WindowsCredentialManager;
 pub use credentials::{
     CredentialKeyRef, LEGACY_OPENAI_FALLBACK, LEGACY_OPENAI_PRIMARY, LEGACY_REMOTE_TOKEN,
     LegacyCredentialReport, LegacyCredentialSource,
-};
-pub use diagnostic_wav::{
-    DiagnosticWavConsent, DiagnosticWavFile, DiagnosticWavPolicy, save_diagnostic_wav,
 };
 pub use diagnostics::{DIAGNOSTICS_LOG_MAX_BYTES, append_diagnostics_line, redact_diagnostic_text};
 pub use input::{activation_modifiers_released, wait_for_activation_modifiers};

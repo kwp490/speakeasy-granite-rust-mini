@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::num::{NonZeroU32, NonZeroUsize};
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use speakeasy_audio::{
@@ -9,16 +8,20 @@ use speakeasy_audio::{
     enumerate_input_devices,
 };
 use speakeasy_domain::{CorrelationId, ProducerId, SessionId};
-use speakeasy_windows::{DiagnosticWavConsent, DiagnosticWavPolicy, save_diagnostic_wav};
 
 const TARGET_RATE_HZ: u32 = 16_000;
 
+/// What a capture run needs.
+///
+/// It also took `--output` and `--consent-to-diagnostic-wav` and wrote the audio
+/// to a diagnostic WAV. That subsystem was deleted on 2026-08-28: its owner-only
+/// ACL was never implemented on any platform, so `save_diagnostic_wav` always
+/// returned `Unsupported` and this example could never reach its own last line.
+/// `speakeasy-audio`'s `record_fixture` is what writes a WAV.
 #[derive(Debug, Default)]
 struct Options {
     device_id: Option<String>,
     capture_seconds: Option<u32>,
-    output: Option<PathBuf>,
-    consent: bool,
 }
 
 fn parse_options() -> Result<Options, &'static str> {
@@ -40,21 +43,15 @@ fn parse_options() -> Result<Options, &'static str> {
                 }
                 options.capture_seconds = Some(seconds);
             }
-            "--output" => {
-                options.output = Some(PathBuf::from(arguments.next().ok_or("output_required")?));
-            }
-            "--consent-to-diagnostic-wav" => options.consent = true,
             _ => return Err("unknown_argument"),
         }
     }
     let capture_fields = [
         options.device_id.is_some(),
         options.capture_seconds.is_some(),
-        options.output.is_some(),
-        options.consent,
     ];
     if capture_fields.iter().any(|value| *value) && !capture_fields.iter().all(|value| *value) {
-        return Err("capture_requires_device_duration_output_and_consent");
+        return Err("capture_requires_device_and_duration");
     }
     Ok(options)
 }
@@ -124,27 +121,14 @@ fn capture(options: &Options, devices: &[InputDeviceDescriptor]) -> Result<(), B
     } else {
         (sum_squares / f64::from(sample_count)).sqrt()
     };
-    let output = options.output.as_ref().ok_or("output_required")?;
-    let consent = DiagnosticWavConsent::after_disclosure(output, options.consent)?;
-    let saved = save_diagnostic_wav(
-        DiagnosticWavPolicy { enabled: true },
-        consent,
-        NonZeroU32::new(TARGET_RATE_HZ).expect("target rate is non-zero"),
-        samples,
-    )?;
     println!(
-        "capture=complete device_name={} native={:?} target_rate_hz={} frames={} drained_blocks={} issues={:?} peak={peak:.6} rms={rms:.6} output_name={}",
+        "capture=complete device_name={} native={:?} target_rate_hz={} frames={} drained_blocks={} issues={:?} peak={peak:.6} rms={rms:.6}",
         descriptor.display_name,
         session.native_config(),
         TARGET_RATE_HZ,
         completion.frames_buffered,
         completion.drained_blocks,
-        completion.issues,
-        saved
-            .path()
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("private.wav")
+        completion.issues
     );
     Ok(())
 }
@@ -197,18 +181,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn capture_requires_every_explicit_consent_field() {
+    fn capture_requires_both_of_its_fields_or_neither() {
         let options = Options {
             device_id: Some("fixture".to_owned()),
-            capture_seconds: Some(5),
-            output: None,
-            consent: true,
+            capture_seconds: None,
         };
         let fields = [
             options.device_id.is_some(),
             options.capture_seconds.is_some(),
-            options.output.is_some(),
-            options.consent,
         ];
         assert!(fields.iter().any(|value| *value));
         assert!(!fields.iter().all(|value| *value));
