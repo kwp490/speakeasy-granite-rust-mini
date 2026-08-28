@@ -18,8 +18,8 @@
 //! target has no library for an integration test to import from either — so
 //! the handful of wire-protocol literals below (the artifact id, the GGUF
 //! filenames, the sample rate) are deliberately duplicated from `main.rs`
-//! rather than shared, the same trade `speakeasy-desktop`'s
-//! `transcript_quality` makes for the WAV reader.
+//! rather than shared, the same trade `speakeasy-desktop`'s `granite_engine`
+//! tests make for the WAV reader.
 //!
 //! ```text
 //! cargo test -p speakeasy-granite-worker --test granite_worker_smoke -- --ignored --nocapture
@@ -65,9 +65,9 @@ fn granite_dir() -> PathBuf {
 }
 
 /// A minimal RIFF/WAVE reader for 16 kHz mono 16-bit PCM — the same small,
-/// deliberately duplicated reader as `speakeasy-desktop`'s
-/// `transcript_quality` and its `granite_engine` tests; see either for why a
-/// shared dependency is not worth it for nine lines of chunk-walking.
+/// deliberately duplicated reader as `speakeasy-desktop`'s `granite_engine`
+/// tests carry; see there for why a shared dependency is not worth it for nine
+/// lines of chunk-walking.
 fn read_wave_samples(path: &Path) -> Vec<f32> {
     let bytes = std::fs::read(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     assert!(

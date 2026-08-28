@@ -121,7 +121,7 @@ export function useHudStatus(): TranscriberController {
   const copy = useCallback(() => {
     // No argument: `hud_transcript_copy` resolves the newest final in Rust, so
     // this window names no transcript and hands back no text. That is what keeps
-    // the amendment to decision 3 narrow.
+    // the clipboard amendment narrow.
     void invoke("hud_transcript_copy")
       .then(() => {
         setCopied(true);

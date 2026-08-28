@@ -18,9 +18,10 @@
 /// far more often than a dev build — dev serves the frontend over Vite, which
 /// is slow enough that `setup` usually wins.
 ///
-/// The composition root notes the same race for `cuda_runtime_status`, where
-/// it merely blanked a settings offer. Anything reachable from a window's
-/// first paint has to tolerate an unmanaged coordinator; the honest answer is
+/// The composition root notes the same race where it cost less: a status
+/// command lost it on the first launch after an install, and the settings page
+/// it fed stayed blank until the window was reloaded. Anything reachable from
+/// a window's first paint has to tolerate an unmanaged coordinator; the honest answer is
 /// "still starting", which the poll retries 100ms later, and which
 /// `capture_status_unavailable` already says.
 #[tauri::command]
@@ -158,8 +159,8 @@ fn capture_devices(window: tauri::WebviewWindow) -> Result<Vec<CaptureDeviceView
 
 // `capture_start` and `capture_stop` are deliberately absent. They were the
 // guided-test path in settings, and settings no longer starts, stops or cancels
-// a dictation (decision 6): there is one controller, and it is the transcriber
-// plus the global shortcut. Keeping a second start path is exactly the
+// a dictation: there is one controller, and it is the transcriber plus the
+// global shortcut. Keeping a second start path is exactly the
 // two-inconsistent-controllers failure the single-controller rule exists to
 // prevent — `capture_stop` stopped without delivering, so a dictation begun in
 // settings silently skipped the paste that the identical action from the
@@ -369,9 +370,9 @@ fn dispatch_menu_action(app: &tauri::AppHandle, id: &str) {
 
 /// Asks before ending the app mid-dictation. Returns whether to proceed.
 ///
-/// Never discards speech silently (decision 9). The prompt is a native modal
-/// because the transcriber is no-activate and a `WebView` modal cannot reliably
-/// hold focus, and it defaults to "keep recording" so a stray keypress cannot
+/// Never discards speech silently. The prompt is a native modal because the
+/// transcriber is no-activate and a `WebView` modal cannot reliably hold
+/// focus, and it defaults to "keep recording" so a stray keypress cannot
 /// throw a dictation away.
 fn request_quit(app: &tauri::AppHandle) -> bool {
     let dictating = app
@@ -416,9 +417,9 @@ fn shutdown_gracefully(app: &tauri::AppHandle) {
 
 /// Brings the dock back into view.
 ///
-/// Deliberately does not focus it: the dock is no-activate (decision 2) and
-/// making it the foreground window would change the delivery target the next
-/// dictation pastes into.
+/// Deliberately does not focus it: the dock is no-activate, and making it the
+/// foreground window would change the delivery target the next dictation
+/// pastes into.
 fn show_dock(app: &tauri::AppHandle) {
     if let Some(dock) = app.get_webview_window("hud-dock") {
         let _ = dock.unminimize();

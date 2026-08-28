@@ -425,9 +425,9 @@ export const messages = {
   resetCategoryPersonalization: "v2 personalization",
   resetCategoryLogs: "v2 logs",
   resetCategoryOther: "other v2-owned data",
-  // Capture controls are gone from settings entirely (decision 6): dictation
-  // happens only from the transcriber and the global shortcut, so there is one
-  // controller and no second start path to diverge from it.
+  // Capture controls are gone from settings entirely: dictation happens only
+  // from the transcriber and the global shortcut, so there is one controller
+  // and no second start path to diverge from it.
   microphone: "Microphone",
   selectMicrophone: "Select a microphone",
   defaultDeviceSuffix: " (default)",

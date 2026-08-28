@@ -522,9 +522,9 @@ impl GraniteEngineCoordinator {
     /// This is the disclosure surface for provider selection, and the reason
     /// it exists at all: after a fallback the honest answer is not deducible
     /// from the provider alone. `lib.rs`'s `warm_granite_engine` logs it
-    /// beside the warm result, the same way `streaming_warm` logs the
-    /// streaming engine's own status. A code and nothing else — never a
-    /// device name, never a path.
+    /// beside the warm result, the way the deleted `streaming_warm` event
+    /// logged the streaming engine's own status. A code and nothing else —
+    /// never a device name, never a path.
     pub fn engine_reason(&self) -> &'static str {
         self.reason
             .lock()
@@ -931,9 +931,10 @@ pub fn warm_granite_if_configured(
 /// Which Granite pack a dictation will run on, where it lives, and why that
 /// engine rather than another.
 ///
-/// Mirrors the streaming engine's `AsrPackChoice`. It carries the [`Pack`]
+/// It was modelled on the streaming engine's `AsrPackChoice`, which the fork
+/// removed, and differs from it in one deliberate way. It carries the [`Pack`]
 /// because Granite admission uses its complete manifest metadata when verifying
-/// the selected CPU/GPU variant. `AsrPackChoice` carries a typed `provider`
+/// the selected CPU/GPU variant. That type carried a typed `provider`
 /// alongside its spec; this does not, because [`capabilities_for`] has already
 /// resolved the provider into the identity that actually travels anywhere
 /// (`capabilities.provider`), and a second copy of the same fact is a second
@@ -968,11 +969,11 @@ pub struct GranitePackChoice<'a> {
 /// ordinary "Granite is not part of this install", not a fault, and the
 /// callers below turn it into their own `Ok(None)`.
 ///
-/// Presence, not verification, is what `present` tests — the same stance
-/// `choose_asr_pack` documents: a pack that is present but corrupt is a
-/// **fault**, and quietly downgrading the user because of it would hide a
-/// broken install rather than report one. So this proceeds, and
-/// `verify_pack_files` fails loudly on the cold path.
+/// Presence, not verification, is what `present` tests — the stance the
+/// streaming engine's own pack selection took before the fork removed it: a
+/// pack that is present but corrupt is a **fault**, and quietly downgrading the
+/// user because of it would hide a broken install rather than report one. So
+/// this proceeds, and `verify_pack_files` fails loudly on the cold path.
 fn choose_granite_pack<'a>(
     manifest: &'a TrustedManifest,
     preferred: ExecutionProvider,
@@ -1012,9 +1013,10 @@ fn choose_granite_pack<'a>(
 /// and the disk for real.
 ///
 /// GPU-preferred, CPU-fallback, with `GpuQualification::preferred_provider()`
-/// as the single place the *preference* is decided — the same call
-/// `admitted_asr_pack` makes for the streaming pack, so the two engines cannot
-/// disagree about what this machine prefers.
+/// as the single place the *preference* is decided. That was shared with the
+/// streaming pack's own admission before the fork removed it, so the two
+/// engines could not disagree about what this machine prefers; there is one
+/// engine now, and the call stays the single place regardless.
 ///
 /// The reason travels on the returned choice;
 /// [`GraniteEngineCoordinator::ensure_ready`] is what records it, so the code
@@ -1100,8 +1102,8 @@ pub async fn run_granite_final_pass(
     // change nothing on a healthy machine — but once resolution learned to
     // check the disk, a quarantined engine whose files went missing
     // would answer `Ok(None)` and the user would never be told it was
-    // quarantined at all. `SecondPassQuarantined` exists precisely so that is
-    // not silent.
+    // quarantined at all. `ErrorCode::EngineQuarantined` exists precisely so
+    // that is not silent.
     if coordinator.is_quarantined() {
         return Err(domain_error(ErrorCode::EngineQuarantined));
     }
@@ -1571,7 +1573,7 @@ mod tests {
     /// here because `choose_granite_pack` takes the preference and the CUDA
     /// worker's availability as arguments -- a test that could only ask what
     /// *this* machine prefers would never reach either branch, which is the
-    /// mistake `choose_asr_pack`'s own split was made to avoid.
+    /// mistake taking the preference as an argument was made to avoid.
     #[test]
     fn granite_falls_back_to_cpu_for_every_preference_a_machine_can_have() {
         let manifest = bundled_manifest().expect("the bundled manifest must parse");
@@ -1784,9 +1786,9 @@ mod tests {
     }
 
     /// A minimal RIFF/WAVE reader for 16 kHz mono 16-bit PCM -- the same small,
-    /// deliberately duplicated reader `transcript_quality.rs` and
-    /// `workers/granite-worker`'s own smoke test each carry; see either for why
-    /// a shared dependency is not worth it for nine lines of chunk-walking.
+    /// deliberately duplicated reader `workers/granite-worker`'s own smoke test
+    /// carries; see it for why a shared dependency is not worth it for nine
+    /// lines of chunk-walking.
     /// `speakeasy-granite`'s `granite_smoke` carried a fourth copy until that
     /// module was deleted on 2026-08-27.
     fn read_wave(path: &std::path::Path) -> Vec<i16> {
@@ -2366,8 +2368,9 @@ mod tests {
                 assert_eq!(
                     error,
                     domain_error(ErrorCode::AdapterFailed),
-                    "a reproduction of Known risk #12 must fail the same characterized way \
-                     (AdapterFailed) -- a different error means this is a different bug"
+                    "a reproduction of the stale-clock deadline bug must fail the same \
+                     characterized way (AdapterFailed) -- a different error means this is \
+                     a different bug"
                 );
                 assert!(
                     second_elapsed < Duration::from_secs(90),

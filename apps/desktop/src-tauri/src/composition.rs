@@ -276,8 +276,9 @@ fn configure_hud(app: &mut tauri::App) -> tauri::Result<()> {
     // `notice` joined them on 2026-08-25 and is the one that would have found
     // this out the hard way: it is shown *during* a dictation's delivery, which
     // is the exact moment the foreground window is being read.
-    // `every_declared_window_is_non_focusable` pins the list against the config
-    // so a fourth window cannot be added without arriving here.
+    // `configure_hud_reaches_every_window_that_can_show_during_a_dictation`
+    // pins the list against the config so a fourth window cannot be added
+    // without arriving here.
     dock.set_focusable(false)?;
     enforce_declared_size(app, &dock, "hud-dock");
     for label in ["log", "notice"] {
@@ -368,10 +369,10 @@ const DOCK_EDGE_MARGIN: f64 = 24.0;
 /// The monitor's usable rectangle: the full display minus whatever the shell
 /// has reserved, which on Windows is the taskbar.
 ///
-/// The dock is placed against this rather than against `bounds_of`, so a dock
-/// dragged to the bottom of the screen cannot end up underneath the taskbar —
-/// a window that is `alwaysOnTop` and `skipTaskbar` has no entry to click and
-/// no way back if it lands there.
+/// The dock is placed against this rather than against the monitor's full
+/// bounds, so a dock dragged to the bottom of the screen cannot end up
+/// underneath the taskbar — a window that is `alwaysOnTop` and `skipTaskbar`
+/// has no entry to click and no way back if it lands there.
 fn work_bounds_of(monitor: &tauri::window::Monitor) -> PhysicalBounds {
     let area = monitor.work_area();
     PhysicalBounds {
@@ -419,9 +420,10 @@ fn clamp_y_to_bounds(work: PhysicalBounds, y: i32, dock_height: u32) -> i32 {
 /// still present and falling back to the right edge, vertically centered,
 /// when it is not.
 ///
-/// The x axis is never restored verbatim the way `place_hud`'s is: the dock
-/// is always snapped flush against `saved.edge`, so a monitor resize cannot
-/// leave it floating mid-screen the way a raw stored x could.
+/// The x axis is never restored verbatim, the way the deleted large HUD's
+/// placement restored its own: the dock is always snapped flush against
+/// `saved.edge`, so a monitor resize cannot leave it floating mid-screen the
+/// way a raw stored x could.
 fn place_hud_dock(dock: &tauri::WebviewWindow, saved: Option<HudDockPlacement>) {
     let Ok(size) = dock.outer_size() else { return };
     let monitors = dock.available_monitors().unwrap_or_default();

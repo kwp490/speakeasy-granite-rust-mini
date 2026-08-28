@@ -32,8 +32,8 @@ fn require_main_or_log_window(window: &tauri::WebviewWindow) -> Result<(), &'sta
 /// history, model, personalization, diagnostics, reset or credential command is
 /// reachable from the transcriber.
 ///
-/// Decision 3 originally kept clipboard authority out of the transcriber
-/// entirely. It is amended, not dropped: the transcriber may copy *the final it
+/// Clipboard authority was originally kept out of the transcriber entirely.
+/// That rule is amended, not dropped: the transcriber may copy *the final it
 /// just produced* and nothing else. `session_transcript_copy` — which can name
 /// any entry in the log — stays main-only, so browsing history from here is
 /// still forbidden. See `hud_transcript_copy` for why that narrower grant is not

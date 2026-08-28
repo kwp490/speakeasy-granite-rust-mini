@@ -112,8 +112,8 @@ export function OutputPrivacy({ profile }: { profile: ProfileController }) {
       {/*
         A transcription that failed keeps its audio retained in memory, and
         retrying it is recovery rather than a guided test — so it survived the
-        removal of the capture controls (decision 6). It does not deliver: the user
-        is looking at this window, so the focused app is SpeakEasy itself.
+        removal of the capture controls. It does not deliver: the user is
+        looking at this window, so the focused app is SpeakEasy itself.
       */}
       <section aria-labelledby="output-last">
         <h3 id="output-last">{messages.lastTranscriptSection}</h3>

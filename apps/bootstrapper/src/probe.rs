@@ -2,15 +2,16 @@
 //!
 //! Everything here is reused from `speakeasy-models` rather than rebuilt:
 //! `SafeStandardHardwareProbe` for the inventory, `NvmlGpuProbe` for the card,
-//! `admit_engines` for the two verdicts. This module's only job is to supply the
-//! one thing those cannot know on their own — how much each engine needs to fit
-//! — and to hold the answers together so setup can report them separately.
+//! `admit_engine` for the verdict. This module's only job is to supply the one
+//! thing those cannot know on their own — how much the engine needs to fit —
+//! and to hold the answers together so setup can report them.
 //!
-//! Reported separately is the requirement, not a presentation choice. The two
-//! engines use different runtimes and fail in opposite ways, so a machine that
-//! runs one on the graphics card and the other on the processor is an ordinary
-//! outcome. Collapsing that into a single "GPU: yes/no" would be wrong for one
-//! of them every time it happened.
+//! It reported two verdicts until the fork, and `admit_engines` decided both:
+//! the streaming engine and Granite used different runtimes and failed in
+//! opposite ways, so a machine that ran one on the graphics card and the other
+//! on the processor was an ordinary outcome, and collapsing that into a single
+//! "GPU: yes/no" would have been wrong for one of them every time. There is one
+//! engine, so there is one answer, and nothing left to keep apart.
 
 use std::ffi::OsStr;
 use std::path::PathBuf;

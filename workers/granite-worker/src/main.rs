@@ -58,7 +58,7 @@ use speakeasy_granite::{GraniteError, GraniteModel, GraniteOptions, GraniteStage
 /// resolved `model_root` over, as this module's doc comment explains. Changing
 /// the shipped quantization therefore means changing this pair *and* the
 /// manifest's `install_eligible` flags together; they are checked against each
-/// other by `the_worker_artifact_id_matches_the_install_eligible_pack` in
+/// other by `the_worker_artifact_id_and_the_install_eligible_pack_agree` in
 /// `apps/desktop`'s `granite_engine` tests.
 const GRANITE_ARTIFACT_ID: &str = "granite-speech-4.1-2b-q4_k_m";
 /// Filenames as IBM's own published GGUF conversion names them, matching

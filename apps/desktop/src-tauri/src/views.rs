@@ -542,8 +542,9 @@ pub struct CaptureHudView {
     ///
     /// `not_configured` before any warm and `unknown` from a pre-v2 worker are
     /// deliberately distinct from a device: neither may be rendered as one. The
-    /// engine has not said where it runs, and guessing is the overreach
-    /// `record_device` already refuses.
+    /// engine has not said where it runs, and guessing would be the same
+    /// overreach as recording a provider nobody proved — which setup refuses,
+    /// writing `unrecorded` rather than `cpu` when its check never ran.
     engine_device: String,
     /// Number of finalized utterances waiting for the single finalizer.
     queue_depth: usize,
@@ -812,7 +813,7 @@ fn register_activation_hotkey(app: &tauri::AppHandle) -> Result<(), &'static str
                 // Notepad, 1.7 s into VS Code, 12.8 s into a WebView2 window —
                 // and the snapshot it produced was stored, never read, and
                 // discarded at stop. Delivery inspects the target afresh when it
-                // actually needs it (see `deliver_final`), so the pre-flight
+                // actually needs it (see `deliver_final_text`), so the pre-flight
                 // bought nothing and cost the user the start of every sentence.
                 let action = coordinator.on_event(event.state);
                 match action {
@@ -889,9 +890,10 @@ fn hotkey_capture_device(app: &tauri::AppHandle) -> Result<String, &'static str>
 /// Starts one dictation. The single implementation behind both the global
 /// shortcut and the transcriber's Start button.
 ///
-/// There is deliberately no second start path: `capture_start` stops and does
-/// not deliver, so a dictation begun through it would silently skip the paste
-/// that the identical action from the shortcut performs.
+/// There is deliberately no second start path. Settings had one — the guided
+/// test's `capture_start`, whose `capture_stop` stopped without delivering — so
+/// a dictation begun through it silently skipped the paste that the identical
+/// action from the shortcut performed. Both commands are gone.
 ///
 /// # One at a time
 ///

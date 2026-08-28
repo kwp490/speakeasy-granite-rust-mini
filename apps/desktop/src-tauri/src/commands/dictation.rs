@@ -154,8 +154,9 @@ fn session_transcript_copy(
 
 /// Copies the transcriber's own last final to the clipboard.
 ///
-/// This is the amendment to decision 3 (see `require_main_or_hud_window`). Three
-/// properties keep the grant narrow enough to be worth making:
+/// This is the amendment to the rule that keeps clipboard authority out of the
+/// transcriber (see `require_main_or_hud_window`). Three properties keep the
+/// grant narrow enough to be worth making:
 ///
 /// 1. It takes no argument. There is no id to forge and no way to name another
 ///    session's entry — `copy_latest_payload` resolves the newest final here, in

@@ -765,9 +765,9 @@ mod tests {
         // The user-facing default inverted on 2026-08-21 and this test did not,
         // deliberately: the inversion belongs at the command line, where the
         // question has actually been put to somebody. `main::remove` builds
-        // `everything()` unless `--keep-user-data` says otherwise, and
-        // `uninstall_removes_everything_unless_told_to_keep_user_data` is what
-        // pins that end.
+        // `everything()` unless `--keep-user-data` says otherwise, and nothing
+        // pins that end — `remove` in `main.rs` is the only statement of it, so
+        // this test guards the API default and only the API default.
         let removals = Removals::default();
         for item in Removable::ALL {
             assert!(

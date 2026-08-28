@@ -1082,9 +1082,9 @@ Every one of these produced a plausible, wrong result rather than an error.
   while pointing at nothing; they were cleared on 2026-08-19. A heading survives
   a renumber, and it can be checked. **Four** citation classes exist and a sweep
   that misses one looks complete: the **filename** (`granite-final-pass.md`),
-  the **bare number** (`§9.4`, `Phase 6`), the **prose** ("the handoff",
-  "the brief", "the GPU migration handoff, item 14") — that last one matches no
-  grep for a path or a `§` — and the **backticked identifier**
+  the **bare number** (`§9.4`, `Phase 6`, **`decision 6`**), the **prose**
+  ("the handoff", "the brief", "the GPU migration handoff, item 14") — that last
+  one matches no grep for a path or a `§` — and the **backticked identifier**
   (`` `choose_asr_pack` ``, `` `granite_smoke` ``), which is the one this
   repository actually writes and the one the rustdoc check below **cannot see**.
   Rustdoc resolves ``[`Linked`]`` citations only; a backtick is not a link, so a
@@ -1096,6 +1096,24 @@ Every one of these produced a plausible, wrong result rather than an error.
   `Jura`). **That ratio is the finding**: the class is real, and it is not
   automatable without an allowlist that would rot faster than the citations do.
   Audit it by hand.
+
+  **A class has spellings, and the 2026-08-19 sweep grepped for two of the
+  bare number's three.** It searched `§` and `Phase N` and reported itself
+  finished; twelve `decision N` citations pointing at a numbered list that has
+  never existed in this repository walked straight through, and were cleared on
+  2026-08-28. The lesson is not that twelve comments were wrong — it is that a
+  class list is not a pattern list, so a sweep has to enumerate the *spellings*
+  it greps for and say which ones it did not. What that costs when the class is
+  fully swept: a dated `owner decision 2026-08-12` is a fact, not a pointer, so
+  filter it out rather than editing it.
+
+  ```powershell
+  Select-String -Path 'apps\**\*.rs','apps\**\*.ts','apps\**\*.tsx','crates\**\*.rs','workers\**\*.rs' `
+    -Pattern 'decision [0-9]|Known risk #[0-9]|item [0-9]+ in the' |
+    Where-Object { $_.Line -notmatch 'decision 20[0-9]{2}-' }
+  ```
+
+  It must return nothing.
 - **Prefer naming the fact over citing where it was recorded.** Most of those
   citations were carrying a fact perfectly well stated inline: `Phase 9` meant
   `2026-08-04`, `Known risk #12` meant "the stale-clock deadline bug". Absorb it

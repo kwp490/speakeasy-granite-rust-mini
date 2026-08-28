@@ -397,10 +397,13 @@ impl CaptureHudCoordinator {
 
     /// Drops the live session whole, for a dictation the user abandoned.
     ///
-    /// Distinct from `end_live`, which keeps the session and waits for an
-    /// authoritative final to replace the hypotheses. A cancelled dictation has
-    /// no final coming, so leaving the last hypothesis on screen would leave
-    /// display-only live text standing as the result.
+    /// Distinct from ending a dictation normally, which keeps the session and
+    /// waits for the authoritative final. It had a sibling, `end_live`, that
+    /// drew that distinction while the streaming engine put hypotheses on
+    /// screen: a cancelled dictation has no final coming, so leaving the last
+    /// hypothesis up would have left display-only live text standing as the
+    /// result. There are no hypotheses now, and dropping the session whole is
+    /// still the right answer for a dictation nobody wants a result from.
     fn abandon(&self) {
         if let Ok(mut live) = self.live.lock() {
             *live = HudLiveState::default();
@@ -640,8 +643,9 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
         // would have left readiness permanently describing the startup guess.
         models.refresh_readiness(coordinator.cuda_worker_available());
         // `engine` carries which Granite pack this machine resolved and why,
-        // mirroring `streaming_warm`'s own field. A stable code and nothing
-        // else -- a fallback to CPU must be findable in a support log, and
+        // the way the deleted `streaming_warm` event carried the streaming
+        // engine's. A stable code and nothing else -- a fallback to CPU must be
+        // findable in a support log, and
         // "running on CPU" alone cannot say whether that was the preference or
         // the consolation prize.
         //

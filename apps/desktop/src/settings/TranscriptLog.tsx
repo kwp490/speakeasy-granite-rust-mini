@@ -23,7 +23,7 @@ const LOG_INTERVAL_MS = 1_500;
  *    so the difference is unmistakable.
  * 2. **Copy is backend-owned.** The window sends an id, never text; Rust looks up
  *    the entry and writes it. Clipboard authority stays out of the transcriber
- *    entirely (decision 3).
+ *    entirely.
  * 3. **Transcript text is untrusted inert content.** `<pre>` with a `<bdi>`, no
  *    HTML interpretation, no linkification, no normalization.
  */

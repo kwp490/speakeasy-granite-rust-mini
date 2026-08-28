@@ -1043,7 +1043,7 @@ mod tests {
         // that gains `require_main_or_hud_window` has to be added here
         // deliberately — that is the point of the test.
         //
-        // Decision 3's clipboard prohibition is amended rather than dropped, and
+        // The clipboard prohibition is amended rather than dropped, and
         // `hud_transcript_copy` is the whole of the amendment: the transcriber may
         // copy the final it just produced. It takes no argument and resolves the
         // newest entry in Rust, so it cannot name anything else, and the
@@ -1102,9 +1102,9 @@ mod tests {
         for forbidden in [
             "result_copy",
             // The addressable transcript copy. `hud_transcript_copy` is allowed
-            // above and this is not, which is exactly the line the amendment to
-            // decision 3 draws: copying the last final is permitted, naming any
-            // entry in the session log is not.
+            // above and this is not, which is exactly the line that amendment draws:
+            // copying the last final is permitted, naming any entry in the session
+            // log is not.
             "session_transcript_copy",
             "session_transcript_log",
             "history_export",

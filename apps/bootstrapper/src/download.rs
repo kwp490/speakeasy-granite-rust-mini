@@ -15,8 +15,8 @@
 //! first launch downloads everything again. That root is not the install root:
 //! program files go to `%LOCALAPPDATA%\SpeakEasy`, models to
 //! `%APPDATA%\ai.speakeasy.mini\model-lifecycle`, which is where
-//! `composition.rs` points `InstallManager` at. `agrees_with_the_app` in the
-//! tests below pins the two together, because nothing else would notice them
+//! `composition.rs` points `InstallManager` at. `the_models_root_agrees_with_the_app`
+//! in the tests below pins the two together, because nothing else would notice them
 //! drifting apart — a mismatch downloads three gigabytes to a directory nobody
 //! reads and reports success.
 
@@ -495,9 +495,13 @@ fn label_for(pack: &Pack) -> &'static str {
 ///
 /// The same hosts, deadlines and retry count the app uses for exactly these
 /// artifacts (`model_download_policy` in `apps/desktop`). Duplicated rather than
-/// shared for now because the two crates do not otherwise depend on each other;
-/// `the_policy_matches_the_app` pins them together so a host added on one side
-/// and not the other fails the gate rather than a user's download.
+/// shared for now because the two crates do not otherwise depend on each other.
+///
+/// **Nothing pins the two together.** They are identical today, by inspection
+/// only, so a host added on one side and not the other fails on a user's
+/// download rather than in the gate. `every_planned_url_is_one_the_policy_would_follow`
+/// checks the narrower half — every host this crate pins is one this crate's own
+/// policy allows — which does not see the app's copy at all.
 fn policy() -> DownloadPolicy {
     DownloadPolicy {
         redirect_hosts: vec![

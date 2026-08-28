@@ -554,6 +554,43 @@ Three citation classes exist, and a sweep that finds one looks finished:
 A fourth trap: the first sweep filtered `*.ts`/`*.tsx` and the scaffold suite is
 `.mjs`, which hid 21 more. **Enumerate extensions before believing a zero.**
 
+**And a fifth, found 2026-08-28.** The bare-number class has a third spelling
+this sweep never grepped for: **`decision N`**. Twelve of them sat across nine
+files, pointing at a numbered decision list that has never existed anywhere in
+this repository, plus a `Known risk #12` inside an assertion message. Each one
+already stated the fact it was citing, so all thirteen were cleared by deleting
+the number and keeping the sentence. **A class list is not a pattern list**: this
+sweep enumerated the classes correctly and still finished with a third of one of
+them untouched, because it grepped `§` and `Phase N` and stopped. A sweep has to
+say which spellings it searched, not just which classes it knew about.
+
+The grep, which is the artefact worth keeping — it must return nothing, and the
+`Where-Object` is load-bearing because a dated `owner decision 2026-08-12` is a
+fact rather than a pointer and must not be edited:
+
+```powershell
+Select-String -Path 'apps\**\*.rs','apps\**\*.ts','apps\**\*.tsx','crates\**\*.rs','workers\**\*.rs' `
+  -Pattern 'decision [0-9]|Known risk #[0-9]|item [0-9]+ in the' |
+  Where-Object { $_.Line -notmatch 'decision 20[0-9]{2}-' }
+```
+
+**The backticked-identifier class was swept the same day**, by hand, against the
+scanner described in `CLAUDE.md` — 2,554 backticked spans, 1,193 item-shaped,
+257 resolving to nothing, of which **22 were real** and the rest were correctly
+not Rust items. Two things came out of doing it that the measurement did not
+predict. Half the citations named in the brief as dead (`resident_retained_pass`,
+`granite_smoke`, `FinalDivergence`, the Nemotron test name) turned out to be
+**correctly-written history** — "It had a second caller … until the streaming
+engine left" — so a scanner hit is a question, not a finding. And three of the
+real ones claimed a **test exists that does not**:
+`the_policy_matches_the_app` (nothing pins the bootstrapper's download policy to
+the app's — they are identical by inspection only),
+`uninstall_removes_everything_unless_told_to_keep_user_data` (nothing pins
+`main::remove`'s inverted default), and `every_declared_window_is_non_focusable`
+(the real test is `configure_hud_reaches_every_window_that_can_show_during_a_dictation`).
+The first two are now stated as gaps rather than as guarantees. **A citation of a
+test is a claim about coverage**, and it is the most expensive kind to get wrong.
+
 Three defects fell out that no citation sweep was looking for:
 
 - `speakeasy-granite`'s crate doc claimed the delivered transcript came from the
