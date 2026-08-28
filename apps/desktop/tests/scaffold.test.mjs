@@ -2276,3 +2276,67 @@ test("the token budget covers the longest dictation the ceiling allows", async (
       "is silently cut off mid-clause",
   );
 });
+
+test("setup's download policy and the app's are the same policy", async () => {
+  // Two copies of one policy, in crates that deliberately do not depend on each
+  // other, and until 2026-08-28 nothing compared them. `download.rs` claimed
+  // `the_policy_matches_the_app` pinned them together; no test by that name has
+  // ever existed, so the comment was describing a guarantee rather than
+  // recording one — which is the most expensive kind of dead citation, because
+  // it reads as coverage.
+  //
+  // What a drift costs: a host pinned in the manifest but absent from one
+  // policy's redirect list fails `validate_url` at transfer time, on a user's
+  // machine, after setup or the app has already promised to fetch it. The
+  // manifest and the two policies are edited by different changes in different
+  // files, so nothing else would notice.
+  //
+  // Compared as source for the same reason the token-budget rule above is:
+  // `apps/bootstrapper` and `apps/desktop` share no crate, and adding a
+  // dependency between them to share five hostnames would be the larger change.
+  const setup = await readFile(
+    new URL("../../../apps/bootstrapper/src/download.rs", import.meta.url),
+    "utf8",
+  );
+  const app = await readFile(
+    new URL("../src-tauri/src/commands/models.rs", import.meta.url),
+    "utf8",
+  );
+
+  // The literal a function returns, with comments and whitespace removed. The
+  // app's copy carries a comment inside `redirect_hosts` explaining the Xet CDN
+  // hop, so a raw string compare would fail on prose.
+  const policyLiteral = (source, name) => {
+    const body = rustFunctionBody(source, name);
+    assert.ok(body, `fn ${name} must be findable`);
+    const literal = /DownloadPolicy\s*\{[\s\S]*\}/.exec(body);
+    assert.ok(literal, `fn ${name} must return a DownloadPolicy literal`);
+    return literal[0]
+      .replace(/\/\/[^\n]*/g, "")
+      .replace(/\s+/g, "")
+      .replace(/,\}/g, "}");
+  };
+
+  const setupPolicy = policyLiteral(setup, "policy");
+  const appPolicy = policyLiteral(app, "model_download_policy");
+
+  // Instrument self-check: every assertion here is an equality between two
+  // extractions, and two failed extractions are equal to each other. Both must
+  // contain something only a real policy contains.
+  for (const [label, extracted] of [
+    ["setup", setupPolicy],
+    ["app", appPolicy],
+  ]) {
+    assert.match(extracted, /redirect_hosts:vec!\[/, `${label}'s policy did not extract`);
+    assert.match(extracted, /"huggingface\.co"/, `${label}'s policy lost its hosts`);
+    assert.match(extracted, /maximum_retries:/, `${label}'s policy lost its retry count`);
+  }
+
+  assert.equal(
+    appPolicy,
+    setupPolicy,
+    "the bootstrapper's download policy and the app's have drifted; a host, deadline or " +
+      "retry count added on one side and not the other fails on a user's download rather " +
+      "than here",
+  );
+});
