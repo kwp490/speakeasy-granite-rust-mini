@@ -836,6 +836,43 @@ Three defects fell out that no citation sweep was looking for:
 - **Three broken rustdoc links**, which `cargo doc` had never reported —
   see `CLAUDE.md`'s entry on `--document-private-items`.
 
+### Phase 3.5 closed 2026-08-28 — the phased-fixes brief is now empty
+
+`docs/RUNBOOK.md` gained a "Reading `engine=` and `device=`" block under
+Diagnostics: the healthy graphics-card warm line verbatim, the one-sentence rule
+that `device=` is the authority on where Granite ran while `engine=` names which
+*pack* was selected and why, and why the two correctly disagree on a GPU machine.
+No code, no strings, no reason codes — which is what the phase asked for, and it
+held.
+
+Two things came out of doing it that the brief did not anticipate, both about
+where the explanation goes rather than what it says.
+
+**The brief's premise was half stale.** It said `RUNBOOK.md` "mentions
+engine/device state and stops there". It does not: "Which engine is it running on,
+and re-proving it" already documents `device=`, `installed=` and all of
+`provider=`'s verdicts, including `gpu_install_not_operational`, which *is* the
+`device=cpu installed=cuda` fault the phase asked to have named. So the genuine
+gap was narrower than described — `engine=` alone — and writing the fault out in
+full would have been the second copy the brief itself warns against. The new
+block names the pattern and hands off to that section.
+
+**The `device=cpu installed=cuda` example is not a hardware fault, and calling
+it one would have been wrong.** The line the brief supplies verbatim is the
+2026-08-20 support log, and that combination was *impossible* — `installed=cuda`
+came from a radio button nobody had disabled, which is the defect
+`speakeasy_models::granite_gpu` was written to remove. The pattern is still
+reachable today (a fetched CUDA worker whose runtime libraries go missing), so
+the example earns its place, but it is presented as the line that motivated the
+comparison rather than as a real fallback. **A verbatim quote can carry a
+provenance claim the quoting document does not intend.**
+
+Both sample lines were checked against the emitting code rather than trusted:
+`coordinators.rs`'s `granite_warm` emits `result`, `engine`, `device`,
+`installed`, `provider` in that order, and `choose_granite_pack` confirms a
+machine with a working CUDA worker reaches `CpuGpuPackNotInstalled` — so the
+healthy line is reachable and not a document's invention.
+
 ### `install_root` (`21f2884`) — the value was already right
 
 The recorded defect was the leaf, and the leaf had already been fixed. What

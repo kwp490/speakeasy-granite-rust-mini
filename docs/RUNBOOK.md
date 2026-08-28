@@ -54,6 +54,38 @@ names, reason codes, timings, counts, engine/device state, and coarse state to
 the per-user `logs\speakeasy.log`. The log rotates at 5 MiB and keeps one
 previous generation.
 
+### Reading `engine=` and `device=`
+
+A healthy install on a machine with a graphics card logs a warm-up line like
+this one:
+
+```text
+event=granite_warm result=ok engine=cpu_gpu_pack_not_installed device=cuda installed=cuda provider=ok
+```
+
+`device=` is the authority on where Granite actually ran; `engine=` names which
+model *pack* was selected and why. They disagree on a GPU machine for a good
+reason: there is only one Granite pack, the CPU-variant GGUF, and the same file
+runs on either device — so `engine=cpu_gpu_pack_not_installed` beside
+`device=cuda` is a correct pair, not a fallback. `docs/NEW-MACHINE.md`
+"Optional: put Granite on the GPU" carries the longer version, beside the
+`nvidia-smi` cross-check that belongs with it.
+
+The pattern to scan for is the opposite one — `device=cpu` alongside
+`installed=cuda`, a graphics-card install that could not load the CUDA runtime.
+Unlike the pair above, that is an error rather than a normal outcome, and it is
+the reason `installed=` is logged at all: on a processor install `device=cpu` is
+exactly what should happen. It looks like this — the line below is the one that
+motivated the comparison, from before `provider=` existed to make it:
+
+```text
+event=granite_warm result=ok engine=cpu_gpu_runtime_missing device=cpu installed=cuda
+```
+
+The app compares those two itself and reports the verdict as `provider=`, so a
+reader should not have to spot it by eye — see "Which engine is it running on,
+and re-proving it" below for what each verdict means and how to re-prove one.
+
 The shipped app never writes transcript text or raw audio to this log, even
 when the setting is enabled. Exported diagnostics likewise omit transcripts,
 audio, credentials, tokens, and full private paths. Turn logging back off after
