@@ -1058,8 +1058,13 @@ mod tests {
             "dictation_start",
             "dictation_stop",
             "capture_transcribe_cancel",
-            "capture_devices",
-            "capture_device_configure",
+            // `capture_devices` and `capture_device_configure` were here for
+            // `MicPicker`, the large HUD's device list. That component was
+            // deleted on 2026-08-28 — nothing in the dock's tree had rendered it
+            // since the fork — and both went main-only with it. A window that no
+            // longer enumerates devices should not keep the authority to, and
+            // choosing a microphone is a Settings → Audio job, which is the only
+            // place it has a keyboard path anyway.
             "capture_wizard_status",
             "hotkey_status",
             "open_settings_window",

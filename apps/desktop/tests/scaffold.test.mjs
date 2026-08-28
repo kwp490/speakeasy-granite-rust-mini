@@ -680,7 +680,10 @@ test("every window is declared, and none of them can take the foreground", async
     .map((match) => match[1])
     .sort();
   assert.deepEqual([...new Set(invoked)], [
-    "capture_devices",
+    // `capture_devices` was here for `MicPicker`, the large HUD's device list.
+    // The component was deleted on 2026-08-28 and both device commands went
+    // main-only with it: a window that no longer enumerates devices should not
+    // keep the authority to.
     "capture_hud_status",
     // Added 2026-08-25 with the notice window. It takes a warning off the
     // user's screen and does nothing else -- no delivery, no OS input, no
@@ -1416,8 +1419,8 @@ test("IPC schema is narrow and the HUD keeps an explicit command allowlist", asy
     .map(([name]) => name)
     .sort();
   assert.deepEqual(dockReachable, [
-    "capture_device_configure",
-    "capture_devices",
+    // `capture_device_configure` and `capture_devices` left this list on
+    // 2026-08-28 with `MicPicker`, the only thing in the dock that used them.
     "capture_hud_status",
     "capture_transcribe_cancel",
     "capture_wizard_status",
@@ -1704,18 +1707,23 @@ test("the dock is the surface a relaunch and a restore bring back", async () => 
   // a fresh profile stores no preference but records from a real device, so a
   // picker that read "Select a microphone" was stating something untrue.
   assert.match(backend, /preferred_device_id:/);
-  // The picker that consumed it is **not rendered by anything**. `MicPicker.tsx`
-  // exports a component no file imports — it was the large HUD's control, and a
-  // 62 px dock has nowhere to put a device list, so choosing a microphone is a
-  // settings-window job now. Two assertions stood here about its JSX
+  // The picker that consumed it is gone. `MicPicker.tsx` was the large HUD's
+  // device list and no file imported it after the fork; a 62 px dock has nowhere
+  // to put one, and Settings → Audio already offers the choice through
+  // `capture_device_configure`. Two assertions stood here about its JSX
   // (`resolveDevice`, `preferredId={model.preferredDeviceId}`) and passed only
-  // because this test never ran; the second names a call site that does not
-  // exist. Pinned as dead rather than deleted, because the file is still in the
-  // tree and a reader will assume it is wired up.
-  assert.equal(
-    [...hudComponents.matchAll(/<MicPicker\b/g)].length,
-    0,
-    "MicPicker is unrendered; if it has been wired up, restore the assertions about its props",
+  // because this test never ran — the second named a call site that did not
+  // exist. Deleted 2026-08-28.
+  //
+  // What replaces them is the rule that made the component redundant: a device
+  // the user can choose has to be choosable somewhere they can reach with a
+  // keyboard, and the dock is deliberately not keyboard operable.
+  const audio = await readFile(new URL("../src/settings/Audio.tsx", import.meta.url), "utf8");
+  assert.match(audio, /invoke\("capture_device_configure"/);
+  assert.doesNotMatch(
+    hudComponents,
+    /capture_device_configure/,
+    "choosing a device belongs in settings; the dock cannot take keyboard focus",
   );
 });
 

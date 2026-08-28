@@ -155,7 +155,12 @@ fn setup_requirement(app: &tauri::AppHandle) -> Result<Option<&'static str>, &'s
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn capture_devices(window: tauri::WebviewWindow) -> Result<Vec<CaptureDeviceView>, &'static str> {
-    require_main_or_hud_window(&window)?;
+    // Main-only since 2026-08-28. The dock held this so `MicPicker` could list
+    // devices; that component was deleted, nothing in the dock's tree enumerates
+    // devices any more, and authority a window no longer exercises is authority
+    // it should not keep. Choosing a microphone is a Settings → Audio job, which
+    // is also the only place it has a keyboard path.
+    require_main_window(&window)?;
     CaptureWizardCoordinator::devices()
 }
 
@@ -239,7 +244,8 @@ fn capture_device_configure(
     profile: tauri::State<'_, ProfileCoordinator>,
     device_id: String,
 ) -> Result<(), &'static str> {
-    require_main_or_hud_window(&window)?;
+    // Main-only, for the same reason as `capture_devices` above.
+    require_main_window(&window)?;
     // Only a device Windows is currently offering may be stored, so a stale or
     // fabricated id cannot be persisted into the shortcut's device resolution.
     let known = CaptureWizardCoordinator::devices()?

@@ -173,12 +173,12 @@
     },
     "capture_devices": {
       "response": "CaptureDeviceView[]",
-      "window": "main|hud-dock",
+      "window": "main",
       "mutates": false
     },
     "capture_device_configure": {
       "response": "unit",
-      "window": "main|hud-dock",
+      "window": "main",
       "mutates": true
     },
     "capture_level": {
