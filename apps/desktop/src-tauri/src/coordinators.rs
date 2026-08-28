@@ -361,6 +361,10 @@ impl Default for CaptureHudCoordinator {
                 // composition, so claiming `ready` here would publish a warm
                 // that has not happened.
                 engine: "cold".to_owned(),
+                // Same reasoning as `engine` above: this baseline exists only
+                // to be diffed against the first real composition, and naming a
+                // device here would claim a worker had reported one.
+                engine_device: "not_configured".to_owned(),
                 queue_depth: 0,
                 error_code: None,
                 final_source_reason: None,
@@ -458,6 +462,7 @@ impl CaptureHudCoordinator {
             preferred_device_id: composed.preferred_device_id,
             delivery_outcome: live.delivery_outcome.unwrap_or("held").to_owned(),
             engine: composed.engine.to_owned(),
+            engine_device: composed.engine_device.to_owned(),
             queue_depth: composed.queue_depth,
             error_code: composed.error_code,
             final_source_reason: live.final_source_reason.map(str::to_owned),
@@ -486,6 +491,9 @@ struct HudComposition {
     ceiling_ms: u64,
     preferred_device_id: String,
     engine: &'static str,
+    /// The compute device Granite runs on, never the microphone. See
+    /// `CaptureHudView::engine_device`.
+    engine_device: &'static str,
     queue_depth: usize,
     error_code: Option<String>,
 }

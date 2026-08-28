@@ -101,6 +101,15 @@ export type HudStatus = {
   delivery_outcome: string;
   /** `cold`, `warming`, `ready`, or an error code. */
   engine: string;
+  /**
+   * The compute device Granite runs on — `cpu`, `cuda`, `unknown`,
+   * `not_configured` or `granite_state_unavailable`.
+   *
+   * Not the microphone: `device_name` and `device_diagnostic` above are the
+   * capture device. The last three values are not devices and must never be
+   * rendered as one.
+   */
+  engine_device: string;
   error_code: string | null;
   final_source_reason: string | null;
 };
@@ -131,6 +140,12 @@ export type TranscriberModel = {
   canStop: boolean;
   /** The resident engine's warm state, verbatim from the backend. */
   engine: string;
+  /**
+   * The compute device Granite runs on, verbatim from the backend. Not the
+   * microphone — that is `deviceName`, three fields up, and the two being
+   * adjacent is exactly why this one is not called `deviceName` anything.
+   */
+  engineDevice: string;
   /**
    * The stored microphone preference, or `""` when none is saved. The picker
    * completes the same fallback `hotkey_capture_device` does, so it shows the
@@ -186,6 +201,9 @@ export const initialTranscriberModel: TranscriberModel = {
   // Assumed still loading until a poll says otherwise, so the first frame after
   // launch cannot flash a green Start Recording over a model that is not there.
   engine: "cold",
+  // Before any poll answers, no worker has reported a device. `not_configured`
+  // is what the backend calls that, and it is not a device — see the field.
+  engineDevice: "not_configured",
   preferredDeviceId: "",
   sessionId: "",
   dismissedSessionId: null,
@@ -359,6 +377,13 @@ export function transcriberReducer(
         ceilingMs: status.ceiling_ms,
         canStart: status.can_start,
         canStop: status.can_stop,
+        // `engine` was declared on the model, initialised to `cold`, and never
+        // assigned here — so it held `cold` for the life of the process while
+        // `stateFromStatus` read the live value straight off `status`. Nothing
+        // rendered it, so nothing caught it. Carried now because the engine
+        // indicator reads the model rather than the raw status.
+        engine: status.engine,
+        engineDevice: status.engine_device,
         preferredDeviceId: status.preferred_device_id,
         sessionId: status.session_id,
         pending: stale ? current.pending : null,

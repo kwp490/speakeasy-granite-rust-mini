@@ -90,12 +90,26 @@ fn capture_hud_status(app: tauri::AppHandle) -> Result<CaptureHudView, &'static 
             .ok()
             .and_then(|settings| settings.preferred_capture_device_id.clone())
             .unwrap_or_default(),
-        // The HUD polls this at 10 Hz, so it reads the engine's cached status
-        // string rather than resolving a pack: `engine_reason` is a field read
-        // behind a mutex, and pack resolution touches the filesystem.
+        // The HUD polls this at 10 Hz, so both of these are cached field reads
+        // behind a mutex rather than anything that resolves a pack or touches
+        // the filesystem.
+        //
+        // `warm_state`, not `engine_reason`. They answer different questions and
+        // this field is documented — in `CaptureHudView` and in
+        // `transcriberState.ts` — as `cold | warming | ready | <error code>`,
+        // which is the vocabulary `warm_state` speaks. `engine_reason` speaks
+        // pack codes (`cpu_gpu_runtime_missing`, `memory_below_granite_floor`)
+        // and can never say `warming` or `ready`, so filling this from it made
+        // the frontend's `ENGINE_LOADING` set unmatchable after the first poll
+        // and the dock reported a loaded engine throughout the ~2 GB launch
+        // warm. The pack reason is still disclosed, by `granite_warm` in the
+        // log and by the Advanced page; it is simply not what this means.
         engine: app
             .try_state::<GraniteEngineCoordinator>()
-            .map_or("engine_unavailable", |granite| granite.engine_reason()),
+            .map_or("engine_unavailable", |granite| granite.warm_state()),
+        engine_device: app
+            .try_state::<GraniteEngineCoordinator>()
+            .map_or("granite_state_unavailable", |granite| granite.device()),
         error_code: capture_view.error_code.clone(),
     })
 }

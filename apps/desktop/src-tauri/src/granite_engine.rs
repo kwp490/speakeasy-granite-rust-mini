@@ -476,6 +476,18 @@ pub struct GraniteEngineCoordinator {
     /// marker reports — both mean "nothing has been checked", and inventing a
     /// distinction between them would be a claim about a check that has not run.
     integrity: Mutex<ProviderIntegrity>,
+    /// Where the resident worker is in its lifecycle: `cold`, `warming`,
+    /// `ready`, or an error code. This is what the HUD's `engine` field means.
+    ///
+    /// **A field rather than a derivation, and that is load-bearing.** The
+    /// obvious implementation is "`ready` when `adapter` is `Some`" — and
+    /// [`Self::ensure_ready`] holds `adapter` locked across the whole ~2 GB
+    /// load, so an accessor that touched it would block the HUD's 10 Hz poll
+    /// for the entire warm. That poll runs in a `WebView` callback. The dock
+    /// would freeze for seconds at launch, which is a worse bug than the one
+    /// this field fixes and would look like the app hanging rather than like a
+    /// lock being held. Nothing here may lock `adapter`.
+    warm: Mutex<&'static str>,
 }
 
 impl Default for GraniteEngineCoordinator {
@@ -491,6 +503,7 @@ impl Default for GraniteEngineCoordinator {
             device: Mutex::new("not_configured"),
             cuda_worker: Mutex::new(None),
             integrity: Mutex::new(ProviderIntegrity::Unrecorded),
+            warm: Mutex::new("cold"),
         }
     }
 }
@@ -538,6 +551,39 @@ impl GraniteEngineCoordinator {
         self.device
             .lock()
             .map_or("granite_state_unavailable", |device| *device)
+    }
+
+    /// Where the resident worker is: `cold`, `warming`, `ready`, or an error
+    /// code. The vocabulary the HUD's `engine` field is documented in.
+    ///
+    /// Distinct from [`Self::engine_reason`], which answers a different
+    /// question — which *pack* was selected and why. The HUD used to be filled
+    /// from that one, and the result was a dock that said "ready" from the
+    /// first poll while Granite was still loading two gigabytes: `engine_reason`
+    /// can never return `warming` or `ready`, so the frontend's loading state
+    /// was unreachable for the life of the process. Both facts are worth
+    /// having; only this one answers "has it loaded".
+    ///
+    /// Quarantine is checked first because it outranks whatever the last warm
+    /// left behind: an engine that has crashed its way out of service is not
+    /// `ready` even though an adapter may still be cached.
+    ///
+    /// Cheap by contract — this is read at 10 Hz. Two uncontended locks and a
+    /// copy, no filesystem, and deliberately **not** `adapter`; see the field's
+    /// own comment for what touching it would cost.
+    pub fn warm_state(&self) -> &'static str {
+        if self.is_quarantined() {
+            return "granite_quarantined";
+        }
+        self.warm
+            .lock()
+            .map_or("granite_state_unavailable", |state| *state)
+    }
+
+    fn record_warm_state(&self, state: &'static str) {
+        if let Ok(mut slot) = self.warm.lock() {
+            *slot = state;
+        }
     }
 
     /// What setup recorded versus what is running, as a stable code.
@@ -599,6 +645,11 @@ impl GraniteEngineCoordinator {
         if let Ok(mut adapter) = self.adapter.lock() {
             adapter.take();
         }
+        // Back to `cold`, because that is now true: the next dictation warms
+        // again. Leaving `ready` behind would have the dock claim a loaded
+        // engine after `invalidate` threw the worker away, which is the same
+        // class of lie this whole change removes — just pointed the other way.
+        self.record_warm_state("cold");
     }
 
     /// Discards the resident worker so the next [`Self::ensure_ready`] builds
@@ -645,8 +696,20 @@ impl GraniteEngineCoordinator {
             return Ok(Arc::clone(adapter));
         }
         self.record_engine_reason(choice.reason.code());
-        verify_pack_files(choice.pack, &choice.model_root)
-            .map_err(|_| domain_error(ErrorCode::AdapterFailed))?;
+        // Every exit from here sets the warm state, including both failures.
+        // A `warming` that is only cleared on success latches forever after one
+        // failed warm, which is a worse lie than the "always ready" this
+        // replaces: the dock would sit amber for the life of the process while
+        // the engine was in fact idle and retryable.
+        self.record_warm_state("warming");
+        if verify_pack_files(choice.pack, &choice.model_root).is_err() {
+            // Deliberately its own code rather than the generic warm failure.
+            // A hash mismatch or a missing file is a static install defect the
+            // user can act on, and it takes no quarantine strike — see
+            // `a_hash_mismatch_fails_verification_without_quarantining`.
+            self.record_warm_state("granite_model_files_unverified");
+            return Err(domain_error(ErrorCode::AdapterFailed));
+        }
         let (adapter, worker) = match warm(
             granite_worker_exe,
             choice,
@@ -656,11 +719,19 @@ impl GraniteEngineCoordinator {
             Ok((adapter, worker)) => (Arc::new(adapter), worker),
             Err(error) => {
                 self.record_worker_failure();
+                // The specific code, not a generic one: this is the same string
+                // `granite_warm` logs as `result=`, so the chip and the support
+                // log name the same failure. Reached through `crate::` because
+                // this module is a real `mod` while the command files are
+                // `include!`d into the crate root — one mapping of `ErrorCode`
+                // to a wire code, not two that can drift.
+                self.record_warm_state(crate::domain_error_code(&error));
                 return Err(error);
             }
         };
         self.record_worker_provider(worker, recorded_provider);
         *slot = Some(Arc::clone(&adapter));
+        self.record_warm_state("ready");
         Ok(adapter)
     }
 }
@@ -792,11 +863,21 @@ pub fn warm_granite_if_configured(
     environment: GraniteEnvironment<'_>,
     coordinator: &GraniteEngineCoordinator,
 ) -> Result<(), DomainError> {
+    // Every path that returns without warming says so, and `cold` is not that
+    // answer. `cold` means "not loaded yet", the frontend maps it to
+    // `loading_model` along with `warming`, and a machine that will never warm
+    // would sit on "Loading model" for the life of the process — which is the
+    // same lie this change removes, pointed the other way. Caught by running
+    // it: a build whose worker path does not resolve logged
+    // `granite_warm result=ok engine=not_configured` and the dock reported
+    // loading indefinitely.
     let Some(granite_worker_exe) = environment.granite_worker_exe else {
+        coordinator.record_warm_state("not_configured");
         return Ok(());
     };
     if !granite_memory_is_sufficient(environment.total_memory_bytes) {
         coordinator.record_engine_reason("memory_below_granite_floor");
+        coordinator.record_warm_state("memory_below_granite_floor");
         return Ok(());
     }
     // Same ordering as `run_granite_final_pass`, and for the same reason —
@@ -805,6 +886,7 @@ pub fn warm_granite_if_configured(
         return Err(domain_error(ErrorCode::EngineQuarantined));
     }
     let Ok(manifest) = bundled_manifest() else {
+        coordinator.record_warm_state("not_configured");
         return Ok(());
     };
     let Some(choice) = admitted_granite_pack(
@@ -812,6 +894,7 @@ pub fn warm_granite_if_configured(
         environment.install_root,
         coordinator.cuda_worker_available(),
     ) else {
+        coordinator.record_warm_state("not_configured");
         return Ok(());
     };
     coordinator

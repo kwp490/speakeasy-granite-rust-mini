@@ -525,7 +525,26 @@ pub struct CaptureHudView {
     /// Not a `setup_reason`: loading is not a thing the user has to go and fix,
     /// and routing it through `setup_reason` would clear `setup_complete` and
     /// so also `can_start`.
+    ///
+    /// Filled from `GraniteEngineCoordinator::warm_state`. It was filled from
+    /// `engine_reason()` until 2026-08-27, which publishes *pack* codes and can
+    /// never say `warming` or `ready` — so the loading state documented above
+    /// was unreachable from the first poll onward, and the dock claimed a
+    /// loaded engine throughout the launch warm.
     engine: String,
+    /// Which compute device the resident Granite worker reported at `Hello`:
+    /// `cpu`, `cuda`, `unknown`, `not_configured`, or `granite_state_unavailable`.
+    ///
+    /// **Not the microphone.** `device_name` and `device_diagnostic` above are
+    /// both about the capture device, and this is the processor Granite runs
+    /// on; the names are close enough that conflating them is easy and the
+    /// resulting claim would be nonsense in both directions.
+    ///
+    /// `not_configured` before any warm and `unknown` from a pre-v2 worker are
+    /// deliberately distinct from a device: neither may be rendered as one. The
+    /// engine has not said where it runs, and guessing is the overreach
+    /// `record_device` already refuses.
+    engine_device: String,
     /// Number of finalized utterances waiting for the single finalizer.
     queue_depth: usize,
     error_code: Option<String>,

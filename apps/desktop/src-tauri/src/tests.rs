@@ -318,6 +318,7 @@ mod tests {
             // the load. The warm states themselves are covered by
             // `granite_engine`'s own tests, not here.
             engine: "ready",
+            engine_device: "cpu",
             queue_depth: 0,
             error_code: None,
         }
@@ -346,6 +347,195 @@ mod tests {
         let ready = hud.view(idle_composition()).expect("HUD status");
         assert_eq!(ready.engine, "ready");
         assert!(ready.sequence > warming.sequence);
+    }
+
+    /// The coordinator the HUD actually reads answers in the HUD's vocabulary,
+    /// and never in the pack's.
+    ///
+    /// The test above proves the *plumbing* carries a warm state, because it
+    /// hands `HudComposition` the string by hand. It never touches the code that
+    /// decides what the string is — and that code was filling the field from
+    /// `engine_reason()`, which speaks pack codes and can say neither `warming`
+    /// nor `ready`. So the dock's loading state was unreachable from the first
+    /// poll onward while a green test asserted the contract it violated. That is
+    /// the recurring near-miss in this repository: a passing test over a path
+    /// nothing real executes.
+    ///
+    /// This one asks the real accessor. It cannot assert `warming` — that needs
+    /// a worker mid-load — but it can pin the two properties that were actually
+    /// wrong: a fresh coordinator is `cold` rather than a pack code, and no pack
+    /// code is reachable through this accessor at all.
+    #[test]
+    fn the_hud_engine_field_speaks_warm_states_and_never_pack_reasons() {
+        let coordinator = granite_engine::GraniteEngineCoordinator::default();
+
+        // Before any warm the honest answer is `cold`. It used to be
+        // `not_configured` here, which is a pack reason and which
+        // `ENGINE_LOADING` in `transcriberState.ts` does not match — so the dock
+        // went straight to idle and claimed a ready engine.
+        assert_eq!(coordinator.warm_state(), "cold");
+
+        // The two accessors answer different questions, and the HUD must read
+        // this one. If they ever return the same string for a fresh
+        // coordinator, the distinction has collapsed and this test is the only
+        // thing that would notice.
+        assert_eq!(coordinator.engine_reason(), "not_configured");
+        assert_ne!(coordinator.warm_state(), coordinator.engine_reason());
+
+        // Every code the pack selector can produce, asserted absent from the
+        // warm vocabulary. Read from `EngineChoiceReason::code` rather than
+        // retyped, so a new pack reason cannot quietly become a valid warm
+        // state — a hand-written copy of a value cannot see that value change.
+        for reason in [
+            granite_engine::EngineChoiceReason::ProbePreferred,
+            granite_engine::EngineChoiceReason::CpuGpuPackNotInstalled,
+            granite_engine::EngineChoiceReason::CpuGpuRuntimeMissing,
+        ] {
+            assert_ne!(
+                coordinator.warm_state(),
+                reason.code(),
+                "the HUD's engine field must never carry a pack reason; it is \
+                 documented as cold/warming/ready/<error code> and the frontend \
+                 keys its loading state on exactly that"
+            );
+        }
+
+        // `shutdown` returns it to `cold`, because that is then true: the next
+        // dictation warms again. Latching `ready` past an `invalidate` would be
+        // the same lie pointed the other way.
+        coordinator.shutdown();
+        assert_eq!(coordinator.warm_state(), "cold");
+    }
+
+    /// A warm that concludes without warming does not leave the dock loading.
+    ///
+    /// `cold` means "not loaded **yet**" and the frontend maps it to
+    /// `loading_model` alongside `warming`. A machine that will never warm —
+    /// no worker binary, no manifest, no admissible pack — must therefore not
+    /// be left on `cold`, or the dock reports "Loading model" for the life of
+    /// the process while nothing is loading.
+    ///
+    /// Found by running it, not by reading it: a build whose worker path did
+    /// not resolve logged `granite_warm result=ok engine=not_configured` and
+    /// the dock sat on `loading_model` for a full minute of sampling. Before
+    /// this change that same path reported idle, so the first cut of the fix
+    /// made this case worse — which is exactly why the phase asks for the state
+    /// to be *seen* working before anything renders it.
+    #[test]
+    fn a_warm_that_never_starts_is_not_reported_as_loading() {
+        let coordinator = granite_engine::GraniteEngineCoordinator::default();
+        // No worker binary: the first early return in
+        // `warm_granite_if_configured`, and the one the dev-run build hits.
+        let outcome = granite_engine::warm_granite_if_configured(
+            granite_engine::GraniteEnvironment {
+                granite_worker_exe: None,
+                install_root: std::path::Path::new("."),
+                total_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+                diagnostic_log: None,
+                recorded_provider: "unrecorded",
+                // Never reached: the worker-path check returns before anything
+                // warms. The real probe rather than a double, because a test
+                // double here would imply this path exercises it.
+                cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+            },
+            &coordinator,
+        );
+        assert!(outcome.is_ok(), "an unconfigured engine is not an error");
+        assert_ne!(
+            coordinator.warm_state(),
+            "cold",
+            "a warm that never started must not report as still loading"
+        );
+        assert_ne!(coordinator.warm_state(), "warming");
+        assert_eq!(coordinator.warm_state(), "not_configured");
+    }
+
+    /// The HUD poll fills `engine` from the warm state, asserted against source.
+    ///
+    /// The two tests above cannot catch the bug that actually happened. One
+    /// hands `HudComposition` a string by hand; the other asks the coordinator
+    /// directly. **Neither touches the line that chooses between the two
+    /// accessors**, and that line is the whole defect: `capture_hud_status`
+    /// filled `engine` from `engine_reason()` for the life of the fork, so a
+    /// revert of the fix would leave both of them green.
+    ///
+    /// It cannot be reached by calling the command — it is a
+    /// `#[tauri::command]` taking an `AppHandle`, and standing up a Tauri app
+    /// in a unit test to read one field would be a worse instrument than
+    /// reading the source. So this reads the source, the way the window
+    /// allowlist and the menu-id check already do.
+    #[test]
+    fn the_hud_poll_fills_engine_from_the_warm_state_not_the_pack_reason() {
+        let source = include_str!("commands/capture.rs");
+        let start = source
+            .find("fn capture_hud_status")
+            .expect("capture_hud_status must exist");
+        let end = source[start..]
+            .find("\nfn ")
+            .map_or(source.len(), |offset| start + offset);
+        let poll = &source[start..end];
+
+        // Instrument self-check first: every assertion below is "the wrong
+        // thing is absent", which is also what slicing the wrong function
+        // reports. Prove the slice is the right one and is non-trivial.
+        assert!(
+            poll.contains("engine:") && poll.contains("engine_device:"),
+            "the slice does not contain the fields under test, so it is the \
+             wrong function or the extraction is broken"
+        );
+
+        assert!(
+            poll.contains("granite.warm_state()"),
+            "capture_hud_status must fill `engine` from `warm_state()`. The \
+             frontend documents this field as cold/warming/ready/<error code> \
+             and keys its loading state on it."
+        );
+        assert!(
+            !poll.contains("granite.engine_reason()"),
+            "capture_hud_status must not fill the HUD from `engine_reason()`. \
+             That returns pack codes, never `warming` or `ready`, so the dock's \
+             loading state becomes unreachable and it claims a loaded engine \
+             throughout the ~2 GB launch warm. The pack reason is still \
+             disclosed by `granite_warm` in the log and by the Advanced page."
+        );
+        assert!(
+            poll.contains("granite.device()"),
+            "`engine_device` must come from the worker's own reported device"
+        );
+    }
+
+    /// The compute device is not the microphone, and the view keeps them apart.
+    ///
+    /// `device_name` and `device_diagnostic` are the capture device;
+    /// `engine_device` is where Granite runs. The names are close enough that
+    /// one being filled from the other would read as plausible in every log and
+    /// on every page.
+    #[test]
+    fn the_engine_device_is_not_the_capture_device() {
+        let hud = CaptureHudCoordinator::default();
+        let view = hud
+            .view(HudComposition {
+                device_name: "Headset Microphone".to_owned(),
+                engine_device: "cuda",
+                ..idle_composition()
+            })
+            .expect("HUD status");
+        assert_eq!(view.engine_device, "cuda");
+        assert_eq!(view.device_name, "Headset Microphone");
+
+        // And it participates in the stale-response guard like every other
+        // field: `CaptureHudView` derives `PartialEq` and `view()` compares
+        // before publishing, so a device change has to move the sequence or the
+        // frontend would never see it.
+        let moved = hud
+            .view(HudComposition {
+                device_name: "Headset Microphone".to_owned(),
+                engine_device: "cpu",
+                ..idle_composition()
+            })
+            .expect("HUD status");
+        assert_eq!(moved.engine_device, "cpu");
+        assert!(moved.sequence > view.sequence);
     }
 
     #[test]
