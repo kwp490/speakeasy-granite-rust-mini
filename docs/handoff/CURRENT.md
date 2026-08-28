@@ -836,6 +836,62 @@ Three defects fell out that no citation sweep was looking for:
 - **Three broken rustdoc links**, which `cargo doc` had never reported —
   see `CLAUDE.md`'s entry on `--document-private-items`.
 
+### 1.7.0 installed and tested on hardware, 2026-08-28 — three Settings defects
+
+The whole cycle was run on this machine: production uninstall (nothing left —
+install root, profile, ARP entry and HKCU stamp all verified gone), the Granite
+pack preserved and restored, the real eight-page wizard, and a launched app.
+`Test-SetupWizard.ps1` passed, the graphics-card option was offered and chosen,
+the download plan carried 4 items, and setup's engine check transcribed the
+bundled clip word for word **on the card**.
+
+**The machine had been running on the processor with the CUDA payload already
+downloaded and never staged** — `device=cpu installed=unrecorded` — so it was
+paying ~44 s per long dictation instead of ~4 s. The reinstall staged the CUDA
+worker (57,052,672 bytes against the CPU build's 4,333,056) and recorded `cuda`
+from the engine check's verdict.
+
+**Only restore the Granite pack, not the whole model store.** Restoring
+everything makes setup's download page report "already here", and
+`Test-SetupWizard.ps1` then *skips* its plan-count assertion by design — the one
+that proves the provider radio reached `download::plan`. Restoring the weights
+alone and letting the ~418 MB of CUDA payload re-fetch keeps that proof alive.
+It also dropped 2.3 GB of duplicate `downloads\` GGUF copies that the old profile
+had been carrying.
+
+Then the owner dictated, and reported the app claiming GPU while suspecting CPU.
+It was genuinely on the GPU — 2,365 MiB of VRAM with the worker resident against
+**0 MiB** with it stopped, and a 24.3 s dictation inferred in 1,424 ms (RTF
+0.059, against ~0.37 for this rig's processor). But the suspicion was well
+founded, because **Settings was telling them CPU in two places**:
+
+| defect | cause |
+| --- | --- |
+| Advanced `PROVIDER: Processor (CPU)` on a CUDA machine | `diagnostics_status` filled it from the pack's provider capability; the 2026-08-21 rule was applied only to Transcription |
+| Advanced `WORKER: cpu_gpu_runtime_missing`, stale for the process | the page mounted eagerly and read before the worker's `Hello`; a reload returned `cpu_gpu_pack_not_installed` |
+| "The graphics-card engine … has not passed its local execution check yet" | `GpuQualificationCoordinator::record` was deleted on a premise that expired when the CUDA worker shipped |
+
+All three are fixed and pinned by tests, and `CLAUDE.md` carries both lessons.
+The stale read is the interesting one: **`readWithRetry` could not have fixed
+it**, because `cpu_gpu_runtime_missing` is a legitimate terminal answer on a
+machine with no CUDA worker, so no `settled` predicate separates "not yet" from
+"not ever" without spinning on every processor install. Mounting Advanced on tab
+activation is what makes the read late enough — and it is also the only thing
+that stops the RTF and latency figures being frozen at window-creation time.
+
+**Open gap, deliberately not closed:** nothing can promote a graphics card from
+`admissible_execution_untested` to `qualified`. `GpuQualification::Qualified`
+carries an `ExecutionEvidence` whose `inference_sample_count` exists so a caller
+cannot claim success without having inferred anything, and no warm-time caller
+has that number — `device=cuda` proves a held context and loaded weights, not
+samples pushed through. The honest place to promote from is a *completed
+dictation* that ran on the card, with its real sample count. Until then the
+device line and the provider-integrity line answer the same question from
+evidence that is actually reachable, and the unreachable sentence is gone rather
+than faked. `scaffold.test.mjs`'s "nothing claims the graphics card passed an
+execution check that cannot pass" is one-directional on purpose and says to
+delete itself if the promotion returns.
+
 ### Phase 3.5 closed 2026-08-28 — the phased-fixes brief is now empty
 
 `docs/RUNBOOK.md` gained a "Reading `engine=` and `device=`" block under

@@ -451,14 +451,19 @@ export const messages = {
   engineNone: "Nothing yet",
   engineReasonUnknown: "The reason is unavailable.",
   gpuRetest: "Re-test graphics-card engine",
-  gpuQualified: "The graphics-card engine has passed its local execution check.",
-  gpuNotQualified: "The graphics-card engine is detected but has not passed its local execution check yet.",
   /**
    * Why this machine landed on this engine.
    *
-   * `cpu_gpu_pack_not_installed` is the one that has to exist: without it a
-   * user with a perfectly good graphics card sees "runs on processor" and has
-   * no way to learn that the GPU model was simply never installed.
+   * `cpu_gpu_pack_not_installed` is misnamed for what it now means, and its
+   * copy was rewritten on 2026-08-28 because of it. Pack selection only reaches
+   * it when the machine prefers CUDA **and** a CUDA-capable worker is installed
+   * **and** no CUDA pack is -- and no CUDA pack will ever exist, because there
+   * is one GGUF and the graphics-card worker offloads that same file. So this is
+   * not a shortfall, it is the *healthy* graphics-card state, and it read
+   * "this installation includes only the processor model" directly beneath a
+   * device line saying Graphics card (GPU). The reason code is a wire value in
+   * `granite_warm` and in `docs/RUNBOOK.md`, so it is deliberately not renamed;
+   * only the sentence changed.
    *
    * **Every one of these describes the installation, and none of them says what
    * is running.** That is the change of 2026-08-21, and the defect was found by
@@ -481,7 +486,7 @@ export const messages = {
   engineReasons: {
     probe_preferred: "This installation includes the best engine this hardware supports.",
     cpu_gpu_pack_not_installed:
-      "This computer's graphics card is supported, but this installation includes only the processor model.",
+      "One speech model serves both devices, so it is named for the processor even when the graphics card is running it.",
     cpu_gpu_runtime_missing:
       "This computer's graphics card is supported, but this installation does not include graphics-card acceleration.",
     // Not "nothing is installed": a pack can be on disk and still unrunnable

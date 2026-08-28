@@ -740,6 +740,49 @@ Every one of these produced a plausible, wrong result rather than an error.
     `ok`, `unrecorded`, `gpu_install_not_operational` (the actionable fault), or
     `running_beyond_record` (what `Enable-GraniteCuda.ps1` produces on purpose).
     It is in `granite_warm` as `provider=`.
+- **A fix scoped to the page somebody was looking at is not a rule, and the
+  second surface reads as the bug returning.** "The active provider is reported
+  as the device, never as the pack" was settled on 2026-08-21 and applied to
+  Settings → Transcription. `diagnostics_status` kept filling Advanced's
+  `PROVIDER` from `selection.capabilities.provider` — `cpu` on every machine,
+  because there is one GGUF — so on 2026-08-28 Advanced read `PROVIDER: Processor
+  (CPU)` on a machine whose worker held **2,365 MiB of VRAM** and had just
+  transcribed 24 s of speech in **1,424 ms** (RTF 0.059, against ~0.37 for this
+  rig's processor). The owner read that page and concluded dictation had fallen
+  back to the CPU, which is exactly the wrong belief the settled decision exists
+  to prevent. **When a rule about how something is reported is settled, grep
+  every command that emits a field of that name**, not just the one whose
+  rendering was being read.
+
+  Two measurement notes from proving it, because both readings mislead on their
+  own. `nvidia-smi --query-compute-apps=used_memory` returns **`[N/A]`** under
+  the WDDM driver model on Windows — that is a per-process reporting limit, not a
+  CPU fallback, and it is easy to read as evidence of one. The reading that works
+  is total `memory.used` **with a control**: 2,365 MiB with the worker resident,
+  **0 MiB** with it stopped. And NVML listing the worker's pid proves a *context*,
+  not offloaded layers; RTF against the recorded per-device figures is what
+  separates those two.
+- **A premise that expires does not announce itself, and the code that depended
+  on it keeps running.** `GpuQualificationCoordinator::record` — the only
+  promotion from "admissible" to "proven" — was deleted on 2026-08-21 with a note
+  saying its GPU smoke had nothing to smoke and that it "comes back with the CUDA
+  worker, not before". The CUDA worker shipped **2026-08-26**; nothing brought it
+  back. So `qualified` became permanently false, and Settings told every
+  graphics-card user the engine "has not passed its local execution check yet",
+  beside a device line saying it was running on the card, with a Re-test button
+  implying a remedy that could not reach it. Found 2026-08-28, sentence removed.
+  This is the same shape as the `proof/` cleanup rule that outlived its download,
+  one layer in: there the premise was in a *safety rule*, here it was in a
+  **deletion note that named its own trigger**. A comment saying "restore this
+  when X ships" is a task nothing tracks — when X ships, grep for the notes that
+  named it.
+
+  **Restoring it was refused rather than faked.** `Qualified` carries an
+  `ExecutionEvidence` whose `inference_sample_count` exists precisely so a caller
+  cannot assert success without having inferred anything, and nothing at warm time
+  has that number — `device=cuda` proves a held context and loaded weights, not
+  samples pushed through. Inventing one would have been the manufactured claim
+  this whole area was built to remove. Recorded as an open gap instead.
 - **An answer can reach disk and never reach the screen, and the screen is what
   the user judges.** Setup collects a vocabulary; it was in
   `personalization.json`, correct, three words — and Settings showed an empty

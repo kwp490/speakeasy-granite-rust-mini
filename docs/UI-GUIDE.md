@@ -181,6 +181,42 @@ Dropping the reason instead was rejected — it is the load-bearing half on an
 ordinary machine, where "running on the processor" reads identically whether
 there is no graphics card or a good one whose model was never installed.
 
+**The same rule reaches Advanced, and did not until 2026-08-28.** That page's
+`PROVIDER` field was filled from the selected pack's provider capability, which
+is `cpu` on every machine for the reason above — so it read `Processor (CPU)` on
+a machine whose worker held 2,365 MiB of VRAM and had just transcribed 24 s of
+speech in 1,424 ms, and the owner reasonably concluded dictation had fallen back.
+It reads the device now. The fix that landed on Transcription in 2026-08-21 was
+scoped to the page somebody was looking at; a rule stated for one surface is not
+a rule until every surface that answers the same question obeys it. The pack is
+still disclosed on Advanced twice over, by `ENGINE` (its id) and `WORKER` (the
+reason it was chosen), so nothing was lost.
+
+**`cpu_gpu_pack_not_installed` is the healthy graphics-card state, and its copy
+now says so.** Selection reaches that code only when the machine prefers CUDA
+*and* a CUDA-capable worker is installed *and* no CUDA pack is — and no CUDA pack
+will ever exist. Its sentence read "this installation includes only the processor
+model", directly beneath `Dictation runs on: Graphics card (GPU)`. Rewritten to
+"One speech model serves both devices, so it is named for the processor even when
+the graphics card is running it." The reason *code* is unchanged: it is a wire
+value in `granite_warm` and in `docs/RUNBOOK.md` under "Diagnostics".
+
+**No qualification sentence** (removed 2026-08-28). A line beneath the device read
+`gpu.qualified ? "…has passed its local execution check." : "…has not passed its
+local execution check yet."`, and only the negative half was reachable:
+`GpuQualificationCoordinator::record`, the sole promotion from admissible to
+proven, was deleted on 2026-08-21 with a note saying it comes back with the CUDA
+worker. The worker shipped on 2026-08-26 and it did not come back. So every
+graphics-card user was told the engine had not passed a check, beside a device
+line saying it was running on the card, with a "Re-test graphics-card engine"
+button implying a remedy that could not reach it. Removed rather than reworded,
+because the device line and the provider-integrity line already answer the same
+question from evidence that *is* reachable — NVML on the worker's own pid. The
+button stays: `gpu_retest` invalidates the engine and re-warms it, so its effect
+lands on both lines above. Restoring the promotion needs an `ExecutionEvidence`
+with a true `inference_sample_count`, which nothing at warm time has; that is an
+open gap in `docs/handoff/CURRENT.md`, not a thing to fake.
+
 Beneath them, and **only when it says something**, sits the provider-integrity
 line. Three of the five states have copy: `gpu_install_not_operational`, the
 actionable fault, which carries what to do about it; `running_beyond_record`,

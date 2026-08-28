@@ -184,7 +184,27 @@ export function SettingsApp() {
             tabIndex={0}
           >
             <h2>{messages.settingsGroups.advanced}</h2>
-            <Advanced profile={profile} />
+            {/* Mounted only while visible, and here the reason is staleness
+                rather than cost. Every field on this page is a fact about *now*:
+                the engine reason, the device, the RTF and latency percentiles,
+                the overflow count. Mounted eagerly it read them once, at launch,
+                before the resident worker had answered `Hello` -- so `WORKER`
+                showed `cpu_gpu_runtime_missing`, which is what pack selection
+                returns while `cuda_worker_available()` is still conservatively
+                false, and it stayed that way for the life of the process. A
+                reload against the same backend returned
+                `cpu_gpu_pack_not_installed`, which is how the stale read was
+                told apart from a refused one (2026-08-28).
+                `readWithRetry` cannot fix this one: the early value is a
+                legitimate terminal answer on a machine with no CUDA worker, so
+                no `settled` predicate can distinguish "not yet" from "not ever"
+                without spinning on every processor install. Mounting on tab
+                activation reads after `setup` and after the worker has spoken,
+                and re-reads whenever somebody opens the page -- which is also
+                the only way the performance figures stop being frozen at
+                whatever they were when the window was created. Same rule as the
+                log and Audio pages above. */}
+            {activeGroup === "advanced" && <Advanced profile={profile} />}
           </section>
         </div>
       </div>

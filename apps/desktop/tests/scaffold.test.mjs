@@ -2427,3 +2427,97 @@ test("every catalog entry is reachable from something that renders it", async ()
     `catalog entries nothing references: ${dead.join(", ")} — delete them, or wire up whatever was supposed to render them`,
   );
 });
+
+test("Advanced's diagnostics report the running device, not the selected pack", async () => {
+  // Advanced rendered `PROVIDER: Processor (CPU)` on a machine whose worker held
+  // 2,365 MiB of VRAM and transcribed 24 s of speech in 1,424 ms, because the
+  // field was filled from the selected pack's provider capability -- which is
+  // `Cpu` on every machine, since there is one Granite pack and the
+  // graphics-card worker offloads that same GGUF. The owner read the page and
+  // reasonably concluded dictation had fallen back to the processor.
+  //
+  // `gpu_status` had been corrected for precisely this and this command had not,
+  // so the rule lives here rather than in either call site: whatever fills a
+  // user-facing provider field reads the device the worker reported.
+  const source = await readFile(
+    fileURLToPath(new URL("../src-tauri/src/commands/profile.rs", import.meta.url)),
+    "utf8",
+  );
+  const body = source.slice(
+    source.indexOf("fn diagnostics_status("),
+    source.indexOf("fn diagnostics_export("),
+  );
+  // Instrument self-check. Both assertions below are "the source does not say
+  // X", which is also what slicing the wrong range reports.
+  assert.ok(body.length > 1_000, `diagnostics_status body did not slice: ${body.length} bytes`);
+  assert.match(body, /DiagnosticsView \{/, "self-check: the sliced body must build the view");
+
+  assert.match(
+    body,
+    /provider: granite\.device\(\)/,
+    "diagnostics_status must fill `provider` from the device the worker runs on",
+  );
+  assert.ok(
+    !/provider: *selection\.capabilities\.provider/.test(body) &&
+      !/"provider_unresolved"/.test(body),
+    "diagnostics_status must not report the pack's provider as the active one",
+  );
+});
+
+test("nothing claims the graphics card passed an execution check that cannot pass", async () => {
+  // `GpuQualificationCoordinator::record` is the only thing that promotes a card
+  // from admissible to proven, and it was deleted on 2026-08-21 with a note
+  // saying it "comes back with the CUDA worker, not before". The worker shipped
+  // 2026-08-26 and it did not come back, so `qualified` is unreachable -- and
+  // the sentence it drove told every graphics-card user the engine "has not
+  // passed its local execution check yet", underneath a device line reading
+  // Graphics card (GPU).
+  //
+  // This is one-directional on purpose: it forbids *rendering* an unreachable
+  // qualification claim, not keeping `qualified` in the view payload, where
+  // `admissible_execution_untested` is an honest answer. Restoring the promotion
+  // with real `ExecutionEvidence` is what makes this test's premise expire; if
+  // that happens, delete this test in the same change rather than working
+  // around it.
+  const rendered = await readSources([".tsx"]);
+  assert.ok(rendered.length > 50_000, `corpus is too small to be real: ${rendered.length} bytes`);
+  assert.match(rendered, /provider_integrity/, "self-check: the corpus must include the GPU panel");
+
+  assert.ok(
+    !/\bgpu\.qualified\b/.test(rendered),
+    "no component may render `gpu.qualified`: nothing can promote it, so it is always false",
+  );
+  const catalog = await readFile(
+    fileURLToPath(new URL("../src/catalog.ts", import.meta.url)),
+    "utf8",
+  );
+  assert.ok(
+    !/local execution check/.test(catalog),
+    "the execution-check copy is unreachable and must not sit in the catalog waiting to be wired up",
+  );
+});
+
+test("Advanced mounts only while its own tab is active", async () => {
+  // Every field on Advanced is a fact about *now* -- the engine reason, the
+  // device, the RTF and latency percentiles, the overflow count. Mounted eagerly
+  // it read them once at launch, before the resident worker had answered
+  // `Hello`, and showed `cpu_gpu_runtime_missing` for the life of the process; a
+  // reload against the same backend returned `cpu_gpu_pack_not_installed`, which
+  // is how the stale read was told apart from a refused one.
+  //
+  // `readWithRetry` cannot carry this: the early value is a legitimate terminal
+  // answer on a machine with no CUDA worker, so no `settled` predicate can
+  // separate "not yet" from "not ever" without spinning on every processor
+  // install. Mounting on activation is what makes the read late enough, and it
+  // is the rule the log and Audio pages already follow.
+  const source = await readFile(
+    fileURLToPath(new URL("../src/settings/SettingsApp.tsx", import.meta.url)),
+    "utf8",
+  );
+  assert.match(source, /<Advanced/, "self-check: SettingsApp must render Advanced at all");
+  assert.match(
+    source,
+    /activeGroup === "advanced" && <Advanced/,
+    "Advanced must be mounted only while its tab is active, or its reads race the worker's Hello",
+  );
+});

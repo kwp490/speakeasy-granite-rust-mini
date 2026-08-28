@@ -397,9 +397,30 @@ export function Transcription() {
               </p>
             )}
             <article className="model-row" data-testid="gpu-controls">
-              <p className="setting-detail">
-                {gpu.qualified ? messages.gpuQualified : messages.gpuNotQualified}
-              </p>
+              {/* A qualification sentence sat here and could only ever be the
+                  negative one. `GpuQualificationCoordinator::record` -- the only
+                  thing that promotes a card from "admissible" to "proven" -- was
+                  deleted on 2026-08-21 because Granite had no GPU path to smoke,
+                  and its own note said it "comes back with the CUDA worker, not
+                  before". The CUDA worker shipped on 2026-08-26 and nothing
+                  brought it back, so this line told every graphics-card user
+                  that the engine "has not passed its local execution check yet"
+                  -- beside a device line reading Graphics card (GPU), with a
+                  button that implied a remedy no amount of pressing could reach.
+                  Found 2026-08-28.
+                  Removed rather than reworded, because the question it asked is
+                  already answered above by two facts that *are* reachable: the
+                  device line, which reads `cuda` only where NVML confirmed the
+                  worker's own pid holds a context, and the provider-integrity
+                  line, which speaks up when the record and the run disagree.
+                  Restoring the promotion needs an `ExecutionEvidence` with a
+                  real `inference_sample_count`, which nothing at warm time has
+                  -- and inventing one would be the manufactured claim this whole
+                  area exists to prevent. Recorded as an open gap in
+                  `docs/handoff/CURRENT.md`.
+                  The button below stays and is not cosmetic: `gpu_retest`
+                  invalidates the engine and re-warms it, so its effect lands on
+                  both lines above. */}
               {/* Auto / Use processor / Use graphics card used to sit here.
                   Granite's provider is not a preference: the GPU path exists
                   only where a CUDA-capable worker binary is installed, and no

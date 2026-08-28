@@ -696,27 +696,24 @@ fn diagnostics_status(
     let (_, hud_source_reason) = hud.diagnostics()?;
     let final_source_reason = hud_source_reason.or(runtime_snapshot.final_source_reason);
     let capture_view = capture.view()?;
-    let (engine, worker, runtime_name, provider, model_id, model_revision, model_source) =
-        match selection {
-            Some(selection) => (
-                format!("{}:{}", selection.capabilities.runtime, selection.pack_id),
-                granite.engine_reason().to_owned(),
-                selection.capabilities.runtime.to_owned(),
-                selection.capabilities.provider.to_owned(),
-                selection.pack_id,
-                selection.pack_revision,
-                selection.source,
-            ),
-            None => (
-                "engine_unresolved".to_owned(),
-                "granite_worker_unavailable".to_owned(),
-                "runtime_unresolved".to_owned(),
-                "provider_unresolved".to_owned(),
-                "model_not_installed".to_owned(),
-                "revision_not_measured".to_owned(),
-                "trusted_manifest_unresolved".to_owned(),
-            ),
-        };
+    let (engine, worker, runtime_name, model_id, model_revision, model_source) = match selection {
+        Some(selection) => (
+            format!("{}:{}", selection.capabilities.runtime, selection.pack_id),
+            granite.engine_reason().to_owned(),
+            selection.capabilities.runtime.to_owned(),
+            selection.pack_id,
+            selection.pack_revision,
+            selection.source,
+        ),
+        None => (
+            "engine_unresolved".to_owned(),
+            "granite_worker_unavailable".to_owned(),
+            "runtime_unresolved".to_owned(),
+            "model_not_installed".to_owned(),
+            "revision_not_measured".to_owned(),
+            "trusted_manifest_unresolved".to_owned(),
+        ),
+    };
     let device = capture_view
         .device_name
         .unwrap_or_else(|| "capture_device_not_selected".to_owned());
@@ -725,7 +722,21 @@ fn diagnostics_status(
         engine,
         worker,
         runtime: runtime_name,
-        provider,
+        // The device the worker is **running on**, not the selected pack's
+        // provider. It used to be `selection.capabilities.provider`, and that is
+        // `Cpu` on every machine -- there is one Granite pack and it is the
+        // CPU-variant GGUF -- so Advanced reported `PROVIDER: Processor (CPU)`
+        // on a machine whose worker held 2,365 MiB of VRAM and transcribed 24 s
+        // of speech in 1,424 ms. Found 2026-08-28 by reading the rendered
+        // window; the owner had reasonably concluded dictation was on the
+        // processor. `gpu_status` had already been corrected for exactly this on
+        // the Transcription page, and this field was missed because that page
+        // was the one being looked at.
+        //
+        // The pack is still disclosed here, twice: `engine` carries its id and
+        // `worker` carries the reason it was chosen. Nothing is lost by making
+        // this field answer the question its label asks.
+        provider: granite.device().to_owned(),
         rtf_median: runtime_snapshot.rtf_median,
         rtf_p95: runtime_snapshot.rtf_p95,
         latency_p50_ms: runtime_snapshot.latency_p50_ms,
