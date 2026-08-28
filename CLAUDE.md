@@ -257,6 +257,19 @@ Every one of these produced a plausible, wrong result rather than an error.
   the half that survived: setup re-stages the worker on every install now, so the
   installed build no longer reverts, but `Stage-DevRuntime.ps1` still overwrites
   the dev one.
+- **A *stale* staged worker fails as `StaleEvent`, which names the protocol
+  rather than the binary.** Nothing checks the freshness of
+  `target/debug/proof/granite-worker.exe`: it is a copy, put there by a separate
+  script, and the hardware tests read it without asking when it was made.
+  Measured 2026-08-28 — a copy from two days earlier produced
+  `DomainError { code: StaleEvent, recoverable: true }` on both transcription
+  tests, and `Stage-DevRuntime.ps1` plus an unchanged command made both pass.
+  `StaleEvent` is raised in `worker_process.rs` for a protocol-version *or*
+  request-id mismatch, and `WORKER_PROTOCOL_VERSION` had not moved, so the error
+  reads as "this build's protocol is broken" when the answer is "re-stage".
+  **Re-stage before believing a hardware-test failure**, and note that the
+  weights being present is not evidence: they were staged correctly the whole
+  time, which is what made the failure look like a code fault.
 - **The three CUDA libraries fail in three different ways, and one of them never
   loads at all.** Measured 2026-08-21 with the toolkit stripped from `PATH`,
   which is the only way to ask the question on a machine that can build the

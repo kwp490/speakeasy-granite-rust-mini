@@ -735,7 +735,42 @@ exports a component nothing imports**: it was the large HUD's device list, a 62 
 dock has nowhere to put one, and two assertions about its JSX survived only
 because the test never ran — one of them naming a call site that does not exist.
 It is pinned as unrendered rather than deleted, because the file is still in the
-tree and the next reader will assume it is wired up.
+tree and the next reader will assume it is wired up. **Deleted the next day**
+(`220d39d`), which took `capture_devices` and `capture_device_configure` off the
+dock's allowlist with it — authority granted for that component and exercised by
+nothing since the fork.
+
+### The hardware tests, run 2026-08-28 — six pass, one correctly refuses
+
+Run because nothing had run them in an unknown period and two earlier cases had
+rotted silently while reading as merely `#[ignore]`d. The fixtures and a
+CUDA-capable card are on this machine.
+
+| test | outcome |
+| --- | --- |
+| `granite_final_pass_transcribes_the_fixture_through_the_real_worker_process` | pass |
+| `run_granite_final_pass_reuses_the_resident_worker_across_dictations` | pass |
+| `run_granite_final_pass_survives_an_idle_gap_before_a_second_dictation` | pass, did not reproduce — its documented non-failure outcome |
+| `a_cuda_worker_reports_the_device_its_context_probe_can_prove` | refuses: "the staged worker is not a CUDA build", which is correct |
+| `smoke::the_real_engine_transcribes_the_bundled_clip` | pass, `provider=Processor evidence=gpu_runtime_files_missing` |
+| `the_real_nvidia_cudart_redistributable_extracts_at_its_pinned_digest` | pass |
+
+**The first two failed before they passed, and the error named the wrong thing.**
+Both returned `DomainError { code: StaleEvent, recoverable: true }` against a
+`target/debug/proof/granite-worker.exe` staged two days earlier. `StaleEvent` is
+raised in `worker_process.rs` for a protocol-version *or* request-id mismatch,
+and `WORKER_PROTOCOL_VERSION` had not moved — so it reads as "this build's
+protocol is broken". `Stage-DevRuntime.ps1` and an otherwise identical command
+made both pass. **Nothing checks that staged binary's freshness**, and the
+weights being correctly staged the whole time is what made the failure look like
+a code fault. Recorded in `CLAUDE.md` beside the existing staging trap.
+
+One number worth knowing and *not* worth writing into the recorded table: the
+resident second pass measured **4.56 s** on the processor over the 6.42 s
+committed clip, against the 2,928 ms `CLAUDE.md` records from 2026-08-21. That is
+1.5x, on an unknown machine state, from a single run. Revising a recorded
+measurement means building a rig and saying so, not editing a table because one
+run disagreed.
 
 **The backticked-identifier class was swept the same day**, by hand, against the
 scanner described in `CLAUDE.md` — 2,554 backticked spans, 1,193 item-shaped,
