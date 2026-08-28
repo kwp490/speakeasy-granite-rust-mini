@@ -40,16 +40,15 @@ use speakeasy_domain::{
     WorkerResponse, read_frame, worker_response_is_terminal, write_frame,
 };
 
-fn workspace_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-}
-
-fn granite_dir() -> PathBuf {
-    workspace_root()
-        .join(".tools")
-        .join("granite-speech-4.1-2b")
+/// A model root the worker will never look at.
+///
+/// `LoadModel` checks the artifact id before it touches the disk, so this path
+/// is only ever carried in the request and refused with it. It pointed at
+/// gitignored `.tools/granite-speech-4.1-2b/` until 2026-08-28 — harmless,
+/// because nothing read it, but it made the test look as though it needed the
+/// weights and it was `#[ignore]`d on exactly that mistaken reading.
+fn unreadable_model_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("no-model-root-is-read-here")
 }
 
 /// Drives one request to completion, returning every event up to and
@@ -98,7 +97,7 @@ fn granite_worker_process_refuses_an_untrusted_artifact() {
         1,
         WorkerCommand::LoadModel {
             artifact_id: "not-the-real-artifact".to_owned(),
-            model_root: granite_dir().display().to_string(),
+            model_root: unreadable_model_root().display().to_string(),
         },
     );
     assert!(matches!(

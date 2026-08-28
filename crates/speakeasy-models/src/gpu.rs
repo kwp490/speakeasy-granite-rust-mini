@@ -25,7 +25,8 @@
 //! [`crate::hardware`] already enumerates display adapters out of the Windows
 //! registry, and reusing its `dedicated_memory_bytes` for a VRAM gate is the
 //! obvious move. It is also wrong twice over, and both were measured on an
-//! RTX 5090 (`gpu_inventory_report` below prints them):
+//! RTX 5090, which `cargo run -p speakeasy-models --example gpu_inventory`
+//! prints on any host:
 //!
 //! 1. `HardwareInformation.MemorySize` is a `REG_DWORD`, and `hardware.rs`
 //!    reads it as `u64`. The type never matches, so `dedicated_memory_bytes`
@@ -639,46 +640,6 @@ mod tests {
                 minor: 0
             } > ComputeCapability { major: 8, minor: 9 }
         );
-    }
-
-    /// Prints what this machine actually reports, beside what the registry
-    /// claims for the same card. Diagnostic, so it is `#[ignore]`d — it asserts
-    /// nothing that holds on an arbitrary host.
-    ///
-    /// This is the evidence for reading VRAM from NVML rather than from
-    /// [`crate::hardware`]: run it on any card above 4 GB and the two numbers
-    /// disagree, with the registry pinned just under 4 GB.
-    ///
-    /// ```text
-    /// cargo test -p speakeasy-models gpu_inventory -- --ignored --nocapture
-    /// ```
-    #[test]
-    #[ignore = "diagnostic: reports host hardware, asserts nothing"]
-    fn gpu_inventory_report() {
-        use crate::{HardwareProbe, SafeStandardHardwareProbe};
-
-        let snapshot = NvmlGpuProbe.probe();
-        println!("driver_version={:?}", snapshot.driver_version);
-        println!("unavailable={:?}", snapshot.unavailable);
-        for device in &snapshot.devices {
-            println!(
-                "nvml name={} capability={} total_vram={} free_vram={}",
-                device.name,
-                device.compute_capability,
-                device.total_vram_bytes,
-                device.free_vram_bytes
-            );
-        }
-        for adapter in SafeStandardHardwareProbe
-            .probe(std::path::Path::new("C:\\"))
-            .detected_adapters
-        {
-            println!(
-                "registry name={} driver={:?} dedicated_memory={:?}",
-                adapter.name, adapter.driver_version, adapter.dedicated_memory_bytes
-            );
-        }
-        println!("decision={}", admit(&snapshot).code());
     }
 
     #[test]

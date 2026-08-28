@@ -191,17 +191,37 @@ mod tests {
         );
     }
 
+    /// **Cannot pass on Windows, and that is a fact about the feature rather
+    /// than about the test.** `restrict_to_owner` returns `Unsupported` on every
+    /// platform — the owner-only ACL it promises does not exist — so
+    /// `save_diagnostic_wav` always fails and this asserts a lifecycle nothing
+    /// can complete. Un-ignoring it on 2026-08-28 produced exactly that:
+    /// `called Result::unwrap() on an Err value: Unsupported`.
+    ///
+    /// It was ignored as "ordinary tests remain write-free", which is a policy
+    /// this repository does not hold — `diagnostic_rotation_preserves_one_previous_generation`
+    /// and several others take a `tempfile::tempdir()` and run in the gate. So
+    /// the stated reason was not the real one, and it read as a convention
+    /// somebody could relax rather than as a feature nobody has written. That is
+    /// the same shape as the seven scaffold tests skipped with their inputs
+    /// stubbed: an exclusion whose given reason is not the operative one.
+    ///
+    /// **Un-ignore this when `restrict_to_owner` is implemented, not before**,
+    /// and it will then be a real test of the one path that deliberately puts a
+    /// user's audio on disk.
+    ///
+    /// The `tempdir()` is kept regardless of the ignore. It wrote into a
+    /// hand-named file under `std::env::temp_dir()`, where a panic between
+    /// `save` and `delete` leaks a WAV of the user's audio; a test of a
+    /// privacy-sensitive path must not be the thing that leaves one behind, and
+    /// a `tempdir()` removes its tree on drop, panic or not.
     #[test]
-    #[ignore = "explicit synthetic diagnostic file lifecycle; ordinary tests remain write-free"]
+    #[ignore = "unimplemented: restrict_to_owner has no owner-only ACL on any platform, so save_diagnostic_wav always returns Unsupported"]
     fn explicit_synthetic_wav_is_owner_restricted_and_deletable() {
-        let destination = std::env::temp_dir().join(format!(
-            "speakeasy-diagnostic-{}-{}.wav",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let root = tempfile::tempdir().expect("temporary diagnostic root");
+        let destination = root
+            .path()
+            .join(format!("speakeasy-diagnostic-{}.wav", std::process::id()));
         let consent = DiagnosticWavConsent::after_disclosure(&destination, true).unwrap();
         let saved = save_diagnostic_wav(
             DiagnosticWavPolicy { enabled: true },
