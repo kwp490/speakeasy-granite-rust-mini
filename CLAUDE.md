@@ -540,9 +540,14 @@ Every one of these produced a plausible, wrong result rather than an error.
   Two warnings are expected and pre-existing (`Self::INSPECT_DEADLINE`, and a
   `///`-indented CLI example in `apps/bootstrapper/src/main.rs` that rustdoc
   reads as Rust); neither is a broken link, which is why adopting the check
-  needed no allowlist. A dead doc link is worth more than it looks: it is the
-  only one of these citation classes a tool can find for you. The other two — the
-  bare `§9.4` and the prose "the handoff" — still need a human.
+  needed no allowlist.
+
+  **It guards less than it looks.** It resolves ``[`Linked`]`` citations, and
+  this repository's convention is the bare backtick, which rustdoc never parses
+  — so the two dead citations Phase 2 found (`hud_placement_configure`,
+  `clamp_to_bounds`) would both have passed it. See the fourth citation class
+  under Conventions. Worth running regardless: it is the only citation check a
+  tool can do at all, and it costs nothing.
 - **Invisible C1 control characters survive review and every test.** Eight
   U+009D bytes sat in comments across five files from the first commit, each one
   immediately after an em-dash from some encoding round-trip. They render as
@@ -1075,11 +1080,22 @@ Every one of these produced a plausible, wrong result rather than an error.
   number. The fork inherited ~96 `§N` references pointing at a deleted doc's
   numbering plus 35 naming deleted files, and all of them read as authoritative
   while pointing at nothing; they were cleared on 2026-08-19. A heading survives
-  a renumber, and it can be checked. Three citation classes exist and a sweep
+  a renumber, and it can be checked. **Four** citation classes exist and a sweep
   that misses one looks complete: the **filename** (`granite-final-pass.md`),
-  the **bare number** (`§9.4`, `Phase 6`), and the **prose** ("the handoff",
+  the **bare number** (`§9.4`, `Phase 6`), the **prose** ("the handoff",
   "the brief", "the GPU migration handoff, item 14") — that last one matches no
-  grep for a path or a `§`.
+  grep for a path or a `§` — and the **backticked identifier**
+  (`` `choose_asr_pack` ``, `` `granite_smoke` ``), which is the one this
+  repository actually writes and the one the rustdoc check below **cannot see**.
+  Rustdoc resolves ``[`Linked`]`` citations only; a backtick is not a link, so a
+  comment citing `` `TotallyDeadThing` `` documents at exit 0. Measured
+  2026-08-27: 2,451 backticked spans in Rust comments, 1,158 item-shaped, 241
+  resolving to nothing — of which the great majority are correctly not items
+  (`SpeakEasy`, `SQLite`, `WebView2`, `TokenElevation`, `cudart64_13`, the
+  reason-code string `cuda_unverified`, and the dictionary's own `Hellen` and
+  `Jura`). **That ratio is the finding**: the class is real, and it is not
+  automatable without an allowlist that would rot faster than the citations do.
+  Audit it by hand.
 - **Prefer naming the fact over citing where it was recorded.** Most of those
   citations were carrying a fact perfectly well stated inline: `Phase 9` meant
   `2026-08-04`, `Known risk #12` meant "the stale-clock deadline bug". Absorb it
