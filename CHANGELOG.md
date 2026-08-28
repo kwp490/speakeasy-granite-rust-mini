@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.7.0 — 2026-08-28
+
+Three things the dock and setup were getting wrong, and the words you protect now
+survive being misheard.
+
+### The dock tells you the truth about being ready — 2026-08-28
+
+It said **ready** for the whole two-gigabyte model load. Pressing the hotkey in
+that window did nothing useful, and there was no way to tell that from a dock
+that had genuinely finished warming up. It now reports loading while it loads.
+
+### The dock says which device dictation runs on — 2026-08-28
+
+Processor or graphics card, and it never guesses: a graphics-card engine whose
+context could not be confirmed says so rather than claiming the card. Until now
+the only place this appeared was the diagnostic log.
+
+### "Return to default HUD" now does something — 2026-08-28
+
+The dock's right-click menu carried the item since this fork began and clicking it
+did nothing at all — silently, because the id it was built with was not the id
+anything handled.
+
+### Protected words survive being misheard — 2026-08-28
+
+A protected compound like `LogicMonitor` is now also corrected from the two-word
+form the recogniser actually produces, and two mishearings that no rule predicts
+are corrected by name. Three more were **refused** on purpose, because they
+rewrite words somebody might legitimately say.
+
+One defect went with it: a term that can be misheard two different ways generated
+the same internal id twice, and a duplicate id rejected the **whole** batch — so
+a single collision cost you every protected word, not one.
+
+### Setup's words page arrives filled in — 2026-08-28
+
+It was an empty box, so the feature reached only people who already knew what it
+was for. An install that skips the wizard entirely seeds the same defaults, and
+neither path ever replaces words you have already saved.
+
+### Also
+
+A wizard-less install no longer inherits the previous install's record of which
+engine was installed — that record is now written only from a check that actually
+ran. Nothing else here changes dictation.
+
 ## 1.6.1 — 2026-08-26
 
 One report from use, about the first thing anybody sees.
