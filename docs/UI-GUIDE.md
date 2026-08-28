@@ -792,13 +792,34 @@ calls `show()` and `set_focus()` together.
 
 **The dock.** The app's only HUD and its permanent furniture. A narrow strip
 that clings to a screen edge, always-on-top, moved by dragging it, with no
-taskbar button. Five rows in a fixed order, none of them conditional: the close
-button, the vertical wordmark (which is also this undecorated window's whole
-titlebar), the level meter, the elapsed clock, and the action row.
+taskbar button. Six rows in a fixed order, none of them conditional: the chrome
+row (settings and close), the vertical wordmark (which is also this undecorated
+window's whole titlebar), the level meter, the engine indicator, the status row,
+and the action row.
 
-**The action row is the dock's entire account of what happened** after the user
-let go of the key. It holds Stop during a recording, then a working indicator,
-then how the dictation ended. That last state matters more here than it did in
+**The action row holds one button, and it is present in every state**
+(2026-08-28). It reads `Ready`, `Stop`, or the working dots, and pressing it
+starts or ends the dictation. It used to render only while listening, which left
+the dock unable to *begin* one at all: the surface whose whole promise is staying
+reachable while the user works elsewhere offered a control that appeared only
+once they had already started. The resting label is keyed off `idle` and nothing
+else, because `Ready` while the model loads is the defect fixed one row up in
+1.7.0 and a permanent button is a louder place to repeat it.
+
+`Transcribing` is not one of the labels, and that was measured rather than
+argued: the label has 36px between the row's inset and the button's own padding,
+and the word needs 60.2px at the button's 0.68rem and still 47.8px at 0.54rem,
+below the smallest type anywhere in the app. The dots carry that state and the
+full `Transcribing...` is in the accessible name and the tooltip.
+
+**The status row carries the elapsed time during a run and the outcome mark
+after one.** It was the clock row; the outcome was in the action row, which a
+permanently present button leaves no room for at a 52px card. Neither fact is
+ever wanted at the same moment as the other, so they share one 16px row rather
+than the card growing again to find a seventh.
+
+The dock's account of what happened after the user let go of the key is the
+status row and the action row together. That last state matters more here than it did in
 SpeakEasy: with no fallback engine, "ended" is sometimes "failed", and the dock
 is where the user finds out. It shows the failure; **Settings → Transcription**
 carries the reason and the fix, in a panel that appears only when the last
@@ -865,7 +886,7 @@ Capture state, device, and the reason a dictation ended remain visible. There is
 no live text to classify: the three-tier stable/mutable/final vocabulary left
 with the streaming engine, and a transcript either exists or does not.
 
-**The dock's geometry.** A narrow 62×360 window (label `hud-dock`) that clings
+**The dock's geometry.** A narrow 62×400 window (label `hud-dock`) that clings
 to a screen edge. It was one of two HUD presentations and is now the only one,
 but its measured constraints are unchanged and are recorded here because they
 were expensive to find.
@@ -878,6 +899,25 @@ the size after creation, which is not subject to that clamp —
 `enforce_dock_size`, before the dock is ever shown and before its placement is
 computed. The size is still declared once, in `tauri.conf.json`, and read back
 from the config rather than restated in Rust.
+
+**The height was 360 and is 400** (owner, 2026-08-28). The 40px pays for the
+action button being present in every state; the meter is the only `1fr` row, so
+it absorbed all of it and went 112 to 152 -- more than the 134 it had before the
+engine row existed. The engine row also moved *below* the meter in the same
+change: above it, the chip was a filled horizontal pill cutting across a
+52px-wide vertical column, so it severed the wordmark from the waveform and sat
+at the card's visual centre while the bottom third was empty. Measured on the
+running window both ways, the reorder costs the waveform nothing.
+
+**The chrome row holds two controls and its icons are 20px, not the shared
+24px.** The row's content box is 44px at a 52px card, so two 24px buttons want 48
+and overflow into the card's `overflow: hidden` -- which does not error, it clips
+whichever glyph loses, exactly as happened to the close button once before. Two
+20px buttons take 40 and leave 4. The narrowing is scoped to the dock rather than
+applied to `.hud-icon`, which the log and notice windows also spend on strips that
+are not 52px wide. A gear here duplicates the right-click menu's Settings item on
+purpose: a native popup is discoverable only by someone who already guessed to
+try it, on a window that never takes keyboard focus.
 
 52px of card is what every control in it now answers to, and the one it
 genuinely strains is Stop: the row's inset and the button's own padding are 4px
@@ -1082,7 +1122,7 @@ selected monitor work area, including negative virtual-screen coordinates.
 Placement is recalculated after DPI, monitor, taskbar/work-area, and resume
 changes. It never assumes the primary monitor or a fixed scale factor.
 
-The dock is a fixed 62×360 logical and is not resizable, so its CSS layout is
+The dock is a fixed 62×400 logical and is not resizable, so its CSS layout is
 identical at every display scaling — only its physical size changes. It is moved
 by dragging it, and its edge and vertical position are persisted, clamped to the
 current work area on restore, and fall back to the computed default when the

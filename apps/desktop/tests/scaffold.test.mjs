@@ -695,6 +695,14 @@ test("every window is declared, and none of them can take the foreground", async
     "hud_dock_context_menu",
     "hud_dock_placement_configure",
     "hud_transcript_copy",
+    // Added 2026-08-28 with the dock's gear button. No new authority: the same
+    // command was already reachable from this window through
+    // `hud_dock_context_menu`'s Settings item, and the Rust side has always
+    // gated it on `require_main_or_hud_window`. What changed is that a control
+    // the user can see now does it, instead of only a native popup they had to
+    // guess to right-click for. It touches window state and nothing else, by
+    // contract, so it cannot disturb a dictation in flight.
+    "open_settings_window",
     "transcript_log_unpin",
   ]);
 
@@ -725,7 +733,11 @@ test("the side dock is a transparent card that can end the dictation it shows", 
   assert.equal(window_.alwaysOnTop, true);
   assert.equal(window_.skipTaskbar, true);
   assert.equal(window_.resizable, false);
-  assert.equal(window_.height, 360);
+  // 400 since 2026-08-28, from 360. The 40px pays for the action row's button
+  // being present in every state; the meter is the only `1fr`, so it took all of
+  // it and went 112 -> 152.
+  assert.equal(window_.height, 400);
+  assert.equal(window_.minHeight, window_.height);
 
   // Declaring this width is not enough to get it. Windows clamps a window to
   // the default minimum tracking size *while it is being created*, so anything
@@ -777,19 +789,56 @@ test("the side dock is a transparent card that can end the dictation it shows", 
   // Stop is on the dock (UI-GUIDE "Main window and focus"). Hands-free is one of three
   // activation modes and has no key that ends a recording, so the presentation
   // the user moved away to is not allowed to be the only way out.
-  assert.match(dock, /onClick=\{stop\}/);
+  assert.match(dock, /onClick=\{onStop\}/);
   assert.match(dock, /data-testid="hud-dock-stop"/);
   assert.match(dock, /messages\.stopDictation\b/);
 
+  // And Start is on it too, since 2026-08-28. The button is present in every
+  // state, so the dock can begin a dictation as well as end one — it previously
+  // rendered only while listening, which left the surface whose whole promise is
+  // staying reachable offering a control that appeared once you no longer needed
+  // to find it.
+  assert.match(dock, /onClick=\{onStart\}/);
+  assert.match(dock, /data-testid="hud-dock-start"/);
+  assert.doesNotMatch(
+    dock,
+    /\{listening && \(/,
+    "the dock's button must not be conditional on listening: it is present in every state",
+  );
+
+  // The gear opens Settings without going through the right-click menu, which is
+  // discoverable only by someone who already guessed to try it.
+  assert.match(dock, /data-testid="hud-dock-settings"/);
+  assert.match(dock, /invoke\("open_settings_window"\)/);
+
   // Both state-dependent slots keep their height, so a dictation starting
   // cannot resize the waveform's box under it.
-  assert.match(styles, /\.hud-dock-clock \{[^}]*height: 16px;/);
+  assert.match(styles, /\.hud-dock-status \{[^}]*height: 16px;/);
   assert.match(styles, /\.hud-dock-action \{[^}]*height: 28px;/);
 
-  // The four fixed rows, the card's padding and the four gaps have to leave the
+  // The waveform sits below the wordmark and above the engine chip. Asserted as
+  // *order* rather than as geometry because the chip's placement is the whole
+  // point: above the meter it was a filled horizontal pill cutting across a
+  // 52px-wide vertical column, severing the mark from the waveform (owner,
+  // 2026-08-28).
+  assert.ok(
+    dock.indexOf("hud-dock-level-wrap") < dock.indexOf("<EngineChip"),
+    "the engine chip must render below the waveform, not between it and the wordmark",
+  );
+
+  // The five fixed rows, the card's padding and the five gaps have to leave the
   // waveform a positive number of pixels — the window cannot grow to absorb an
   // overrun, it just clips. Computed rather than pinned, so moving any one row
   // is caught here instead of in a screenshot.
+  //
+  // **`hud-dock-engine` and the fifth gap were missing from this until
+  // 2026-08-28**, and their absence is why this test could not see the row it
+  // was written to protect: it summed four rows and four gaps, computed 134, and
+  // asserted 134 — while the running window's waveform had been 112 since the
+  // engine row shipped two days earlier. A 22px blind spot, in the one check
+  // whose comment claims that moving any row is caught here. Every row that
+  // declares a height is in the sum now, and the gap count is derived from the
+  // row count rather than written down, so adding a seventh row cannot repeat it.
   const height = (selector) =>
     Number(
       new RegExp(`\\.${selector} \\{[^}]*height: (\\d+)px;`).exec(styles)?.[1] ??
@@ -797,15 +846,21 @@ test("the side dock is a transparent card that can end the dictation it shows", 
     );
   const CARD_GUTTER = 5;
   const SPACE_2 = 8;
-  const fixedRows =
-    height("hud-dock-chrome") +
-    height("hud-dock-wordmark") +
-    height("hud-dock-clock") +
-    height("hud-dock-action");
+  const fixedRowSelectors = [
+    "hud-dock-chrome",
+    "hud-dock-wordmark",
+    "hud-dock-engine",
+    "hud-dock-status",
+    "hud-dock-action",
+  ];
+  const fixedRows = fixedRowSelectors.reduce((total, selector) => total + height(selector), 0);
+  // The waveform is the sixth row and the only `1fr`, so the gaps between six
+  // rows is five.
+  const gaps = fixedRowSelectors.length;
   const cardHeight = window_.height - CARD_GUTTER * 2;
-  const waveform = cardHeight - fixedRows - SPACE_2 * 2 - SPACE_2 * 4;
+  const waveform = cardHeight - fixedRows - SPACE_2 * 2 - SPACE_2 * gaps;
   assert.ok(Number.isFinite(fixedRows), "every fixed dock row must declare a height");
-  assert.equal(waveform, 134, "the waveform gets whatever the fixed rows do not");
+  assert.equal(waveform, 152, "the waveform gets whatever the fixed rows do not");
 
   // The wordmark was 0.62rem — smaller than any other type in the app, on the
   // one surface where it is the only thing that says what the surface is.
@@ -876,7 +931,23 @@ test("the side dock is a transparent card that can end the dictation it shows", 
   // The action row accounts for the time after the key is released. Without
   // this the dock is identical to idle from the moment a dictation ends until
   // the text appears, and identical to idle forever if it fails.
-  assert.match(dock, /state\.kind === "stopping" \|\| state\.kind === "transcribing"/);
+  //
+  // Asserted as "the resting label is reachable from `idle` and nothing else"
+  // rather than by naming the busy states, which is how this read until
+  // 2026-08-28. The button is present in every state now, so the hazard inverted:
+  // it is no longer that the dock says nothing while Granite works, it is that a
+  // permanent button says `Ready` while Granite loads two gigabytes — the exact
+  // defect 1.7.0 fixed one row up, in a louder place to repeat it.
+  assert.match(
+    dock,
+    /kind === "idle" \|\| kind === "delivered" \|\| kind === "failed"/,
+    "the dock's resting label must be keyed off idle, not off `not listening`",
+  );
+  assert.doesNotMatch(
+    dock,
+    /kind !== "listening"/,
+    "a resting label keyed off `not listening` claims Ready while the model loads",
+  );
   assert.match(dock, /data-testid="hud-dock-working"/);
   assert.match(dock, /messages\.transcriberStates\.transcribing/);
   // Three separate dots, so the mark survives `prefers-reduced-motion` — the

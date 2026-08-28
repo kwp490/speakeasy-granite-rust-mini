@@ -669,33 +669,52 @@ body:has(.hud-dock) {
 
    Six rows, in a fixed order and none of them conditional:
 
-     20px  .hud-dock-chrome    the close button
+     20px  .hud-dock-chrome    settings and close
     104px  .hud-dock-wordmark  vertical, and this window's whole titlebar
+      1fr  .hud-dock-level     the waveform — 152px, the same in every state
      14px  .hud-dock-engine    which device Granite runs on, and whether it is up
-      1fr  .hud-dock-level     the waveform — 112px, the same in every state
-     16px  .hud-dock-clock     elapsed, while a dictation is running
-     28px  .hud-dock-action    Stop, the working dots, or how it ended
+     16px  .hud-dock-status    elapsed during a run, how it ended after one
+     28px  .hud-dock-action    the one button, present in every state
 
-   The 5px gutter below leaves the card 350 tall inside the 360 window. With
-   8px padding top and bottom and five 8px gaps that is 238 + 112 = 350. The
-   last two rows are empty outside a dictation rather than absent, so the
-   waveform's box cannot move under a running recording.
+   The 5px gutter below leaves the card 390 tall inside the 400 window. With
+   8px padding top and bottom and five 8px gaps that is 238 + 152 = 390. The
+   status row is empty between dictations rather than absent, so the waveform's
+   box cannot move under a running recording.
 
-   The engine row cost the meter 22px — a 14px row plus one more 8px gap — and
-   the meter is the only `1fr`, so it absorbed all of it: 134 became 112. That
-   is a 16% reduction in the dock's most characterful element and it was
-   accepted knowingly (owner, 2026-08-26). It buys the device being readable
-   without a hover, which is the whole point of the dock: a fact you have to
-   hover for is a fact you do not have while working in another window. Three
-   cheaper placements were drawn and rejected — a 10px dot in the chrome row's
-   spare 20x20 (device lives only in a tooltip), `GPU` as text in that same
-   hole (needs 0.5rem, and the wordmark comment below records 0.62rem already
-   being called smaller than any type in the app), and recolouring the wordmark
-   (state in hue alone, which the two citations below forbid).
+   **The window grew from 360 to 400 (owner, 2026-08-28)** to pay for the action
+   row's button being present in every state. It used to appear only while
+   listening, which left the dock with no way to *begin* a dictation — the one
+   surface whose promise is staying reachable while the user works elsewhere had
+   a control that only existed once they had already started. The meter took the
+   whole 40px: it is the only `1fr`, so 112 became 152, which is also more than
+   the 134 it had before the engine row existed.
 
-   The wordmark took the 18px the meter gave up. It was set at 0.62rem, which
-   is smaller than any type anywhere else in the app, and in a column this
-   narrow it is the only thing on the card that says what the card is.
+   **The engine row moved below the meter (owner, 2026-08-28.)** Above it, the
+   chip was a filled horizontal pill cutting across a 52px-wide vertical column:
+   it severed the wordmark from the waveform, the dotted meter read as hanging
+   off it, and the card's brightest element sat at the visual centre with the
+   bottom third empty. Below, the three state rows cluster and the top is pure
+   identity. Measured on the running window both ways — the reorder costs the
+   waveform nothing, because the meter is the only `1fr` either way.
+
+   The engine row itself cost the meter 22px when it shipped — a 14px row plus
+   one more 8px gap — and that was accepted knowingly (owner, 2026-08-26) to buy
+   the device being readable without a hover, which is the whole point of the
+   dock: a fact you have to hover for is a fact you do not have while working in
+   another window. Four cheaper placements were drawn and rejected, three in
+   2026-08-26 and the fourth when the row moved: a 10px dot in the chrome row's
+   spare 20x20 (device lives only in a tooltip), `GPU` as text in that same hole
+   (needs 0.5rem, and the wordmark comment below records 0.62rem already being
+   called smaller than any type in the app), recolouring the wordmark (state in
+   hue alone, which the two citations below forbid), and the chip beside the
+   close button — measured infeasible rather than argued: the chrome row's
+   content box is 44px, the × takes 24 of it, and the chip needs 39.2px, or 29px
+   stripped to pip and text with no padding at all. That hole was already full
+   before the gear went in it.
+
+   The wordmark was set at 0.62rem, which was smaller than any type anywhere
+   else in the app, and in a column this narrow it is the only thing on the card
+   that says what the card is. It is 0.86rem now.
 
    The window is transparent and the card is inset by `body`'s padding, which
    is what the rounded corners and the drop shadow need to sit in. */
@@ -750,9 +769,24 @@ body:has(.hud-dock) {
   display: flex;
   flex: none;
   height: 20px;
-  justify-content: flex-end;
+  /* Two controls now, at the two ends: the gear opens Settings, the × closes the
+     window. `space-between` rather than a gap, so the growing distance between
+     them is what says they are unrelated actions. */
+  justify-content: space-between;
   padding: 0 var(--space-1);
   width: 100%;
+}
+
+/* 20px, not the shared `.hud-icon` 24px, and the arithmetic is why: the row's
+   content box is 44px at a 52px card, so two 24px buttons want 48 and overflow
+   into the card's `overflow: hidden` — which does not error, it clips whichever
+   glyph loses, exactly as the comment above records happening to the × once
+   before. Two 20px buttons take 40 and leave 4.
+
+   Scoped to the dock rather than changed on `.hud-icon`, which the log and
+   notice windows also spend on strips that are not 52px wide. */
+.hud-dock-chrome .hud-icon {
+  width: 20px;
 }
 
 /* Sideways, reading top to bottom — `writing-mode` alone, with the glyphs
@@ -961,7 +995,14 @@ body:has(.hud-dock) {
   }
 }
 
-.hud-dock-clock {
+/* Was `.hud-dock-clock`, and renamed when it stopped being only a clock: it
+   carries the elapsed time during a dictation and the outcome mark after one.
+   Those moved together because the action row below now holds a button in every
+   state, and at a 52px card that row cannot also hold a glyph. Neither fact is
+   ever wanted at the same moment as the other — there is no elapsed time to show
+   once a run has ended — so sharing one row costs nothing and saves 16px the
+   card would otherwise have had to grow again to find. */
+.hud-dock-status {
   align-items: center;
   display: flex;
   flex: none;
@@ -1007,8 +1048,12 @@ body:has(.hud-dock) {
    below is the fallback if it ever does, and it is the quiet raised treatment
    rather than a capture colour that has stopped meaning capture.
 
-   Colour is not the only signal: the button is absent outside a dictation, and
-   it says "Stop". */
+   Colour is not the only signal, and **the signal changed on 2026-08-28**: the
+   button used to be absent outside a dictation, which is no longer true of a
+   control present in every state. What carries it now is the label — the button
+   reads "Ready" or "Stop", never the same word in both states — and the red is
+   still gated on `[data-session="listening"]`, so the two change together and
+   neither is alone in saying which state this is. */
 .hud-dock-stop {
   background: var(--hud-raised);
   border: 1px solid var(--hud-border);

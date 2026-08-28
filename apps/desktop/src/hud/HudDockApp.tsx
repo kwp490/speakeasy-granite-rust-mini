@@ -11,32 +11,55 @@ import { formatElapsed } from "./format";
 import { useDragToMove } from "./useDragToMove";
 
 /**
- * The side dock: a narrow strip that clings to a screen edge, showing the
- * engine indicator, the level meter, the elapsed clock, and one button to end
- * the dictation.
+ * The side dock: a narrow strip that clings to a screen edge, showing the level
+ * meter, the engine indicator, the elapsed clock, and one button that starts and
+ * ends the dictation.
  *
  * Six rows in a fixed order, and none of them is conditional — the same rule
  * `.capture-hud` follows, for the same reason. Only what sits *in* the last two
  * changes with state:
  *
- *     20px  chrome    the close button
+ *     20px  chrome    settings and close
  *    104px  wordmark  vertical, and this undecorated window's whole titlebar
+ *      1fr  meter     the waveform — 152px in a 400px window
  *     14px  engine    which device Granite runs on, and whether it is up
- *      1fr  meter     the waveform — 112px, after the engine row took 22
- *     16px  clock     the elapsed time, while a dictation is running
- *     28px  action    Stop, the working indicator, or how it ended
+ *     16px  status    the elapsed time during a run, how it ended after one
+ *     28px  action    the one button, present in every state
  *
- * The action row is the dock's whole account of what happened after the user
- * let go of the key. It used to hold Stop and nothing else, which meant that
- * from the moment a dictation ended until the text appeared — Granite's pass
- * plus finalization, comfortably over a second — the dock was indistinguishable
- * from idle, and a failure was indistinguishable from idle forever.
+ * **The engine row sits below the meter, not above it** (owner, 2026-08-28).
+ * Between the wordmark and the meter it was a filled horizontal pill cutting
+ * across a 52px-wide vertical column — it severed the mark from the waveform,
+ * the dotted meter read as hanging off it, and the card's brightest element sat
+ * at the visual centre while the bottom third was empty. Below the meter the
+ * three state rows cluster at the bottom and the top is pure identity. Measured
+ * on the running window before and after: the reorder costs the waveform
+ * nothing, because the meter is the only `1fr` either way.
  *
- * Stop is here despite dictation being hotkey-driven. The dock's whole promise
- * is staying reachable while the user works in another window, and the hotkey
- * has three activation modes (Settings › General) — in hands-free mode there is
- * no key that ends a recording at all, so a dock with no Stop button leaves the
- * user's only way out on a window they moved away from on purpose.
+ * **The action row's button is present in every state** (owner, 2026-08-28), and
+ * that is why the window grew from 360 to 400. It used to appear only while
+ * listening, which meant the dock offered no way to *begin* a dictation at all —
+ * the one surface whose whole promise is staying reachable while the user works
+ * elsewhere had a control that only existed once they had already started. The
+ * label is the state: `Ready`, `Stop`, or the working dots.
+ *
+ * `Transcribing` is not among those labels because it does not fit, which was
+ * measured rather than assumed: the label has 36px between the row's inset and
+ * the button's own padding, and the word needs 60.2px at the button's 0.68rem
+ * and still 47.8px at 0.54rem — below the smallest type anywhere in the app. The
+ * working dots carry that state instead, they are already this window's idiom
+ * for "thinking", and the full `Transcribing…` is in the accessible name and the
+ * tooltip where there is room for it.
+ *
+ * The status row above it carries the elapsed time during a run and the outcome
+ * glyph after one. Those used to live in two rows, and the outcome was in the
+ * action row — which a permanently present button leaves no room for at 52px.
+ * Both are facts about one dictation and neither is ever needed at the same
+ * moment as the other, so they share.
+ *
+ * A dock button is not redundant with the hotkey. The hotkey has three
+ * activation modes (Settings › General) and in hands-free mode there is no key
+ * that ends a recording at all, so a dock with no Stop leaves the user's only
+ * way out on a window they moved away from on purpose.
  *
  * Drag persists the landing edge and y through `hud_dock_placement_configure`
  * rather than a raw position — see that command for why. Right-click opens the
@@ -45,7 +68,7 @@ import { useDragToMove } from "./useDragToMove";
  * mistaken for one of those two.
  */
 export function HudDockApp() {
-  const { model, stop } = useHudStatus();
+  const { model, start, stop } = useHudStatus();
 
   useDragToMove((x, y) => {
     void invoke("hud_dock_placement_configure", { x, y });
@@ -76,6 +99,21 @@ export function HudDockApp() {
       title={shortcutTooltip(model)}
     >
       <header className="hud-dock-chrome">
+        {/* Settings is on the right-click menu too, and that is exactly why this
+            is here: a native popup is discoverable only by someone who already
+            guessed to try it, on a window that never takes keyboard focus. */}
+        <button
+          aria-label={messages.settings}
+          className="hud-icon hud-dock-gear"
+          data-testid="hud-dock-settings"
+          onClick={() => {
+            void invoke("open_settings_window");
+          }}
+          title={messages.settings}
+          type="button"
+        >
+          <GearGlyph />
+        </button>
         <button
           aria-label={messages.closeTranscriber}
           className="hud-icon hud-close"
@@ -89,39 +127,110 @@ export function HudDockApp() {
         </button>
       </header>
       <div className="hud-dock-wordmark">{messages.productName}</div>
-      <EngineChip engine={model.engine} device={model.engineDevice} />
       <div className="hud-dock-level-wrap">
         <DockLevelMeter active={listening} level={model.level} />
       </div>
+      <EngineChip engine={model.engine} device={model.engineDevice} />
       {/*
-        Both slots keep their height in every state. They are empty most of the
-        time, which costs 44px the dock does not otherwise need — and buys that
-        the waveform's box is the same box before, during and after a dictation
-        rather than jumping 44px the moment one starts.
+        Keeps its height in every state, and is empty between dictations. That
+        costs 16px the dock does not otherwise need, and buys the waveform's box
+        being the same box before, during and after a dictation rather than
+        moving the moment one starts.
       */}
-      <div className="hud-dock-clock">
-        {elapsedMs !== null && (
+      <div className="hud-dock-status">
+        {elapsedMs !== null ? (
           <output aria-live="polite" data-testid="hud-dock-timer">
             {formatElapsed(elapsedMs)}
           </output>
+        ) : (
+          <DockOutcome model={model} />
         )}
       </div>
       <div className="hud-dock-action">
-        {listening && (
-          <button
-            aria-label={messages.stopDictationName}
-            className="hud-dock-stop"
-            data-testid="hud-dock-stop"
-            onClick={stop}
-            title={messages.stopDictationName}
-            type="button"
-          >
-            {messages.stopDictation}
-          </button>
-        )}
-        <DockOutcome model={model} />
+        <DockActionButton model={model} onStart={start} onStop={stop} />
       </div>
     </main>
+  );
+}
+
+/**
+ * The dock's one button, in every state the session can be in.
+ *
+ * Three presentations and exactly one of them is a lie waiting to happen, which
+ * is why the resting label is keyed off `idle` alone rather off "not listening":
+ * saying `Ready` while Granite loads two gigabytes is the defect 1.7.0 fixed in
+ * the engine chip, and a button is a louder place to repeat it. Every state that
+ * is not idle and not listening shows the working dots and is disabled.
+ *
+ * `canStart` and `canStop` gate the presses rather than the presentation. The
+ * backend owns whether a dictation may begin — one at a time, refused rather
+ * than queued — and a button that looks pressable and is refused is better than
+ * one that vanishes, because the refusal is the honest answer to a press the
+ * user meant.
+ */
+function DockActionButton({
+  model,
+  onStart,
+  onStop,
+}: {
+  model: TranscriberModel;
+  onStart: () => void;
+  onStop: () => void;
+}) {
+  const kind = model.state.kind;
+  if (kind === "listening" || kind === "starting") {
+    return (
+      <button
+        aria-label={messages.stopDictationName}
+        className="hud-dock-stop"
+        data-testid="hud-dock-stop"
+        disabled={!model.canStop}
+        onClick={onStop}
+        title={messages.stopDictationName}
+        type="button"
+      >
+        {messages.stopDictation}
+      </button>
+    );
+  }
+  if (kind === "idle" || kind === "delivered" || kind === "failed") {
+    return (
+      <button
+        aria-label={messages.startDictationName}
+        className="hud-dock-stop"
+        data-testid="hud-dock-start"
+        disabled={!model.canStart}
+        onClick={onStart}
+        title={messages.startDictationName}
+        type="button"
+      >
+        {messages.transcriberStates.idle}
+      </button>
+    );
+  }
+  // Loading, setting up, stopping, transcribing: busy, and not pressable. The
+  // name says which, because the dots cannot.
+  const busy =
+    kind === "setup_required"
+      ? messages.transcriberStates.setupRequired
+      : kind === "loading_model"
+        ? messages.transcriberStates.loadingModel
+        : messages.transcriberStates.transcribing;
+  return (
+    <span
+      aria-label={busy}
+      className="hud-dock-working"
+      data-testid="hud-dock-working"
+      role="img"
+      title={busy}
+    >
+      {/* Three elements rather than one animated glyph: the animation is a delay
+          per dot, so it degrades to three visible dots under
+          `prefers-reduced-motion` instead of degrading to nothing. */}
+      <span className="hud-dock-working-dot" />
+      <span className="hud-dock-working-dot" />
+      <span className="hud-dock-working-dot" />
+    </span>
   );
 }
 
@@ -231,15 +340,10 @@ function AlertPip() {
 }
 
 /**
- * What the action row shows when it is not showing Stop.
+ * How the last dictation ended, in the status row.
  *
- * Three states earn a mark and the rest deliberately do not:
+ * Two states earn a mark and the rest deliberately do not:
  *
- * - **working** — `stopping` and `transcribing`. Three dots that fade in
- *   sequence, in the same `--hud-busy` amber the deleted HUD's record button
- *   used for its own processing tone — one colour for "the app is thinking",
- *   kept so the vocabulary survived the window. This is the state the dock had
- *   no answer for.
  * - **refused** — delivered, but the target app would not take the text, so it
  *   is on the clipboard. A clipboard mark rather than a warning colour, because
  *   *what to do next* is the message and it is a different action from a
@@ -250,27 +354,15 @@ function AlertPip() {
  * was typing into is the confirmation, and a dock that also announced it would
  * be claiming credit for something already visible — while costing a mark that
  * has to clear itself, or linger and mean nothing.
+ *
+ * **`stopping` and `transcribing` used to be a third case here**, and are not
+ * any more: the action row's button carries them now, because it is present in
+ * every state and a busy mark in two rows at once is one row of it lying about
+ * being a second fact. This component is only reached when there is no elapsed
+ * time to show, so it can never race the clock for the row either.
  */
 function DockOutcome({ model }: { model: TranscriberModel }) {
   const state = model.state;
-  if (state.kind === "stopping" || state.kind === "transcribing") {
-    return (
-      <span
-        aria-label={messages.transcriberStates.transcribing}
-        className="hud-dock-working"
-        data-testid="hud-dock-working"
-        role="img"
-        title={messages.transcriberStates.transcribing}
-      >
-        {/* Three elements rather than one animated glyph: the animation is a
-            delay per dot, so it degrades to three visible dots under
-            `prefers-reduced-motion` instead of degrading to nothing. */}
-        <span className="hud-dock-working-dot" />
-        <span className="hud-dock-working-dot" />
-        <span className="hud-dock-working-dot" />
-      </span>
-    );
-  }
   if (state.kind === "delivered" && state.outcome === "refused") {
     return (
       <span
@@ -329,6 +421,28 @@ function CloseGlyph() {
   return (
     <svg aria-hidden="true" focusable="false" height="13" viewBox="0 0 16 16" width="13">
       <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+/**
+ * The settings gear, drawn as a ring and six teeth rather than a filled cog.
+ *
+ * Stroked at the same 1.6 weight as the × beside it, because the two sit 20px
+ * apart on the thinnest strip in the app and a filled glyph next to a stroked
+ * one reads as the heavier of the two being the primary action. It is not: the
+ * one that closes the window is.
+ */
+function GearGlyph() {
+  return (
+    <svg aria-hidden="true" focusable="false" height="13" viewBox="0 0 16 16" width="13">
+      <circle cx="8" cy="8" fill="none" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M8 1.4v2.1M8 12.5v2.1M2.34 4.7l1.82 1.05M11.84 10.25l1.82 1.05M2.34 11.3l1.82-1.05M11.84 5.75l1.82-1.05"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.5"
+      />
     </svg>
   );
 }

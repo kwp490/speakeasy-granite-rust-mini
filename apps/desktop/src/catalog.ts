@@ -65,6 +65,14 @@ export const messages = {
   // with (WCAG 2.5.3: the visible word is a substring of it).
   stopDictation: "Stop",
   stopDictationName: "Stop recording",
+  // The resting half of that same button, which is present in every state since
+  // 2026-08-28. The visible word is `transcriberStates.idle` — "Ready", the
+  // state — rather than a second copy of it here, because the button's whole
+  // point is that its label *is* the state. This is the accessible name, and it
+  // names the action instead: a screen-reader user gets "Start recording" for a
+  // control whose visible text is a status word, which is the one case WCAG
+  // 2.5.3's substring rule cannot be satisfied and should not be faked.
+  startDictationName: "Start recording",
   shortcutHint: (binding: string) => `${binding} to start`,
   capturedSeconds: (seconds: string) => `${seconds} seconds captured`,
   // Truthful about what happened, per UI-GUIDE's truthful-disclosure rule: a

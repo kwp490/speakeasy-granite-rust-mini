@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.8.0 — 2026-08-28
+
+The dock can start a dictation, not only end one, and it has a settings button.
+
+### The button is always there, and it starts as well as stops — 2026-08-28
+
+The dock's button used to appear only while you were already recording, so the
+one surface whose whole point is staying reachable while you work in another
+window had no way to *begin* anything. It is now present in every state and its
+label is the state: **Ready**, **Stop**, or three working dots while the
+transcript is being made.
+
+It says `Ready` only when it really is. While the model is loading, or setup is
+unfinished, or a transcript is still being produced, the dots show and the button
+is inert — a permanently visible button is a louder place to claim readiness than
+the small chip above it, and claiming it early was a defect fixed one row up in
+1.7.0.
+
+### A settings button on the dock — 2026-08-28
+
+A gear beside the close button opens Settings. It was already on the dock's
+right-click menu, which is only findable by someone who thought to try
+right-clicking a window that never takes keyboard focus.
+
+### A taller dock, and the waveform got the space — 2026-08-28
+
+The window went from 360 to 400 to pay for the permanent button. The waveform is
+the only row that stretches, so it took all 40 pixels and went from 112 to 152 —
+larger than it was before the device indicator was added at all.
+
+### The device indicator moved below the waveform — 2026-08-28
+
+Reported from use. Between the wordmark and the waveform it cut across the
+column, the dotted meter read as hanging off it, and the brightest thing on the
+dock sat in the middle while the bottom third was empty. It now sits under the
+waveform with the elapsed time and the button, so the top of the dock is just
+the name and the bottom is what is happening.
+
+The elapsed time and the "how it ended" mark now share one row, since the button
+occupies the row the mark used to sit in. Neither is ever wanted at the same
+moment as the other.
+
 ## 1.7.1 — 2026-08-28
 
 Settings told graphics-card users they were running on the processor. Plus three
