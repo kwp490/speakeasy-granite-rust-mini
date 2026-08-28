@@ -740,6 +740,43 @@ tree and the next reader will assume it is wired up. **Deleted the next day**
 dock's allowlist with it — authority granted for that component and exercised by
 nothing since the fork.
 
+### A clean clone does not build on this machine — open, found 2026-08-28
+
+**Everything on `main` is green, and that is not the same as buildable from
+scratch.** `git clone` of `main` into an empty directory, then the whole gate:
+
+- The **frontend half passes completely** — `npm install` then the scaffold
+  suite, 68 tests, 68 pass, 0 skipped, identical to the working tree. The
+  committed fixture `apps/bootstrapper/fixtures/smoke.wav` is present and
+  `.tools/` is correctly absent.
+- The **Rust half fails at `speakeasy-granite`**, on `llama-cpp-sys-2`'s CMake
+  configure: `No CMAKE_C_COMPILER could be found`, then the same for CXX.
+
+Not the sandbox, and not a missing prerequisite as `NEW-MACHINE.md` lists them.
+It reproduces with the sandbox off, and this machine has Visual Studio Build
+Tools 2022 with `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`, MSVC toolset
+14.44.35207, and Windows SDK 10.0.26100.0. It also reproduces inside a
+`Enter-VsDevShell` Developer shell where `cl.exe` is on `PATH`, so the generator
+itself is not finding the toolset.
+
+**The leading explanation is the pinned CMake.**
+`Enter-DevEnvironment.ps1` prefers `.tools\cmake-4.4.0-windows-x86_64\bin\cmake.exe`
+and falls back to whatever is on `PATH` with only a warning. That directory **does
+not exist on this machine**, so the fallback is the system CMake, **4.4.2**. The
+same gitignored-`.tools`-dependency-that-vanished shape as `beckett.wav` and the
+CUDA archives, with a failure that names something else entirely.
+
+**Why nobody noticed**: `target/` carries a successful llama.cpp build from
+2026-08-18 and 2026-08-25, so every incremental build since has skipped configure
+entirely. `Stage-DevRuntime.ps1` finished in 7.64 s during this session against
+that cache. The condition is invisible day-to-day and hits a second machine, or a
+`cargo clean`, immediately.
+
+**Not diagnosed further, and not fixed.** Establishing whether 4.4.2 is the
+deciding factor means staging 4.4.0 and re-running, which is the first thing to
+try. Until then, treat "the gate is green" as a statement about an incrementally
+built tree.
+
 ### The hardware tests, run 2026-08-28 — six pass, one correctly refuses
 
 Run because nothing had run them in an unknown period and two earlier cases had

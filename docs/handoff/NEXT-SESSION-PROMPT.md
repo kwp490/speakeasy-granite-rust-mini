@@ -50,6 +50,22 @@ a promise, because the last three phases were each larger than their brief said.
   `RUSTDOCFLAGS='-D rustdoc::broken_intra_doc_links'` exits 0 with the two known
   pre-existing warnings and no third.
 
+## One thing that is open and is not a phase
+
+**A clean clone does not build the Rust workspace on this machine.**
+`llama-cpp-sys-2`'s CMake configure fails with `No CMAKE_C_COMPILER could be
+found`, in a plain shell and in a Developer shell, with the VS Build Tools and
+Windows SDK that `NEW-MACHINE.md` requires both installed. The leading
+explanation is that `Enter-DevEnvironment.ps1` prefers a CMake staged under
+gitignored `.tools\cmake-4.4.0-windows-x86_64\` which is not there any more, so it
+falls back with a warning to the system CMake 4.4.2. `CURRENT.md` has the full
+finding.
+
+It does not block Phase 3.5, which is documentation-only — but it means **"the
+gate is green" is currently a statement about an incrementally built tree**, and
+anyone setting up a second machine hits it first. Staging CMake 4.4.0 under
+`.tools/` and re-running is the first thing to try.
+
 ## What to be careful about
 
 Phase 3.5 is documentation-only by its own checklist — "no code, no strings, no
