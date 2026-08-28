@@ -28,7 +28,7 @@ here and links back to the spec section it would amend.
 
 | File | Surface | What it argues |
 | --- | --- | --- |
-| [side-dock-elevation.html](side-dock-elevation.html) | Side dock (130×360) | The dock shipped as a 240 px opaque slab with an upside-down wordmark and nothing on it outside a dictation. Before/at-rest/recording elevations at 1:1, the row arithmetic, the placement diagram for the 24 px work-area inset, a change ledger, and the two defects only the running window showed. **Built** — geometry and placement measured against the live app. |
+| [side-dock-elevation.html](side-dock-elevation.html) | Side dock (130×360) | The dock shipped as a 240 px opaque slab with an upside-down wordmark and nothing on it outside a dictation. Before/at-rest/recording elevations at 1:1, the row arithmetic, the placement diagram for the 24 px work-area inset, a change ledger, and the two defects only the running window showed. **Built** — geometry and placement measured against the live app. **The geometry it draws is superseded**: it depicts a 130-wide card with five rows (20 / 86 / 152 / 16 / 28), and the dock has since narrowed to 62 and gained a sixth row for the engine indicator (20 / 104 / 14 / 112 / 16 / 28, 2026-08-27). The argument it makes still holds; the numbers on it were true when drawn and are not now. |
 
 ## Verifying a drawing against the real window
 

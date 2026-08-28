@@ -29,6 +29,34 @@ export const messages = {
     deliveredRefused: "Not inserted",
     failed: "Stopped safely",
   },
+  // The dock's engine indicator. Everyday register, and every string states
+  // *both* facts in words — where Granite runs and whether it is up — because
+  // the dock never takes keyboard focus, so the accessible name is the whole of
+  // what a screen reader is given. "GPU ready" would be neither fact stated.
+  //
+  // `GPU` rather than `CUDA` and `CPU` rather than `cpu`: the wire codes are
+  // the engine's vocabulary and these are the user's (UI-GUIDE "Two vocabulary
+  // registers"). The map is deliberately not exhaustive over the backend's
+  // codes — `unknown`, `not_configured` and `granite_state_unavailable` are not
+  // devices, and `engineDeviceUnknown` is what the chip shows instead of
+  // inventing one.
+  engineDevices: {
+    cpu: "CPU",
+    cuda: "GPU",
+  },
+  // An em dash, not "Unknown": the chip is 52px of card and this sits beside a
+  // colour and a shape that already say what is going on. Spelling out a word
+  // here would push the chip past the card.
+  engineDeviceUnknown: "—",
+  engineChipReady: (device: string) =>
+    device === "—"
+      ? "Speech engine ready"
+      : `Speech engine ready, running on the ${device === "GPU" ? "graphics card" : "processor"}`,
+  engineChipWarming: "Speech engine is still loading. Dictation will wait for it.",
+  // Not an error, and worded so it does not read as one: nothing has failed on
+  // a machine that has yet to install the model.
+  engineChipUnconfigured: "No speech engine is installed yet. Finish setup to dictate.",
+  engineChipFailed: (reason: string) => `Speech engine unavailable. ${reason}`,
   // The one control (UI-GUIDE "Main window and focus"). Its label and colour
   // are the transcriber's primary state readout, which is why every entry here
   // names a state rather than an action: "Recording" is what is happening, and
@@ -691,6 +719,38 @@ export const messages = {
     session_transcript_entry_unavailable: "That transcript is no longer in this session's list.",
     profile_recovery_required: "Settings need recovery. Use the local Repair shortcut before changing this profile.",
     history_recovery_required: "Optional history needs recovery. Dictation remains available without history.",
+    // Warm states the dock's engine indicator can render. Every one of these is
+    // reachable from `GraniteEngineCoordinator::warm_state`, and a code with no
+    // entry here falls through to `errorUnknown` -- "The operation stopped
+    // safely" -- which is the generic non-answer a lost dictation once got.
+    //
+    // `granite_worker_missing` is deliberately separate from "no model yet".
+    // The latter is not an error at all and never reaches this table; it is
+    // `engineChipUnconfigured`, in the amber state, because a machine part-way
+    // through setup has not failed at anything.
+    granite_worker_missing:
+      "The transcription engine is missing from this installation. Reinstall the app.",
+    granite_model_files_unverified:
+      "The installed model failed verification, so it was not loaded. Reinstall the local model.",
+    granite_quarantined:
+      "Transcription is paused after repeated engine failures. Use Restart engine in Advanced settings.",
+    granite_state_unavailable:
+      "The transcription engine state is unavailable. Wait a moment and retry.",
+    engine_unavailable: "The transcription engine is still starting. Wait a moment and retry.",
+    runtime_stale_response:
+      "The transcription engine did not answer in time while loading. Use Restart engine in Advanced settings.",
+    runtime_invalid_data: "The transcription engine returned something unusable. Reinstall the local model.",
+    runtime_invalid_transition:
+      "The transcription engine was asked for something out of order. Use Restart engine in Advanced settings.",
+    runtime_queue_full: "The transcription engine is busy. Wait for the current dictation to finish.",
+    runtime_cancelled: "Loading the transcription engine was cancelled.",
+    // Not a fault in the install, and worded so it does not read as one: this
+    // computer is below the 8 GiB floor Granite needs, which is a fact about
+    // the machine rather than something to repair. Found by the scaffold test
+    // rather than by review -- it was the one publishable warm state with no
+    // copy, and it would have rendered as "The operation stopped safely".
+    memory_below_granite_floor:
+      "This computer has too little memory to run the speech engine, which needs 8 GB.",
   },
   degradationReasons: {
     "degradation.microphone_denied": "Microphone access was denied.",

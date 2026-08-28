@@ -12,15 +12,17 @@ import { useDragToMove } from "./useDragToMove";
 
 /**
  * The side dock: a narrow strip that clings to a screen edge, showing the
- * level meter, the elapsed clock, and one button to end the dictation.
+ * engine indicator, the level meter, the elapsed clock, and one button to end
+ * the dictation.
  *
- * Five rows in a fixed order, and none of them is conditional — the same rule
+ * Six rows in a fixed order, and none of them is conditional — the same rule
  * `.capture-hud` follows, for the same reason. Only what sits *in* the last two
  * changes with state:
  *
  *     20px  chrome    the close button
  *    104px  wordmark  vertical, and this undecorated window's whole titlebar
- *      1fr  meter     the waveform
+ *     14px  engine    which device Granite runs on, and whether it is up
+ *      1fr  meter     the waveform — 112px, after the engine row took 22
  *     16px  clock     the elapsed time, while a dictation is running
  *     28px  action    Stop, the working indicator, or how it ended
  *
@@ -87,6 +89,7 @@ export function HudDockApp() {
         </button>
       </header>
       <div className="hud-dock-wordmark">{messages.productName}</div>
+      <EngineChip engine={model.engine} device={model.engineDevice} />
       <div className="hud-dock-level-wrap">
         <DockLevelMeter active={listening} level={model.level} />
       </div>
@@ -119,6 +122,111 @@ export function HudDockApp() {
         <DockOutcome model={model} />
       </div>
     </main>
+  );
+}
+
+/**
+ * Warm states that are still on their way to being loaded. Kept in step with
+ * `ENGINE_LOADING` in `transcriberState.ts`, which is the same question asked
+ * for a different purpose — one decides the session state, this decides a
+ * colour.
+ */
+const ENGINE_PENDING: ReadonlySet<string> = new Set(["cold", "warming"]);
+
+/**
+ * Warm states that are not loading and are not a fault: the engine simply has
+ * nothing to load yet.
+ *
+ * Only `not_configured`, and the distinction is the point. A machine with no
+ * model pack has not finished setting up and the dock already says so in
+ * words; painting that red would make a fresh install's first impression a
+ * fault chip. A *missing worker binary* is `granite_worker_missing` and is not
+ * in here, because that is a broken installation rather than a to-do.
+ */
+const ENGINE_UNCONFIGURED: ReadonlySet<string> = new Set(["not_configured"]);
+
+/** Backend device codes that are not devices, and must never be shown as one. */
+const NOT_A_DEVICE: ReadonlySet<string> = new Set([
+  "unknown",
+  "not_configured",
+  "granite_state_unavailable",
+]);
+
+/**
+ * The engine indicator: which device Granite runs on, and whether it is up.
+ *
+ * Readable without hovering, which is why it costs a row rather than living in
+ * the tooltip — the dock exists to be glanceable while the user works in
+ * another window, and a fact you have to hover for is a fact you do not have.
+ *
+ * **It never claims a device the worker has not reported.** `device()` answers
+ * `not_configured` before any warm and `unknown` for a pre-v2 worker, and
+ * during `warming` the worker has usually not answered `Hello` yet. The honest
+ * chip there is amber with an em dash, not amber with a guess — inferring
+ * `GPU` from a CUDA-capable *binary* is exactly the overreach that once put
+ * `device=cuda` in a support log for a worker running on the processor.
+ *
+ * State is carried by the pip's shape as well as its hue, because colour is
+ * never the only signal (UI-GUIDE "Contrast, themes, and motion") and because
+ * under `forced-colors` every fill flattens to the same system colour.
+ */
+function EngineChip({ engine, device }: { engine: string; device: string }) {
+  const health = ENGINE_PENDING.has(engine)
+    ? "warming"
+    : ENGINE_UNCONFIGURED.has(engine)
+      ? "unconfigured"
+      : engine === "ready"
+        ? "ready"
+        : "failed";
+  const label = NOT_A_DEVICE.has(device) ? messages.engineDeviceUnknown : deviceLabel(device);
+  const description = engineChipDescription(health, engine, label);
+  return (
+    <div className="hud-dock-engine">
+      <span
+        aria-label={description}
+        className="hud-dock-engine-chip"
+        data-health={health}
+        data-testid="hud-dock-engine"
+        role="img"
+        title={description}
+      >
+        {health === "failed" ? <AlertPip /> : <span className="hud-dock-engine-pip" />}
+        {label}
+      </span>
+    </div>
+  );
+}
+
+/** `cpu` and `cuda` are wire codes; `CPU` and `GPU` are what a person reads. */
+function deviceLabel(device: string): string {
+  return messages.engineDevices[device as keyof typeof messages.engineDevices] ?? device;
+}
+
+/**
+ * The chip's whole sentence, for the accessible name and the tooltip alike.
+ *
+ * Both facts in words, because the dock never takes keyboard focus and this
+ * name is the entirety of what a screen reader gets — "GPU ready" would be
+ * neither of them. The failed state names its code, because the dock's tooltip
+ * is the only surface on this window that can say *which* failure.
+ */
+function engineChipDescription(health: string, engine: string, label: string): string {
+  if (health === "ready") return messages.engineChipReady(label);
+  if (health === "warming") return messages.engineChipWarming;
+  if (health === "unconfigured") return messages.engineChipUnconfigured;
+  return messages.engineChipFailed(formatError(engine));
+}
+
+/**
+ * A triangle rather than a circle, so the failed state differs in shape and not
+ * only in hue. Inline SVG to match the close, clipboard and alert glyphs this
+ * file already draws.
+ */
+function AlertPip() {
+  return (
+    <svg aria-hidden="true" className="hud-dock-engine-pip" focusable="false" viewBox="0 0 10 10">
+      <path d="M5 1 9.5 9 0.5 9Z" fill="currentColor" />
+    </svg>
   );
 }
 

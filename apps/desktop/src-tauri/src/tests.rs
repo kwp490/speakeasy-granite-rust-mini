@@ -447,7 +447,10 @@ mod tests {
             "a warm that never started must not report as still loading"
         );
         assert_ne!(coordinator.warm_state(), "warming");
-        assert_eq!(coordinator.warm_state(), "not_configured");
+        // A *missing worker binary* is a broken installation, not a machine
+        // that has yet to finish setting up, and the indicator paints the two
+        // differently. `not_configured` would report a fault as a to-do.
+        assert_eq!(coordinator.warm_state(), "granite_worker_missing");
     }
 
     /// The HUD poll fills `engine` from the warm state, asserted against source.

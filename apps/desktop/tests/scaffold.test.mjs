@@ -937,6 +937,84 @@ test("the side dock is a transparent card that can end the dictation it shows", 
   assert.doesNotMatch(dock, /outcome === "inserted"/);
 });
 
+test("the engine chip never claims a device the worker has not reported", async () => {
+  const dock = await readFile(new URL("../src/hud/HudDockApp.tsx", import.meta.url), "utf8");
+  const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  // Instrument self-check. Every assertion below is a `match` on source, and a
+  // file read from the wrong path matches nothing while reporting the same
+  // failure a real regression would.
+  assert.match(dock, /hud-dock-engine-chip/, "the dock source does not contain the chip");
+
+  // `device()` answers `not_configured` before any warm and `unknown` for a
+  // pre-v2 worker, and during the load the worker has usually not finished its
+  // handshake. None of those three is a device. Rendering one as `GPU` is the
+  // overreach that once put `device=cuda` in a support log for a worker running
+  // entirely on the processor, and it is the single most likely way to ship a
+  // confident, wrong indicator.
+  for (const code of ["unknown", "not_configured", "granite_state_unavailable"]) {
+    assert.match(
+      dock,
+      new RegExp(`NOT_A_DEVICE[\\s\\S]{0,200}"${code}"`),
+      `${code} is not a device and must be held back from the chip's label`,
+    );
+  }
+  assert.match(
+    dock,
+    /NOT_A_DEVICE\.has\(device\)\s*\?\s*messages\.engineDeviceUnknown/,
+    "the chip must fall back to the placeholder rather than print a non-device code",
+  );
+
+  // Shape, not only hue: under forced-colors every fill flattens to one system
+  // colour, and UI-GUIDE "Contrast, themes, and motion" forbids colour alone.
+  // The failed state draws an SVG triangle where the others draw a round pip.
+  assert.match(
+    dock,
+    /health === "failed" \? <AlertPip \/> : <span className="hud-dock-engine-pip"/,
+    "the failed state must differ from the others in shape, not only in colour",
+  );
+
+  // Red means exactly one thing in this window -- active capture -- so the
+  // chip's failure state spends `--hud-danger`, which is what the dock's
+  // existing failure glyph already paints in.
+  const chipRules = styles.slice(
+    styles.indexOf(".hud-dock-engine {"),
+    styles.indexOf(".hud-dock-level-wrap {"),
+  );
+  assert.ok(chipRules.length > 400, "the chip's stylesheet block was not located");
+  // `var(--recording)`, not the bare token name: the first cut of this matched
+  // the comment two lines above the rules explaining that the token is
+  // deliberately *not* spent here, so the check failed on the presence of its
+  // own justification. Spending a token is `var(...)`; naming it is prose.
+  assert.doesNotMatch(
+    chipRules,
+    /var\(--recording\)/,
+    "the engine chip must not spend --recording; red is reserved for active capture",
+  );
+  assert.match(chipRules, /@media \(forced-colors: active\)/);
+
+  // No code may fall through to `errorUnknown` -- "The operation stopped
+  // safely" -- which is the generic non-answer a lost dictation once got.
+  // Every warm state the coordinator can publish as a failure needs copy.
+  const engine = await readFile(
+    new URL("../src-tauri/src/granite_engine.rs", import.meta.url),
+    "utf8",
+  );
+  const published = [...engine.matchAll(/record_warm_state\("([a-z_0-9]+)"\)/g)].map((m) => m[1]);
+  assert.ok(published.length >= 4, `only found ${published.length} published warm states`);
+  for (const code of published) {
+    // `cold`, `warming` and `ready` are states rather than failures and are
+    // named by their own strings; everything else reaches `formatError`.
+    if (["cold", "warming", "ready", "not_configured"].includes(code)) continue;
+    assert.match(
+      catalog,
+      new RegExp(`\\b${code}:`),
+      `the warm state ${code} can reach the chip and has no catalog entry, so it would render as errorUnknown`,
+    );
+  }
+});
+
 test("the start and stop cues are opposite directions of one interval", async () => {
   const cue = await readFile(
     new URL("../../../crates/speakeasy-audio/src/cue.rs", import.meta.url),

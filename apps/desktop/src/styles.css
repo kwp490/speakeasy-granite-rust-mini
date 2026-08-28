@@ -651,18 +651,31 @@ body:has(.hud-dock) {
    presentation with no transcript and no status line, so the button's label is
    the only text that says what pressing it does.
 
-   Five rows, in a fixed order and none of them conditional:
+   Six rows, in a fixed order and none of them conditional:
 
      20px  .hud-dock-chrome    the close button
     104px  .hud-dock-wordmark  vertical, and this window's whole titlebar
-      1fr  .hud-dock-level     the waveform — 134px, the same in every state
+     14px  .hud-dock-engine    which device Granite runs on, and whether it is up
+      1fr  .hud-dock-level     the waveform — 112px, the same in every state
      16px  .hud-dock-clock     elapsed, while a dictation is running
      28px  .hud-dock-action    Stop, the working dots, or how it ended
 
    The 5px gutter below leaves the card 350 tall inside the 360 window. With
-   8px padding top and bottom and four 8px gaps that is 216 + 134 = 350. The
+   8px padding top and bottom and five 8px gaps that is 238 + 112 = 350. The
    last two rows are empty outside a dictation rather than absent, so the
    waveform's box cannot move under a running recording.
+
+   The engine row cost the meter 22px — a 14px row plus one more 8px gap — and
+   the meter is the only `1fr`, so it absorbed all of it: 134 became 112. That
+   is a 16% reduction in the dock's most characterful element and it was
+   accepted knowingly (owner, 2026-08-26). It buys the device being readable
+   without a hover, which is the whole point of the dock: a fact you have to
+   hover for is a fact you do not have while working in another window. Three
+   cheaper placements were drawn and rejected — a 10px dot in the chrome row's
+   spare 20x20 (device lives only in a tooltip), `GPU` as text in that same
+   hole (needs 0.5rem, and the wordmark comment below records 0.62rem already
+   being called smaller than any type in the app), and recolouring the wordmark
+   (state in hue alone, which the two citations below forbid).
 
    The wordmark took the 18px the meter gave up. It was set at 0.62rem, which
    is smaller than any type anywhere else in the app, and in a column this
@@ -740,6 +753,107 @@ body:has(.hud-dock) {
   letter-spacing: 0.13em;
   text-transform: uppercase;
   writing-mode: vertical-rl;
+}
+
+/* The engine indicator's row. Fixed height and never conditional, like the
+   clock and action rows below: the chip is present in every state, because
+   `cold` is a state and there is no moment when the dock knows nothing. A row
+   that came and went would move the waveform's box under a running dictation,
+   which is the rule the whole card is laid out around. */
+.hud-dock-engine {
+  align-items: center;
+  display: flex;
+  flex: none;
+  height: 14px;
+  justify-content: center;
+  width: 100%;
+}
+
+/* 0.58rem is below the 0.86rem the wordmark was raised to, and that is a
+   deliberate exception rather than a drift back: this is a two- or three-letter
+   uppercase token beside a mark, not running text, and it sits inside a 52px
+   card that has to hold `padding + pip + gap + label`. Measured in the running
+   window, `GPU` occupies about 21px at this size, which leaves the chip
+   comfortably inside the card. */
+.hud-dock-engine-chip {
+  align-items: center;
+  border-radius: 4px;
+  display: flex;
+  font-size: 0.58rem;
+  font-weight: 700;
+  gap: 3px;
+  letter-spacing: 0.08em;
+  padding: 1px 5px;
+}
+
+.hud-dock-engine-pip {
+  border-radius: 50%;
+  height: 5px;
+  width: 5px;
+}
+
+/* Ready: a filled dot. */
+.hud-dock-engine-chip[data-health="ready"] {
+  background: rgb(111 209 143 / 0.18);
+  color: var(--hud-ready);
+}
+.hud-dock-engine-chip[data-health="ready"] .hud-dock-engine-pip {
+  background: var(--hud-ready);
+}
+
+/* Loading, and not-yet-installed: a hollow ring, so the shape differs from
+   ready and not only the hue. Both are amber because neither is a fault —
+   `--hud-busy` is already this window's "the app is thinking" colour, spent by
+   the action row's working dots. `not_configured` shares it deliberately: a
+   machine part-way through setup has not failed at anything, and the dock
+   already says "Setup needed" in words. A *missing worker binary* is a broken
+   install and takes the failed treatment below instead. */
+.hud-dock-engine-chip[data-health="warming"],
+.hud-dock-engine-chip[data-health="unconfigured"] {
+  background: rgb(242 193 78 / 0.18);
+  color: var(--hud-busy);
+}
+.hud-dock-engine-chip[data-health="warming"] .hud-dock-engine-pip,
+.hud-dock-engine-chip[data-health="unconfigured"] .hud-dock-engine-pip {
+  border: 1.5px solid var(--hud-busy);
+}
+
+/* Failed: `--hud-danger`, which is what this window's failure glyph already
+   paints in, and a triangle pip drawn as inline SVG. Deliberately **not**
+   `--recording`: red carries exactly one operational meaning in this window,
+   active capture, and the scaffold suite reads the selector of every rule that
+   spends it. */
+.hud-dock-engine-chip[data-health="failed"] {
+  background: rgb(242 139 132 / 0.18);
+  color: var(--hud-danger);
+}
+
+/* No animation on the warm state. The row is 14px, a pulse would need a
+   `prefers-reduced-motion` fallback, and a static ring already differs from a
+   filled dot. */
+
+/* Under forced-colors the meter hides itself entirely, because the system
+   palette has nothing to spend on decoration. The chip must not: its text is
+   the payload and text survives. The fills flatten to the system background, so
+   a hairline is what keeps the chip a chip rather than three floating glyphs,
+   and the pip keeps its shape either way. */
+@media (forced-colors: active) {
+  .hud-dock-engine-chip {
+    border: 1px solid CanvasText;
+    forced-color-adjust: none;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  .hud-dock-engine-chip .hud-dock-engine-pip {
+    background: CanvasText;
+    border-color: CanvasText;
+  }
+
+  .hud-dock-engine-chip[data-health="warming"] .hud-dock-engine-pip,
+  .hud-dock-engine-chip[data-health="unconfigured"] .hud-dock-engine-pip {
+    background: Canvas;
+  }
 }
 
 .hud-dock-level-wrap {

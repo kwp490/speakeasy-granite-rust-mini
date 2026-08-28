@@ -871,8 +871,14 @@ pub fn warm_granite_if_configured(
     // it: a build whose worker path does not resolve logged
     // `granite_warm result=ok engine=not_configured` and the dock reported
     // loading indefinitely.
+    // Split from `not_configured` deliberately, because they are different
+    // facts and the indicator paints them differently. A missing *pack* is a
+    // machine that has not finished setting up — nothing has failed, and the
+    // dock already says "Setup needed". A missing *worker binary* is an
+    // installation that is broken, and calling that "not configured" would
+    // report a fault as a to-do.
     let Some(granite_worker_exe) = environment.granite_worker_exe else {
-        coordinator.record_warm_state("not_configured");
+        coordinator.record_warm_state("granite_worker_missing");
         return Ok(());
     };
     if !granite_memory_is_sufficient(environment.total_memory_bytes) {

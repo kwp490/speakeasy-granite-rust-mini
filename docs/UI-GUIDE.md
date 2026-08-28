@@ -774,10 +774,8 @@ spends most of its comments avoiding. The cost is honestly stated: a user
 looking away from the dock sees only a small failed state, and has to open
 settings to learn why. That is worse discoverability and not a false claim.
 
-Stop is on the dock despite dictation being hotkey-driven, because the hotkey
-has a hands-free mode in which no key ends a recording at all — a dock without
-Stop would leave the only way out on a window the user deliberately moved away
-from.
+Stop is on the dock despite dictation being hotkey-driven; why, and how it is
+painted, are in "The dock's geometry" below rather than stated twice.
 
 Right-click opens the native menu (Settings, Close). There is deliberately no
 left-click equivalent, so a drag in progress can never be mistaken for either.
@@ -852,11 +850,35 @@ text in the window that says what pressing it does.
 
 The window is transparent and what it draws is a rounded card inset inside it,
 so the dock reads as floating over the desktop rather than welded to it. It
-has five rows in a fixed order — close, vertical wordmark, level meter,
-elapsed clock, Stop — and none of them is conditional: the last two are empty
-outside a dictation rather than absent, so the meter's box cannot move under a
-running recording. No transcript and no microphone picker; both belong to the
-presentation with room for them.
+has six rows in a fixed order — close, vertical wordmark, engine indicator,
+level meter, elapsed clock, Stop — and none of them is conditional: the last
+two are empty outside a dictation rather than absent, so the meter's box cannot
+move under a running recording. No transcript and no microphone picker; both
+belong to the presentation with room for them.
+
+**The engine indicator says which device Granite runs on, and whether it is
+up.** A small chip naming the device in text — `CPU` or `GPU` — with the
+engine's health carried by the chip's colour *and* by the shape of the mark
+beside it: a filled dot when ready, a hollow ring while loading or before a
+model is installed, a triangle when it has failed. Colour is never the only
+signal, and under `forced-colors` every fill flattens to one system colour, so
+the shape is what survives.
+
+**It never names a device the worker has not reported.** The engine answers
+`unknown` for a pre-v2 worker and `not_configured` before any warm, and during
+the load the worker has usually not completed its handshake — so the honest
+chip there is an em dash, not a guess. Inferring `GPU` from a CUDA-capable
+*binary* is the overreach that once put `device=cuda` in a support log for a
+worker running entirely on the processor; see "The active provider is the
+device, never the pack".
+
+Not-yet-installed and failed are deliberately different states. A machine
+part-way through setup has not failed at anything and the dock already says
+"Setup needed" in words, so it takes the same amber as loading; a missing
+worker binary is a broken installation and takes the failure treatment. The
+row costs the meter 22px — it went from 134 to 112, a 16% reduction in the
+dock's most characterful element, accepted knowingly because a device you have
+to hover for is a device you do not know while working in another window.
 
 The level meter is drawn as a symmetric waveform rather than as the default
 HUD's button fill: one row of bars per retained sample, the newest in the
