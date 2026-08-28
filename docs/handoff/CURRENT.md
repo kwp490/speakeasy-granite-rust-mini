@@ -638,25 +638,41 @@ of these in the wrong column.
 `CudaRuntimeCoordinator`, `cuda_runtime_install_start`, `cuda_runtime_error_code`,
 `cuda_runtime_status`, none of which exist; this fork has no runtime download at
 all, as recorded above. Its startup-race half is superseded by the derived test
-at line 1760, which is strictly better. **One fragment is worth keeping before it
-goes**: lines 523 and 525 are the only place in the suite that pins
-`ENGINE_LOADING = {"cold","warming"}` against `case "loading_model": disabled:
-true` — the premise that a cold engine *disables the record button*, which is why
-a failed warm costs the user dictation rather than merely a status line. That
-premise is live and currently unguarded anywhere else.
+at line 1760, which is strictly better. **One fragment was worth keeping**, and
+it took two goes to state correctly. The first attempt salvaged `ENGINE_LOADING =
+{"cold","warming"}` together with `case "loading_model": disabled: true`, on the
+claim that both were live — but `disabled: true` does not appear anywhere in the
+frontend, and the pattern had been asserted against a concatenation of the whole
+tree where it never matched either. What is actually live is better: the loading
+set is written down **twice**, as `ENGINE_LOADING` in `transcriberState.ts` and
+`ENGINE_PENDING` in `HudDockApp.tsx`, whose own comment says it is "kept in step
+with" the other, and nothing checked that. The two now have to be the same set,
+and a start press during the load has to be refused. Both moved into "the engine
+chip never claims a device the worker has not reported".
 
-**Both failures in the revive column are stale assertions, not drift.** 1637's
+**Both failures in the revive column were stale assertions, not drift** — but the
+diagnosis of one of them was wrong, and only re-running it caught that. 1637's
 ceiling watcher does still reach `transcribe_and_deliver`; the regex allowed
-2,400 characters from the function head and the call now sits at 3,878, because
-the function grew when the notice window landed on 2026-08-25. And 1481's "exactly
-one delivery path" counts `deliver_final_text(&app, &text, source_reason)` — a
-three-argument signature whose `source_reason` left with the streaming fallback.
-There are two call sites now, at `views.rs:1155` and `:1156`, and **the invariant
-still holds**: both are inside `transcribe_and_deliver`, which is the only thing
-that reaches delivery. The assertion has to be rewritten to say that, rather than
-to count a string. **A count is the wrong shape for a "there is exactly one path"
-rule** — it fails when the signature changes and passes when a second caller
-copies the same line.
+2,400 characters from the function head and the call sits at 3,878, because the
+function grew when the notice window landed on 2026-08-25.
+
+1481's "exactly one delivery path" counted
+`deliver_final_text(&app, &text, source_reason)`, a three-argument signature whose
+`source_reason` left with the streaming fallback, so the count silently became 0.
+It was recorded here as "both call sites are inside `transcribe_and_deliver`,
+which is the only thing that reaches delivery". **That is not true**, and it was
+inferred from the call sites sitting at `views.rs:1155`–`:1156`, a few dozen lines
+below `transcribe_and_deliver` at `:1079`, without reading which function encloses
+them. `transcribe_and_deliver` does not deliver at all: it submits the audio to
+`OrderedFinalizationQueue`. The queue's single consumer, `process_finalization_job`
+at `:1138`, is the only caller of `deliver_final_text`, and the composition root
+wires that consumer exactly once — which is what stops two utterances racing. The
+revived assertion names the enclosing function and pins the single wiring.
+**Proximity is not containment**, and a line number is not a call graph.
+
+**A count is the wrong shape for a "there is exactly one path" rule** either way:
+it fails when the signature changes and passes when a second caller copies the
+same line.
 
 The substitutions the revivals need, all mechanical: `"hud"` → `"hud-dock"` and
 `StreamingEngineCoordinator` → `GraniteEngineCoordinator` (1511),
@@ -672,6 +688,35 @@ guards are the press-time UIA snapshot staying deleted (`capture_target`,
 into a WebView2 window, for a snapshot that was stored and never read) and
 `inspect` keeping a bounded `recv_timeout`. Those are recorded measurements with
 no other check behind them.
+
+### Done 2026-08-28 — and every revival was proved able to fail
+
+Six revived, one deleted, `test.skip` and `const backend = ""` both gone from the
+suite: **66 tests, 66 passing, 0 skipped**. Each revived test opens with an
+instrument self-check, because every one of them is a set of `match`es on source
+and a file that failed to load reports exactly what a real regression reports.
+
+**Passing was never the evidence — these passed for months.** Each was broken on
+purpose and had to fail: a re-added `fn capture_target`; `ENGINE_PENDING` narrowed
+to `{"cold"}`; `reverify` pointed at a default spec; a second `deliver_final_text`
+call outside the queue consumer; the relaunch handler switched to
+`show_settings_window`; the ceiling watcher's delivery removed; the close arm
+renamed. Two of those controls were themselves too weak on the first attempt and
+proved nothing — adding a delivery call *inside* the consumer does not violate
+"only the consumer delivers", and re-adding `"hud" | "hud-dock"` leaves
+`"hud-dock" =>` matching. **A control that does not fail has not verified
+anything**, and the second of those exposed a real gap: the new rule read one
+label per arm, so it saw the live half of an or-pattern and missed the dead half.
+It reads whole arm patterns now, and both spellings fail it.
+
+Two findings came out of doing the work rather than the audit. `on_window_event`
+had no rule that its match arms name declared windows — it does now, the same
+shape as `every_menu_id_that_is_built_has_a_handler`. And **`MicPicker.tsx`
+exports a component nothing imports**: it was the large HUD's device list, a 62 px
+dock has nowhere to put one, and two assertions about its JSX survived only
+because the test never ran — one of them naming a call site that does not exist.
+It is pinned as unrendered rather than deleted, because the file is still in the
+tree and the next reader will assume it is wired up.
 
 **The backticked-identifier class was swept the same day**, by hand, against the
 scanner described in `CLAUDE.md` — 2,554 backticked spans, 1,193 item-shaped,

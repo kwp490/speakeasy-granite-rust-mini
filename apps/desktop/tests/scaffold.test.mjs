@@ -61,6 +61,43 @@ async function readAllRustSources() {
   );
 }
 
+/**
+ * Every `.rs` in the desktop crate, concatenated.
+ *
+ * The rules that want this are about the *crate*, not a file: `lib.rs`
+ * `include!`s its siblings into one namespace, so a function can move between
+ * them without anything changing. Seven tests read `const backend = ""` instead
+ * from the fork until 2026-08-28, which is not a weaker version of this — a
+ * `match` against the empty string fails, so those tests could only ever have
+ * been skipped.
+ */
+async function readDesktopBackend() {
+  const root = fileURLToPath(new URL("../src-tauri/src/", import.meta.url));
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  const files = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".rs"))
+    .map((entry) => join(entry.parentPath, entry.name));
+  const sources = await Promise.all(files.map((file) => readFile(file, "utf8")));
+  return sources.join("\n");
+}
+
+/**
+ * The body of a Rust `fn` by name, brace-balanced.
+ *
+ * Not a character window. `watch_for_unattended_capture_end` was asserted to
+ * reach `transcribe_and_deliver` within 2,400 characters of its head; the
+ * function grew to 3,878 when the notice window landed on 2026-08-25, and the
+ * assertion would have failed on a function that was still correct. A window is
+ * a guess about how long a function is allowed to get.
+ */
+function rustFunctionBody(source, name) {
+  const declaration = new RegExp(String.raw`\bfn\s+${name}\b`).exec(source);
+  if (declaration === null) return null;
+  const brace = source.indexOf("{", declaration.index);
+  if (brace === -1) return null;
+  return balancedFrom(source, brace, "{", "}");
+}
+
 /** Every `.tsx` in `src/`. Use for rules about **markup**. */
 function readComponents() {
   return readSources([".tsx"]);
@@ -425,11 +462,19 @@ test("desktop uses strict local CSP and catalog-backed accessible UI", async () 
   assert.doesNotMatch(app, /phase1_run_fake/);
 });
 
-test.skip("nothing slow or blocking sits between the key press and the microphone", async () => {
-  const backend = "";
-  const engine = "";
-  const target = "";
-  assert.ok(true, "blocking-path guarantees are covered by Rust tests");
+test("nothing slow or blocking sits between the key press and the microphone", async () => {
+  const backend = await readDesktopBackend();
+  const target = await readFile(
+    new URL("../../../crates/speakeasy-windows/src/target.rs", import.meta.url),
+    "utf8",
+  );
+
+  // Instrument self-check. Every assertion here is a `doesNotMatch` or a match
+  // on source, and both report the same thing about a file that was not read as
+  // about a file that is correct. This test spent from the fork to 2026-08-28
+  // reading `const backend = ""`, where `doesNotMatch` passes vacuously.
+  assert.match(backend, /fn on_window_event\(/, "the desktop backend did not load");
+  assert.match(target, /INSPECT_DEADLINE/, "target.rs did not load");
 
   // A full UI Automation snapshot of the foreground window used to run on the
   // press, as a pre-flight check. Measured: 68 ms into an empty Notepad, 1.7 s
@@ -450,33 +495,13 @@ test.skip("nothing slow or blocking sits between the key press and the microphon
     "the shortcut handler must not touch the target observer",
   );
 
-  // Live text is display-only, so waiting for a model load to provide it is
-  // never worth delaying the recording. `ensure_ready` holds the adapter mutex
-  // for the whole load; `try_ready` cannot.
-  assert.match(engine, /pub fn try_ready\(&self\) -> Option<Arc<ResidentAdapter>> \{\s*self\.adapter\.try_lock\(\)/);
-  const tap = backend.match(/fn build_capture_tap\([\s\S]*?\n\}/);
-  assert.ok(tap, "build_capture_tap must be findable");
-  assert.match(tap[0], /engine\.try_ready\(\)/);
-  assert.doesNotMatch(
-    tap[0],
-    /ensure_ready/,
-    "the capture path must never call the blocking loader",
-  );
-  // …and it must still arrange for the next dictation to have live text.
-  assert.match(tap[0], /warm_streaming_engine\(app\)/);
-
-  // The live path and the delivered path must ask the provider question the same
-  // way, or one dictation lands on two engines. On a half-installed runtime the
-  // single-file check says CUDA and the completeness check says CPU, so a mixture
-  // is reachable rather than theoretical -- it was, briefly.
-  // Matched at the call site, not by mentions of the old expression: the comments
-  // that explain this invariant name it, and a test that cannot survive its own
-  // documentation is a test nobody will keep.
-  assert.doesNotMatch(
-    backend,
-    /admitted_asr_pack\([^;]*onnxruntime_providers_cuda/,
-    "engine selection must use cuda_runtime_available(), never the provider DLL alone",
-  );
+  // Four assertions stood here about the streaming engine's non-blocking warm:
+  // `try_ready` against `ensure_ready` in `build_capture_tap`, and that live and
+  // delivered selection asked the provider question the same way rather than
+  // reading the ONNX provider DLL. Every symbol in them left with the streaming
+  // engine, and there is no live text to delay a recording for now — Granite
+  // runs once, after the recording stops. Restoring them was not possible; the
+  // remaining assertions are the ones that still describe this product.
 
   // A UIA call reaches into another process and can hang there. An unbounded
   // recv took the caller with it.
@@ -488,84 +513,14 @@ test.skip("nothing slow or blocking sits between the key press and the microphon
   );
 });
 
-test.skip("the graphics-card runtime is offered with its size and never silently", async () => {
+test("startup model verification is explicit and failure-visible", async () => {
   const app = await readAllSources();
   const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
-  const backend = "";
-  const installBody = [""];
+  const backend = await readDesktopBackend();
 
-  // The largest download the app can start. Three properties, all of which were
-  // decided rather than defaulted: it is offered only when a card could use it,
-  // the size is on screen, and it cannot start without an explicit confirmation.
-  assert.match(app, /runtime !== null && runtime\.offered &&/);
-  assert.match(app, /formatBytes\(runtime\.download_bytes\)/);
-  assert.match(app, /"cuda_runtime_install_start", \{ confirmed: runtimeConfirmed \}/);
-  // …and it must be warmed again afterwards, on **every** outcome. A cold engine
-  // is not neutral: the transcriber maps `cold` to `loading_model`, which
-  // *disables* the record button. Observed on an installed build — the fetch
-  // succeeded and dictation was no longer possible, because nothing re-warmed.
-  // The re-warm sits after the whole match so a failure or a cancellation
-  // recovers too; a refused install must not cost the user dictation.
-
-  assert.match(
-    installBody[0],
-    /Err\(error\) => CudaRuntimeCoordinator::set_status\([\s\S]*?\}\s*\n(\s*\/\/[^\n]*\n)*\s*warm_streaming_engine\(&handle\);/,
-    "the re-warm must follow every arm of the outcome match, not sit inside the Ok arm",
-  );
-  // The premise the re-warm rests on, pinned so it cannot drift silently: `cold`
-  // is a button-disabling state, so an install that ends cold ends unusable.
-  const transcriberState = await readFile(
-    new URL("../src/state/transcriberState.ts", import.meta.url),
-    "utf8",
-  );
-  assert.match(
-    transcriberState,
-    /const ENGINE_LOADING: ReadonlySet<string> = new Set\(\["cold", "warming"\]\)/,
-  );
-  assert.match(app, /case "loading_model":[\s\S]{0,200}disabled: true/);
-
-  // Every failure must reach the user as prose. The mapping is the authority: a
-  // new `CudaRuntimeError` variant is added there first, and one whose code has
-  // no catalog entry renders as `errorUnknown` — "the operation stopped safely",
-  // which says nothing useful about 2.97 GB that just failed to arrive.
-  const mapping = backend.match(/const fn cuda_runtime_error_code\([\s\S]*?\n}/);
-  assert.ok(mapping, "cuda_runtime_error_code must exist");
-  const codes = [...mapping[0].matchAll(/"(cuda_runtime_[a-z_]+)"/g)].map((match) => match[1]);
-  assert.ok(codes.length >= 9, `expected every variant mapped, found ${codes.length}`);
-  for (const code of [...codes, "gpu_not_admissible", "cuda_runtime_state_unavailable"]) {
-    assert.match(catalog, new RegExp(`\\n\\s*${code}:`), `${code} needs catalog prose`);
-  }
-
-  // `partial` is a state a user can be in and must be able to read: some of the
-  // runtime is on disk, none of it can run, and a retry resumes.
-  assert.match(catalog, /\n\s*partial: "Partly installed",/);
-  assert.match(app, /runtime\.state === "partial"/);
-
-  // A lost startup read must not hide the offer for the life of the window.
-  // Found on an installed build: `cuda_runtime_status` needs a coordinator
-  // `setup` manages after several that open files, the page fires its startup
-  // reads at once, and on the first launch after an install this one lost the
-  // race. The catch nulled the state and nothing asked again, so a 2.97 GB offer
-  // was invisible until the window was reloaded. Two things keep it fixed — the
-  // read is retried, and the catch no longer nulls what it had.
-  assert.match(app, /runtimeAttempts >= 20/);
-  assert.doesNotMatch(
-    app,
-    /catch \{\s*setRuntime\(null\)/,
-    "a transient read failure must leave the last offer reading alone, not erase it",
-  );
-  // …and the coordinators the page reads on mount are managed before the ones
-  // that open files, so the race is narrow rather than merely survivable.
-  assert.match(
-    backend,
-    /app\.manage\(runtime\);\s*app\.manage\(CudaRuntimeCoordinator::default\(\)\);\s*app\.manage\(HistoryCoordinator/,
-  );
-});
-
-test.skip("startup model verification is explicit and failure-visible", async () => {
-  const app = await readAllSources();
-  const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
-  const backend = "";
+  // Instrument self-check: this read `const backend = ""` from the fork until
+  // 2026-08-28, where every `match` below fails and every `doesNotMatch` passes.
+  assert.match(backend, /fn model_install_status\(/, "the desktop backend did not load");
 
   assert.match(app, /state: "verifying"/);
   assert.match(app, /invoke<ModelInstallStatus>\("model_install_status"\)\.then/);
@@ -578,18 +533,25 @@ test.skip("startup model verification is explicit and failure-visible", async ()
   // "verified on disk" while the resolver went on picking the uninstalled CUDA
   // pack — the app claimed ready and failed every dictation. Pinning the
   // resolver call here is what keeps the two from drifting apart again.
-  assert.match(
-    backend,
-    /fn readiness\(\s*root: &Path,\s*cuda_runtime_available: bool,\s*provider_override: Option<speakeasy_models::ExecutionProvider>,[\s\S]*admitted_asr_pack_with_preference\(\s*root,\s*cuda_runtime_available,\s*provider_override,[\s\S]*\.reverify\(&choice\.spec\)/,
-  );
-  // …and it must be reachable more than once. Installing the CUDA *runtime*
+  // It took a `provider_override` until the fork and asked
+  // `admitted_asr_pack_with_preference`; neither exists. Granite's provider is a
+  // build feature rather than a preference, so no setting can conjure a
+  // CUDA-capable worker and there is nothing to override. What has to survive is
+  // the shape: readiness resolves the pack **dictation will actually load** and
+  // reverifies that one.
+  const readiness = rustFunctionBody(backend, "readiness");
+  assert.ok(readiness, "fn readiness must be findable");
+  assert.match(readiness, /granite_selection\(/);
+  assert.match(readiness, /\.reverify\(&selection\.install_spec\)/);
+  assert.match(readiness, /"verified_on_disk"/);
+  // …and it must be reachable more than once. The CUDA worker's availability
   // changes which pack resolves without touching a pack, so a readiness answer
   // computed only in `new` goes stale and the app says "Setup needed" until it is
   // relaunched — the relaunch the "re-resolve per warm" decision rules out.
-  assert.match(backend, /fn new\(root: PathBuf, cuda_runtime_available: bool\)[\s\S]*readiness\(&root, cuda_runtime_available, None\)/);
+  assert.match(backend, /fn new\(root: PathBuf, cuda_worker_available: bool\)[\s\S]{0,200}?readiness\(&root, cuda_worker_available\)/);
   assert.match(
     backend,
-    /fn refresh_readiness\(&self, cuda_runtime_available: bool\)[\s\S]*readiness\(&self\.root, cuda_runtime_available, None\)/,
+    /fn refresh_readiness\(&self, cuda_worker_available: bool\)[\s\S]{0,200}?readiness\(&self\.root, cuda_worker_available\)/,
   );
   assert.match(backend, /fn status_snapshot\(&self\)[\s\S]*PoisonError::into_inner/);
   assert.match(backend, /fn model_install_status\(\s*app:/);
@@ -1016,6 +978,48 @@ test("the engine chip never claims a device the worker has not reported", async 
       `the warm state ${code} can reach the chip and has no catalog entry, so it would render as errorUnknown`,
     );
   }
+
+  // A cold engine is not merely a status line: it refuses the start press,
+  // because `dictation_start` would block on the load's mutex for up to a
+  // minute with the window frozen. That premise is why a warm that fails costs
+  // the user dictation rather than cosmetics.
+  //
+  // Which warm states count as "still loading" is written down **twice** —
+  // `ENGINE_LOADING` in `transcriberState.ts` decides the session state,
+  // `ENGINE_PENDING` here decides the chip's colour — and `ENGINE_PENDING`'s own
+  // comment says it is "kept in step with" the other. Nothing checked that. Two
+  // hand-maintained copies of one set drift in the direction where the chip
+  // says loading and the button is live, or the reverse.
+  //
+  // The graphics-card-runtime test pinned the first half and was deleted on
+  // 2026-08-28 with the runtime download it described; this is what was worth
+  // keeping out of it.
+  const transcriberState = await readFile(
+    new URL("../src/state/transcriberState.ts", import.meta.url),
+    "utf8",
+  );
+  const loadingStates = (source, name) =>
+    new RegExp(String.raw`const ${name}: ReadonlySet<string> = new Set\(\[([^\]]*)\]\)`).exec(
+      source,
+    );
+  const sessionSide = loadingStates(transcriberState, "ENGINE_LOADING");
+  const chipSide = loadingStates(dock, "ENGINE_PENDING");
+  assert.ok(sessionSide, "ENGINE_LOADING must be findable in transcriberState.ts");
+  assert.ok(chipSide, "ENGINE_PENDING must be findable in HudDockApp.tsx");
+  assert.equal(
+    chipSide[1].trim(),
+    sessionSide[1].trim(),
+    "the chip's loading states and the session's must be the same set; the comment says they are kept in step",
+  );
+  assert.match(sessionSide[1], /"cold"/);
+  assert.match(sessionSide[1], /"warming"/);
+
+  // …and a press that lands during the load is refused rather than queued.
+  assert.match(
+    transcriberState,
+    /if \(current\.state\.kind === "loading_model"\) return current;/,
+    "a start press during the model load must be refused, not blocked on the mutex",
+  );
 });
 
 test("the start and stop cues are opposite directions of one interval", async () => {
@@ -1478,10 +1482,14 @@ test("IPC schema is narrow and the HUD keeps an explicit command allowlist", asy
   ]);
 });
 
-test.skip("the HUD's session controls share one implementation with the global shortcut", async () => {
-  // The shared implementation is exercised by the Rust desktop tests; this
-  // placeholder keeps the architecture note visible without parsing Rust from Node.
-  const backend = "";
+test("the HUD's session controls share one implementation with the global shortcut", async () => {
+  const backend = await readDesktopBackend();
+
+  // Instrument self-check. From the fork to 2026-08-28 this read
+  // `const backend = ""` behind a `test.skip`, on the recorded grounds that "the
+  // shared implementation is exercised by the Rust desktop tests" — a
+  // placeholder that could not have passed if it ran.
+  assert.match(backend, /fn start_dictation\(/, "the desktop backend did not load");
 
   // The regression this exists to prevent is a dictation started from the
   // button skipping delivery while the identical action from the shortcut
@@ -1496,11 +1504,36 @@ test.skip("the HUD's session controls share one implementation with the global s
   assert.match(backend, /HotkeyAction::Stop\)[\s\S]{0,200}?stop_dictation\(app\)/);
   assert.doesNotMatch(backend, /fn start_hotkey_dictation|fn finish_hotkey_dictation/);
 
-  // Only `stop_dictation` reaches delivery, so there is one delivery path.
+  // There is one delivery path, and this used to say so by counting
+  // `deliver_final_text(&app, &text, source_reason)` and asserting the count was
+  // 1. Wrong shape twice over: the `source_reason` argument left with the
+  // streaming fallback, so the count silently became 0, and a count of a call
+  // *string* passes just as happily when a second caller copies the line.
+  //
+  // The rule is about reachability, and the path is longer than "stop_dictation
+  // delivers". `stop_dictation` and the ceiling watcher both call
+  // `transcribe_and_deliver`, which does not deliver at all — it submits the
+  // audio to `OrderedFinalizationQueue`. The queue's single consumer is
+  // `process_finalization_job`, and that is the only function that calls
+  // `deliver_final_text`: twice, for the two arms of one match, a transcript and
+  // the empty string a no-speech result delivers.
+  //
+  // Asserted by naming the enclosing function rather than by counting, so it
+  // survives a signature change and still fails if a second caller appears.
+  const consumer = rustFunctionBody(backend, "process_finalization_job");
+  assert.ok(consumer, "fn process_finalization_job must be findable");
+  const inConsumer = [...consumer.matchAll(/deliver_final_text\(/g)].length;
+  assert.ok(inConsumer > 0, "the queue consumer must be what delivers");
+  const everywhere = [...backend.matchAll(/deliver_final_text\(/g)].length;
   assert.equal(
-    (backend.match(/deliver_final_text\(&app, &text, source_reason\)/g) ?? []).length,
+    everywhere - inConsumer,
     1,
+    "deliver_final_text must be called only from process_finalization_job; the one remainder is its own definition",
   );
+  // …and that consumer is reached only from the queue, wired once at the
+  // composition root. One consumer is what stops two utterances racing.
+  assert.match(backend, /move \|job\| process_finalization_job\(&finalization_app, job\)/);
+  assert.equal([...backend.matchAll(/process_finalization_job\(/g)].length, 2);
 
   // Both button commands route through the shortcut's own session and debounce
   // state, so a click and a key press compete for one session.
@@ -1508,11 +1541,24 @@ test.skip("the HUD's session controls share one implementation with the global s
   assert.match(backend, /fn request_stop\(&self\)[\s\S]{0,900}?self\.accept_press\(\)/);
 });
 
-test.skip("window close means different things for the transcriber and for settings", async () => {
-  const backend = "";
-  const confirm = "";
-  const nativeCatalog = "";
-  assert.ok(true, "window lifecycle behavior is covered by Rust tests");
+test("window close means different things for the dock and for settings", async () => {
+  const backend = await readDesktopBackend();
+  const config = JSON.parse(
+    await readFile(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"),
+  );
+  const confirm = await readFile(
+    new URL("../../../crates/speakeasy-windows/src/confirm.rs", import.meta.url),
+    "utf8",
+  );
+  const nativeCatalog = await readFile(
+    new URL("../src-tauri/src/native_catalog.rs", import.meta.url),
+    "utf8",
+  );
+
+  // Instrument self-check: all three read `""` from the fork until 2026-08-28.
+  assert.match(backend, /fn on_window_event\(/, "the desktop backend did not load");
+  assert.match(confirm, /Confirmation/, "confirm.rs did not load");
+  assert.match(nativeCatalog, /pub const/, "native_catalog.rs did not load");
 
   // There was no window-event handler at all before the redesign; the only exit
   // path was the tray.
@@ -1536,10 +1582,38 @@ test.skip("window close means different things for the transcriber and for setti
     );
   }
 
+  // Every label the handler matches is a window that exists. It matched `"hud"`
+  // from the fork until 2026-08-28, for a window the config has not declared
+  // since — an arm that compiles, never fires, and reads to the next person as
+  // proof the window is there. The `_ => {}` arm is correct and stays: an
+  // unrecognised label arriving at runtime must not panic, which is exactly what
+  // makes a dead arm invisible, so the only place to catch it is here. Same
+  // shape as `every_menu_id_that_is_built_has_a_handler` on the Rust side.
+  const closeHandler = rustFunctionBody(backend, "on_window_event");
+  assert.ok(closeHandler, "fn on_window_event must be findable");
+  //
+  // Whole arm *patterns*, not `"label" =>`: the dead arm was `"hud" | "hud-dock"
+  // => {`, where only the last alternative is followed by the arrow. A rule that
+  // reads one label per arm sees the live half and misses the dead one, which is
+  // how this was written the first time.
+  const declared = new Set(config.app.windows.map((window) => window.label));
+  const matched = [...closeHandler.matchAll(/^\s*("[^"]+"(?:\s*\|\s*"[^"]+")*)\s*=>/gm)].flatMap(
+    (arm) => [...arm[1].matchAll(/"([^"]+)"/g)].map((label) => label[1]),
+  );
+  assert.ok(matched.length >= 2, `expected the handler to match some labels, found ${matched.length}`);
+  for (const label of matched) {
+    assert.ok(declared.has(label), `on_window_event matches "${label}", which no window declares`);
+  }
+
   // Settings hides and never destroys, never quits, never touches a dictation.
   assert.match(backend, /"main" =>[\s\S]{0,200}?prevent_close\(\)[\s\S]{0,120}?window\.hide\(\)/);
-  // Closing the transcriber quits the whole app, gracefully.
-  assert.match(backend, /"hud" =>[\s\S]{0,320}?request_quit\(&app\)[\s\S]{0,160}?shutdown_gracefully\(&app\)/);
+  // Closing the dock quits the whole app, gracefully. This named `"hud"` until
+  // 2026-08-28 — a window label that has not existed since the fork, matched by
+  // an arm the source still carried.
+  assert.match(
+    backend,
+    /"hud-dock" =>[\s\S]{0,320}?request_quit\(&app\)[\s\S]{0,160}?shutdown_gracefully\(&app\)/,
+  );
 
   // Mid-dictation close asks first, via a native dialog rather than a WebView
   // modal: the transcriber is no-activate and cannot reliably hold focus.
@@ -1555,38 +1629,34 @@ test.skip("window close means different things for the transcriber and for setti
   assert.match(nativeCatalog, /QUIT_DURING_DICTATION_MESSAGE/);
 
   // Graceful quit releases the resident worker rather than trusting the Job
-  // object to clean up after a hard exit.
-  assert.match(backend, /fn shutdown_gracefully\([\s\S]{0,400}?StreamingEngineCoordinator>\(\)\.shutdown\(\)/);
+  // object to clean up after a hard exit. It was the streaming coordinator that
+  // was shut down here; there is one engine, and it is the one holding two
+  // gigabytes of weights and a child process.
+  const shutdown = rustFunctionBody(backend, "shutdown_gracefully");
+  assert.ok(shutdown, "fn shutdown_gracefully must be findable");
+  assert.match(shutdown, /GraniteEngineCoordinator>\(\)\.shutdown\(\)/);
 });
 
-test.skip("the transcriber is the surface a relaunch and a restore bring back", async () => {
+test("the dock is the surface a relaunch and a restore bring back", async () => {
   const config = JSON.parse(
     await readFile(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"),
   );
-  const backend = "";
+  const backend = await readDesktopBackend();
   const hudComponents = await readHudComponents();
-  const hud = config.app.windows.find((window) => window.label === "hud");
   const main = config.app.windows.find((window) => window.label === "main");
 
-  // Startup shows the transcriber alone.
-  assert.equal(main.visible, false);
-  assert.equal(hud.visible ?? true, true);
+  // Instrument self-check: `backend` read `""` from the fork until 2026-08-28,
+  // and this test also looked up a `hud` window that has not been declared since
+  // the fork — `hud.visible` would have thrown on `undefined` had it ever run.
+  assert.match(backend, /fn show_dock\(/, "the desktop backend did not load");
+  assert.ok(main, "the main window must be declared");
 
-  // `visible: false` alone did not stop this window taking the foreground, and
-  // `focus` defaults to true. Measured on this host: from ~1.5s after launch,
-  // GetForegroundWindow returned "SpeakEasy settings" with IsWindowVisible false,
-  // and kept returning it indefinitely. A hidden window owning the foreground is
-  // not cosmetic here -- delivery inspects the foreground window to decide where
-  // the transcript goes, so a dictation issued in that state reported
-  // `target_inspect_refused reason=ElementChanged` against SpeakEasy's own hidden
-  // window and fell back to the clipboard instead of pasting. It also blocked
-  // another process from taking the foreground at all: Notepad, launched while
-  // SpeakEasy held it, never became foreground in 6s, and did so in under 500ms
-  // with SpeakEasy stopped.
-  //
-  // Safe because opening settings is always deliberate: `show_settings_window`
-  // calls show() *and* set_focus(), so the window still focuses when asked for.
-  assert.equal(main.focus, false, "a hidden settings window must not take the foreground");
+  // Settings starts hidden; the dock is what a launch puts on screen. Which
+  // windows exist, and that none of them can take the foreground, is asserted by
+  // "every window is declared, and none of them can take the foreground" — this
+  // deliberately does not repeat `main.focus`, which that test already covers
+  // for every window rather than for this one.
+  assert.equal(main.visible, false);
 
   /*
    * The settings window's minimum must fit the work area at 200% scaling,
@@ -1609,47 +1679,75 @@ test.skip("the transcriber is the surface a relaunch and a restore bring back", 
     `minHeight ${main.minHeight} exceeds the ${workArea.height}px logical work area at 200%`,
   );
 
-  // A second launch means "give me SpeakEasy", which after the flip is the
-  // transcriber. This showed `main` until it was actually run: relaunching with
-  // the transcriber minimized left it minimized and popped settings instead.
+  // A second launch means "give me SpeakEasy", which is the dock. This showed
+  // `main` until it was actually run: relaunching with the dock minimized left
+  // it minimized and popped settings instead. The function was
+  // `show_transcriber` while the large HUD existed.
   assert.match(
     backend,
-    /single_instance::init\([\s\S]{0,600}?show_transcriber\(app\)/,
-    "a second launch must restore the transcriber, not the settings workspace",
+    /single_instance::init\([\s\S]{0,600}?show_dock\(app\)/,
+    "a second launch must restore the dock, not the settings workspace",
   );
   // And it must not focus it — no-activate is load-bearing for delivery
-  // targeting, so a relaunch cannot be allowed to steal the foreground.
-  assert.match(backend, /fn show_transcriber\([\s\S]{0,400}?unminimize\(\)/);
+  // targeting, so a relaunch cannot be allowed to steal the foreground. Anything
+  // this app puts in the foreground becomes the next dictation's paste target.
+  const showDock = rustFunctionBody(backend, "show_dock");
+  assert.ok(showDock, "fn show_dock must be findable");
+  assert.match(showDock, /unminimize\(\)/);
   assert.doesNotMatch(
-    backend,
-    /fn show_transcriber\([\s\S]{0,400}?set_focus\(\)/,
-    "the transcriber is no-activate; showing it must never focus it",
+    showDock,
+    /set_focus\(\)/,
+    "the dock is no-activate; showing it must never focus it",
   );
 
-  // The picker reports the microphone the next dictation will really use. A
-  // fresh profile stores no preference but still records from a real device, so
-  // a picker that read "Select a microphone" was stating something untrue.
+  // The backend still reports the microphone the next dictation will really use:
+  // a fresh profile stores no preference but records from a real device, so a
+  // picker that read "Select a microphone" was stating something untrue.
   assert.match(backend, /preferred_device_id:/);
-  assert.match(hudComponents, /function resolveDevice\(/);
-  assert.match(hudComponents, /preferredId={model\.preferredDeviceId}/);
+  // The picker that consumed it is **not rendered by anything**. `MicPicker.tsx`
+  // exports a component no file imports — it was the large HUD's control, and a
+  // 62 px dock has nowhere to put a device list, so choosing a microphone is a
+  // settings-window job now. Two assertions stood here about its JSX
+  // (`resolveDevice`, `preferredId={model.preferredDeviceId}`) and passed only
+  // because this test never ran; the second names a call site that does not
+  // exist. Pinned as dead rather than deleted, because the file is still in the
+  // tree and a reader will assume it is wired up.
+  assert.equal(
+    [...hudComponents.matchAll(/<MicPicker\b/g)].length,
+    0,
+    "MicPicker is unrendered; if it has been wired up, restore the assertions about its props",
+  );
 });
 
-test.skip("a dictation that hits the duration ceiling delivers instead of vanishing", async () => {
-  const backend = "";
-  const capture = "";
+test("a dictation that hits the duration ceiling delivers instead of vanishing", async () => {
+  const backend = await readDesktopBackend();
+  const capture = await readFile(
+    new URL("../src-tauri/src/capture_wizard.rs", import.meta.url),
+    "utf8",
+  );
+
+  // Instrument self-check: both read `""` from the fork until 2026-08-28.
+  assert.match(backend, /fn stop_dictation\(/, "the desktop backend did not load");
+  assert.match(capture, /MAX_CAPTURE_SECONDS/, "capture_wizard.rs did not load");
 
   // Hitting the ceiling must stop exactly as a user stop does — it must
   // not discard. Both paths reach the same function.
-  assert.match(backend, /fn watch_for_unattended_capture_end\(/);
+  //
+  // Read as function *bodies* rather than as a character window from each head.
+  // The watcher's call was asserted to appear within 2,400 characters; the
+  // function grew to 3,878 when the notice window landed on 2026-08-25, so the
+  // bound would have failed on a function that was still correct. A window is a
+  // guess about how long a function is allowed to get.
+  const watcher = rustFunctionBody(backend, "watch_for_unattended_capture_end");
+  const stop = rustFunctionBody(backend, "stop_dictation");
+  assert.ok(watcher, "fn watch_for_unattended_capture_end must be findable");
+  assert.ok(stop, "fn stop_dictation must be findable");
   assert.match(backend, /fn transcribe_and_deliver\(/);
-  assert.match(backend, /fn stop_dictation\([\s\S]{0,600}?transcribe_and_deliver\(app\)/);
-  assert.match(
-    backend,
-    /fn watch_for_unattended_capture_end\([\s\S]{0,2400}?transcribe_and_deliver\(&app\)/,
-  );
+  assert.match(stop, /transcribe_and_deliver\(app\)/);
+  assert.match(watcher, /transcribe_and_deliver\(&app\)/);
 
   // The watcher must not race the user's own stop into a second transcription.
-  assert.match(backend, /capture\.stop_was_requested\(\)/);
+  assert.match(watcher, /stop_was_requested\(\)/);
   assert.match(capture, /fn stop_was_requested\(&self\)/);
 
   // The shipped product ceiling is two minutes, and an unattended capture
