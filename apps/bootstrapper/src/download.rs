@@ -799,12 +799,13 @@ mod tests {
     /// The same shape as the recorded "a whole crate went red unnoticed", one
     /// level down — a target filter rather than a crate list.
     ///
-    /// The second item is no longer a future state in the *code* — `plan` reads
-    /// `provider` now — but it is still one in the *catalog*, because nothing is
-    /// published. So a graphics-card plan is one item today, for a stated reason
-    /// rather than by omission, and
-    /// `the_graphics_card_plan_fetches_the_worker_and_its_libraries` exercises
-    /// the other half against a simulated pin.
+    /// One engine is a claim about the *pack*, not about the plan's length. A
+    /// graphics-card machine fetches more — the CUDA worker and the three
+    /// libraries it loads — against the same single GGUF, because that worker
+    /// offloads the same file. The assertion below says so and inverted on
+    /// 2026-08-26 when the worker was pinned; this comment claimed the opposite
+    /// ("nothing is published, so a graphics-card plan is one item today") until
+    /// 2026-08-28, three lines above the assertion contradicting it.
     #[test]
     fn the_plan_names_one_engine_and_totals_its_transfer_size() {
         // Not shadowed as `plan`: this test calls the function twice, and a

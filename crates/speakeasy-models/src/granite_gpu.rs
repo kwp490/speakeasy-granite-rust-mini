@@ -52,14 +52,20 @@ use std::path::Path;
 use crate::gpu::GpuProbeFailure;
 use crate::manifest::{NativeRuntimeSource, TrustedManifest};
 
-/// The manifest id a published CUDA-capable Granite worker will carry.
+/// The manifest id the published CUDA-capable Granite worker carries.
 ///
-/// Named here, as a constant, rather than left implicit — because the absence of
-/// this artifact is the declaration that no graphics-card configuration exists,
-/// and a declaration made by absence has to say which absence it is. On the day
-/// a CUDA worker is built and pinned, it goes into the manifest's `artifacts`
-/// under this id and every layer below starts answering `true` without a second
-/// edit.
+/// Named here, as a constant, rather than left implicit — because the presence
+/// or absence of this artifact *is* the declaration of whether a graphics-card
+/// configuration exists, and a declaration carried by a name has to say which
+/// name.
+///
+/// **Present since 2026-08-26**, pinned at an immutable commit in the manifest's
+/// `artifacts`. Before that the declaration was made by absence and seven tests
+/// asserted it; pinning the worker made every layer below start answering `true`
+/// with no second edit, and those seven inverted together, which is what said
+/// the change had landed everywhere it needed to. Publishing is still not
+/// installing: `inspect_gpu_payload` answers `WorkerNotInstalled` on a machine
+/// that has not fetched it.
 ///
 /// `native-runtime` rather than a pack: it is a binary this project builds and
 /// pins by digest, which is exactly what that artifact kind is for, and it is

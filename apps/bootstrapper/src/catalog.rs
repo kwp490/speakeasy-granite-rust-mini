@@ -237,11 +237,18 @@ pub const PROVIDER_PROCESSOR: &str = "Use the processor";
 
 /// Why the provider step offers what it offers.
 ///
-/// Four states, and the one that matters is the last: a machine with a capable
-/// card, where the graphics-card option is still unavailable. Saying nothing
-/// there would read as setup not having looked, and saying "your card is not
-/// supported" would be false. The honest answer is that the part that runs on
-/// the card is not published yet, which is a fact about this release.
+/// Three states, and the one that matters is the middle: a machine with a
+/// capable card, where the graphics-card option is still unavailable. Saying
+/// nothing there would read as setup not having looked, and saying "your card is
+/// not supported" would be false. The honest answer names *which* half is
+/// missing, which is what [`describe_gpu_rejection`] supplies.
+///
+/// That answer used to be a single sentence — the worker is not published yet —
+/// and it stopped being true on 2026-08-26 when the CUDA worker was pinned in
+/// the manifest. The reachable causes now are a worker the manifest pins but
+/// this machine has not installed, and one installed without the libraries it
+/// loads; a release whose manifest carries no worker at all is still possible
+/// and still handled, it is simply no longer the only case.
 ///
 /// The tone is returned with the words, because the middle case is the only one
 /// where the reader is being told they cannot have the faster option.

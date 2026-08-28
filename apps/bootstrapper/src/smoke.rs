@@ -643,8 +643,10 @@ mod tests {
     /// Pure logic, no worker and no card. The condition that produced the
     /// original defect -- a machine with a perfectly good graphics card and a
     /// payload that has no CUDA worker in it -- is the first case here, and it is
-    /// unreachable on hardware: this machine cannot be made to have an
-    /// unpublished worker and a held CUDA context at the same time.
+    /// unreachable on hardware: this machine cannot be made to have a payload
+    /// missing its worker and a held CUDA context at the same time. It read
+    /// "an unpublished worker" until 2026-08-28, which stopped being the way to
+    /// describe that payload when the worker was pinned on 2026-08-26.
     #[test]
     fn only_all_three_gates_together_prove_a_graphics_card_installation() {
         let complete = |handshake, context| ProviderEvidence {

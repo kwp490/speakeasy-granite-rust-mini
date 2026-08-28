@@ -595,6 +595,25 @@ Select-String -Path $files -Pattern 'decision [0-9]|Known risk #[0-9]|item [0-9]
   Where-Object { $_.Line -notmatch 'decision 20[0-9]{2}-' }
 ```
 
+**A seventh, swept 2026-08-28: the claim a dated change invalidated.** Publishing
+the CUDA worker on 2026-08-26 inverted seven tests, and the tests are what said
+the change had landed. Comments are what did not invert with them. Four were
+still describing the world before the pin: `download.rs` said "nothing is
+published, so a graphics-card plan is one item today" **three lines above the
+assertion proving the opposite**, which had itself been rewritten that day;
+`granite_gpu.rs` said the constant was an id a worker "will carry" and that the
+artifact's *absence* was the declaration; `catalog.rs` said the honest answer for
+a capable card was that the worker is unpublished, when the function had already
+been rewritten to name which half is missing; and `smoke.rs` described a payload
+as having "an unpublished worker".
+
+**A test inverting is not the same as the reasoning around it being re-read.**
+When a dated change flips a set of assertions, grep the prose for the state it
+flipped *out of* — "nothing is published", "by absence", "will carry", "future
+state", "not yet". Two spellings that survived the first pass here were the
+future-tense verb (`will carry`) and the argument-from-absence, neither of which
+matches a search for the word "published".
+
 **A sixth class the citation classes do not cover: the stale window label.**
 `capture.rs` said "Two windows poll it at 10 Hz (`hud` and the hidden
 `hud-dock`)" and matched `"hud" | "hud-dock"` on close, for a window
