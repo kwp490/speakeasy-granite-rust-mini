@@ -612,13 +612,66 @@ dispatch.
 it sits inside a `test.skip`, and that block sets `const backend = ""` at its
 top, so the assertion is disabled twice over and would fail rather than pass if
 it were re-enabled. **Seven scaffold tests are in that state**, every one of them
-with `const backend = ""`: the ones at lines 428, 491, 565, 1481, 1511, 1562 and
-1637. They read in a diff as merely skipped, which is the shape recorded above
-for the `.tools/` fixtures and the deleted `granite_smoke` rigs — reporting
-nothing while looking like coverage that is temporarily off. Un-skipping one is
-not a one-line change: its input has to be restored first. **Left as found on
-2026-08-28** — deciding which of the seven still describe this product is an
-owner call, not a cleanup.
+with `const backend = ""`, disabled by the fork itself (`3495d6e`, 2026-08-18)
+with rationalisations like "covered by Rust tests" and "placeholder keeps the
+architecture note visible". They read in a diff as merely skipped, which is the
+shape recorded above for the `.tools/` fixtures and the deleted `granite_smoke`
+rigs — reporting nothing while looking like coverage that is temporarily off.
+
+### What the seven actually assert (measured 2026-08-28)
+
+Every assertion in all seven was re-run against the **real** sources instead of
+the stub. This is a measurement, not a reading: symbol-presence greps had put two
+of these in the wrong column.
+
+| Line | Test | Verdict |
+| --- | --- | --- |
+| 428 | nothing slow or blocking between the key press and the microphone | **Partial** — 6 of 10 pass |
+| 491 | the graphics-card runtime is offered with its size and never silently | **Delete** — subsystem gone |
+| 565 | startup model verification is explicit and failure-visible | **Revive** — 14 of 14 pass |
+| 1481 | the HUD's session controls share one implementation with the shortcut | **Revive** — 9 of 10, 1 rewrite |
+| 1511 | window close means different things for the transcriber and settings | **Revive** — 14 of 14 pass |
+| 1562 | the transcriber is the surface a relaunch and a restore bring back | **Revive** — 6 of 6 pass |
+| 1637 | a dictation that hits the duration ceiling delivers instead of vanishing | **Revive** — 8 of 9, 1 stale bound |
+
+**Only 491 is genuinely dead.** It tests the CUDA *runtime download* —
+`CudaRuntimeCoordinator`, `cuda_runtime_install_start`, `cuda_runtime_error_code`,
+`cuda_runtime_status`, none of which exist; this fork has no runtime download at
+all, as recorded above. Its startup-race half is superseded by the derived test
+at line 1760, which is strictly better. **One fragment is worth keeping before it
+goes**: lines 523 and 525 are the only place in the suite that pins
+`ENGINE_LOADING = {"cold","warming"}` against `case "loading_model": disabled:
+true` — the premise that a cold engine *disables the record button*, which is why
+a failed warm costs the user dictation rather than merely a status line. That
+premise is live and currently unguarded anywhere else.
+
+**Both failures in the revive column are stale assertions, not drift.** 1637's
+ceiling watcher does still reach `transcribe_and_deliver`; the regex allowed
+2,400 characters from the function head and the call now sits at 3,878, because
+the function grew when the notice window landed on 2026-08-25. And 1481's "exactly
+one delivery path" counts `deliver_final_text(&app, &text, source_reason)` — a
+three-argument signature whose `source_reason` left with the streaming fallback.
+There are two call sites now, at `views.rs:1155` and `:1156`, and **the invariant
+still holds**: both are inside `transcribe_and_deliver`, which is the only thing
+that reaches delivery. The assertion has to be rewritten to say that, rather than
+to count a string. **A count is the wrong shape for a "there is exactly one path"
+rule** — it fails when the signature changes and passes when a second caller
+copies the same line.
+
+The substitutions the revivals need, all mechanical: `"hud"` → `"hud-dock"` and
+`StreamingEngineCoordinator` → `GraniteEngineCoordinator` (1511),
+`show_transcriber` → `show_dock` and drop the `main.focus` line as duplicated by
+the live test at 632 (1562), drop `admitted_asr_pack_with_preference` and
+`provider_override` (565, and no provider override can ever come back — it is a
+settled decision), drop `try_ready` / `build_capture_tap` /
+`warm_streaming_engine` / the ONNX provider check (428).
+
+**428 is the one worth reviving even at 6 of 10.** The four survivors nothing else
+guards are the press-time UIA snapshot staying deleted (`capture_target`,
+`pending_session` — measured at 68 ms into Notepad, 1.7 s into VS Code and 12.8 s
+into a WebView2 window, for a snapshot that was stored and never read) and
+`inspect` keeping a bounded `recv_timeout`. Those are recorded measurements with
+no other check behind them.
 
 **The backticked-identifier class was swept the same day**, by hand, against the
 scanner described in `CLAUDE.md` — 2,554 backticked spans, 1,193 item-shaped,
