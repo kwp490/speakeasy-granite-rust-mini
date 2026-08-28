@@ -1099,21 +1099,37 @@ Every one of these produced a plausible, wrong result rather than an error.
 
   **A class has spellings, and the 2026-08-19 sweep grepped for two of the
   bare number's three.** It searched `§` and `Phase N` and reported itself
-  finished; twelve `decision N` citations pointing at a numbered list that has
-  never existed in this repository walked straight through, and were cleared on
-  2026-08-28. The lesson is not that twelve comments were wrong — it is that a
+  finished; twenty-four `decision N` citations pointing at a numbered list that
+  has never existed in this repository walked straight through, and were cleared
+  on 2026-08-28. The lesson is not that the comments were wrong — it is that a
   class list is not a pattern list, so a sweep has to enumerate the *spellings*
-  it greps for and say which ones it did not. What that costs when the class is
-  fully swept: a dated `owner decision 2026-08-12` is a fact, not a pointer, so
-  filter it out rather than editing it.
+  it greps for and say which ones it did not.
+
+  **Then the 2026-08-28 sweep hit the extension trap this file already records,
+  in its own first pass.** It globbed `apps\**\*.rs`, `*.ts`, `*.tsx`,
+  `crates\**\*.rs`, `workers\**\*.rs`, found thirteen, declared itself finished
+  and wrote that glob down as the artefact — while twelve more sat in
+  `scaffold.test.mjs`, `scripts\Invoke-TranscriberProof.ps1` and
+  `docs\UI-GUIDE.md`. `.mjs` is the *same* extension that hid 21 citations from
+  the sweep before it. **Enumerate from `git ls-files`, never from a glob you
+  wrote from memory** — a hand-written extension list is a claim about the
+  repository that nothing checks, and it fails silently by returning a clean
+  answer about the files it happened to name. Two spellings a partial glob also
+  hid: `owner decision 1` (a *numbered* owner decision, not the dated form), and
+  the prose `item 17 in the handoff`.
 
   ```powershell
-  Select-String -Path 'apps\**\*.rs','apps\**\*.ts','apps\**\*.tsx','crates\**\*.rs','workers\**\*.rs' `
-    -Pattern 'decision [0-9]|Known risk #[0-9]|item [0-9]+ in the' |
+  $files = git ls-files apps crates workers scripts docs models |
+    Where-Object { $_ -notmatch '\.(png|wav|svg|ico|icns)$' }
+  Select-String -Path $files -Pattern 'decision [0-9]|Known risk #[0-9]|item [0-9]+ in the' |
     Where-Object { $_.Line -notmatch 'decision 20[0-9]{2}-' }
   ```
 
-  It must return nothing.
+  It scans 213 files and must return nothing but `CURRENT.md`'s own account of
+  the sweep. The `Where-Object` is load-bearing: a dated `owner decision
+  2026-08-12` is a fact rather than a pointer, and there are six of those now
+  against the one the class was first written up with — so "exactly one hit" has
+  stopped being a usable pass condition and the filter replaces it.
 - **Prefer naming the fact over citing where it was recorded.** Most of those
   citations were carrying a fact perfectly well stated inline: `Phase 9` meant
   `2026-08-04`, `Known risk #12` meant "the stale-clock deadline bug". Absorb it

@@ -176,8 +176,9 @@ function Invoke-TranscriberClick([int]$Right, [int]$Top, [string]$Label) {
     $held = $foregroundBefore -eq $foregroundAfter
     Write-Host "  $Label at ($x,$y); foreground held: $held"
     if (-not $held) {
-        # Decision 2 is about the *session* controls: clicking Start must not pull
-        # focus off the app the text is being delivered into. Three controls move
+        # The no-activate rule is about the *session* controls: clicking Start
+        # must not pull focus off the app the text is being delivered into.
+        # Three controls move
         # the foreground legitimately and will always report false here — the gear
         # focuses settings on purpose, and minimize and close remove the window
         # the foreground was on. Do not read those as violations.
@@ -199,7 +200,7 @@ touched nothing at all looks exactly like a product that delivered nothing.
 The element is found through `Invoke-WebviewProbe.ps1` and its centre converted
 from CSS pixels to screen pixels through the client-area origin, so the click is
 still a genuine mouse event against the real window: the no-activate focus
-behaviour that decision 2 rests on is still being exercised, unlike a synthetic
+behaviour the rule rests on is still being exercised, unlike a synthetic
 `element.click()`.
 
 Needs the app started with the WebView2 debugging port open. Falls back to the
@@ -249,7 +250,7 @@ JSON.stringify((() => {
     $held = $foregroundBefore -eq [SpeakEasyWin32]::GetForegroundWindow()
     Write-Host "  $Label ('$($found.label)') at ($x,$y); foreground held: $held"
     if (-not $held) {
-        Write-Warning 'Clicking a session control changed the foreground window. Decision 2 forbids it.'
+        Write-Warning 'Clicking a session control changed the foreground window. The dock must never take the foreground.'
     }
     return $true
 }

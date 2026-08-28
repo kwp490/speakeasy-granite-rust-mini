@@ -431,8 +431,10 @@ is where the claims are easiest to overstate:
   scale — so it had clipped on every machine since the window shipped. **Raised
   to 192 on 2026-08-26**, `minHeight` with it, measured on the running window at
   zero overflow with the button 2 px clear of the fold; the copy is unchanged,
-  which was an owner decision. Item 17 in the
-  handoff has the measurement and the two wrong guesses it killed.
+  which was an owner decision. The estimate that justified 192 predicted 4 px of
+  clearance and the running window gave 2 — both readings were taken the same
+  way, and the earlier one was optimistic by exactly that difference because it
+  suppressed the scrollbar. The real box needs 190.
 
   What that run also showed is that the cue arrives a long way ahead of the
   text. On the processor, inference on a full-length dictation is ~44 s, so the

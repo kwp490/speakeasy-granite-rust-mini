@@ -13,10 +13,12 @@
 /// That is not hypothetical. The first installed build to contain the side
 /// dock crashed on every launch with `0xc0000409` and
 /// `state() called before manage() for CaptureWizardCoordinator`, from this
-/// function. Two windows poll it at 10 Hz (`hud` and the hidden `hud-dock`),
-/// which is twice the pressure on a race that a release build already loses
-/// far more often than a dev build — dev serves the frontend over Vite, which
-/// is slow enough that `setup` usually wins.
+/// function. Two windows polled it at 10 Hz then — the large transcriber's
+/// `hud` and the hidden `hud-dock` — which was twice the pressure on a race
+/// that a release build already loses far more often than a dev build; dev
+/// serves the frontend over Vite, which is slow enough that `setup` usually
+/// wins. Only `hud-dock` is left, and it polls whether or not it is shown: a
+/// `visible: false` window still runs its React tree.
 ///
 /// The composition root notes the same race where it cost less: a status
 /// command lost it on the first launch after an install, and the settings page
@@ -334,10 +336,13 @@ fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
             api.prevent_close();
             let _ = window.hide();
         }
-        // The side dock is the same primary surface as `hud`, just a different
-        // presentation of it — closing either one ends the app, not just that
-        // window.
-        "hud" | "hud-dock" => {
+        // The side dock is the primary surface, so closing it ends the app
+        // rather than just that window. It shared this arm with the large
+        // transcriber's `hud` window, which was a second presentation of the
+        // same surface; that window left with the large HUD, and the arm named
+        // it until 2026-08-28. An arm for a label no window carries reads as
+        // proof the window exists.
+        "hud-dock" => {
             api.prevent_close();
             if !request_quit(&app) {
                 return;

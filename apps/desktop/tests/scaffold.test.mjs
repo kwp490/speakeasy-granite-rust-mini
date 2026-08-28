@@ -682,9 +682,11 @@ test("every window is declared, and none of them can take the foreground", async
   // the fold behind a scrollbar, on every machine, and nothing could see it:
   // `height: 100vh` with `justify-content: space-between` describes a box that
   // looks correctly filled at any content height. This cannot measure the running
-  // window -- only CDP can, and item 17 in the handoff records that reading -- but
-  // it can stop the stylesheet's own comment from drifting away from the config
-  // it claims to match, which is how the wrong number would next be believed.
+  // window -- only CDP can, and the raise to 192 was confirmed there at zero
+  // overflow with the button 2 px clear of the fold, not the 4 px the estimate
+  // predicted -- but it can stop the stylesheet's own comment from drifting
+  // away from the config it claims to match, which is how the wrong number
+  // would next be believed.
   assert.match(
     styles,
     new RegExp(`The capture-limit notice[\\s\\S]*?\\n   ${notice.width}x${notice.height} logical`),
@@ -697,7 +699,7 @@ test("every window is declared, and none of them can take the foreground", async
   );
   assert.equal(notice.minWidth, notice.width);
 
-  // Still absolute (decision 3): no OS-input or delivery command from a
+  // Still absolute: no OS-input or delivery command from a
   // no-activate window.
   assert.doesNotMatch(hudComponents, /invoke\([^)]*(paste|input|deliver)/i);
 
@@ -751,8 +753,9 @@ test("the side dock is a transparent card that can end the dictation it shows", 
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
   const window_ = config.app.windows.find((entry) => entry.label === "hud-dock");
 
-  // Same no-focus family as `hud` (decision 2), and skipTaskbar because the
-  // default HUD is the presentation that owns the taskbar button.
+  // The dock never takes keyboard focus, and skipTaskbar because a window that
+  // cannot be activated has no use for a taskbar button. It shared the rule
+  // with the `hud` transcriber until that window left with the large HUD.
   assert.equal(window_.focus, false);
   assert.equal(window_.alwaysOnTop, true);
   assert.equal(window_.skipTaskbar, true);
@@ -1182,7 +1185,7 @@ test("transcript content renders as inert text with bidirectional isolation", as
 });
 
 // Renamed from "capture wizard keeps explicit copy...": the capture wizard is
-// gone (decision 6). What it was guarding is not — every copy stays backend-owned
+// gone. What it was guarding is not — every copy stays backend-owned
 // and no frontend path can synthesize keystrokes or write the clipboard directly.
 test("dictation stays backend-owned and automatic paste stays out of the frontend", async () => {
   const app = await readAllSources();
@@ -1286,7 +1289,7 @@ test("settings carries no capture controls and no second start path", async () =
   );
   const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
 
-  // Decision 6 + owner decision 1: the guided-test path is gone, commands and
+  // The guided-test path is gone, commands and
   // all. `capture_stop` stopped without delivering, so a dictation started from
   // settings silently skipped the paste the shortcut performed — the exact
   // two-controllers failure the single-controller rule exists to prevent.
@@ -1295,7 +1298,7 @@ test("settings carries no capture controls and no second start path", async () =
     assert.doesNotMatch(app, new RegExp(`invoke\\("${command}"`));
   }
 
-  // The duration slider went with them (decision 10).
+  // The duration slider went with them.
   assert.doesNotMatch(app, /maximumSeconds|type="range"/);
   assert.doesNotMatch(catalog, /maximumDuration|startCapture|stopCapture/);
 
@@ -1348,7 +1351,7 @@ test("the session transcript log copies text and writes nothing to disk", async 
   assert.match(app, /invoke<SessionTranscriptEntry\[\]>\("session_transcript_log"\)/);
   assert.match(app, /invoke<number>\("session_transcript_copy", \{ id \}\)/);
 
-  // Clipboard authority is still refused to the dock (decision 3), which is
+  // Clipboard authority is still refused to the dock, which is
   // the window that is on screen during every dictation. The pinned log gets
   // it, because browsing the log *is* that window — a list with no copy button
   // would be a log you can read and not use.
@@ -1390,7 +1393,7 @@ test("the dock's actions all have a keyboard path in settings", async () => {
 });
 
 // Renamed from "IPC schema is narrow and HUD remains read-only": the
-// transcriber now carries session controls (decision 1), so it is no longer
+// transcriber now carries session controls, so it is no longer
 // read-only. What replaces that guarantee is an explicit allowlist — the
 // transcriber may invoke those commands and nothing else.
 test("IPC schema is narrow and the HUD keeps an explicit command allowlist", async () => {
@@ -1419,7 +1422,7 @@ test("IPC schema is narrow and the HUD keeps an explicit command allowlist", asy
     "hotkey_status",
     "hud_dock_context_menu",
     "hud_dock_placement_configure",
-    // The amendment to decision 3. It reaches the clipboard, which nothing else
+    // The amendment to the clipboard rule. It reaches the clipboard, which nothing else
     // on this list does, so it takes no argument and resolves the newest final
     // in Rust — the dock can copy what it just produced and cannot name
     // anything else. `session_transcript_copy`, which is addressable, is

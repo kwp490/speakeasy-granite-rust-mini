@@ -555,24 +555,70 @@ A fourth trap: the first sweep filtered `*.ts`/`*.tsx` and the scaffold suite is
 `.mjs`, which hid 21 more. **Enumerate extensions before believing a zero.**
 
 **And a fifth, found 2026-08-28.** The bare-number class has a third spelling
-this sweep never grepped for: **`decision N`**. Twelve of them sat across nine
-files, pointing at a numbered decision list that has never existed anywhere in
-this repository, plus a `Known risk #12` inside an assertion message. Each one
-already stated the fact it was citing, so all thirteen were cleared by deleting
-the number and keeping the sentence. **A class list is not a pattern list**: this
+this sweep never grepped for: **`decision N`**. Twenty-four of them sat across
+thirteen files, pointing at a numbered decision list that has never existed
+anywhere in this repository, plus a `Known risk #12` inside an assertion message
+and two prose `item 17 in the handoff` references. Each one already stated the
+fact it was citing, so all of them were cleared by deleting the number and
+keeping the sentence. **A class list is not a pattern list**: the 2026-08-19
 sweep enumerated the classes correctly and still finished with a third of one of
-them untouched, because it grepped `§` and `Phase N` and stopped. A sweep has to
-say which spellings it searched, not just which classes it knew about.
+them untouched, because it grepped `§` and `Phase N` and stopped.
 
-The grep, which is the artefact worth keeping — it must return nothing, and the
-`Where-Object` is load-bearing because a dated `owner decision 2026-08-12` is a
-fact rather than a pointer and must not be edited:
+**The 2026-08-28 sweep then hit the extension trap recorded four paragraphs
+above, in its own first pass, and shipped the bad glob as its artefact.** It
+searched `apps\**\*.rs`, `*.ts`, `*.tsx`, `crates\**\*.rs`, `workers\**\*.rs`,
+found thirteen citations, verified them clean, ran the gate, committed, and wrote
+that glob into `CLAUDE.md` as the grep to use next time. Twelve more were sitting
+in `apps/desktop/tests/scaffold.test.mjs` (nine),
+`scripts/Invoke-TranscriberProof.ps1` (three) and `docs/UI-GUIDE.md` (one) — and
+`.mjs` is the *same* extension that hid 21 citations from the sweep before it.
+Everything about the first pass was verified except the thing that decided what
+got looked at. **A glob written from memory is an unchecked claim about the
+repository, and it fails by returning a clean answer about the files it named.**
+Enumerate from `git ls-files`.
+
+Two spellings the partial glob also hid, both worth knowing: `owner decision 1`
+— a *numbered* owner decision, which a filter for the dated form does not
+exclude and a search for `decision [0-9]` only finds if it reaches the file —
+and the prose class, which turned up twice as `item 17 in the handoff`.
+
+The grep, corrected. It scans 213 files and must return nothing but this
+section's own account of the sweep. The `Where-Object` is load-bearing because a
+dated `owner decision 2026-08-12` is a fact rather than a pointer and must not be
+edited — there are six of those now against the one this class was first written
+up with, so "exactly one hit" has stopped being a usable pass condition:
 
 ```powershell
-Select-String -Path 'apps\**\*.rs','apps\**\*.ts','apps\**\*.tsx','crates\**\*.rs','workers\**\*.rs' `
-  -Pattern 'decision [0-9]|Known risk #[0-9]|item [0-9]+ in the' |
+$files = git ls-files apps crates workers scripts docs models |
+  Where-Object { $_ -notmatch '\.(png|wav|svg|ico|icns)$' }
+Select-String -Path $files -Pattern 'decision [0-9]|Known risk #[0-9]|item [0-9]+ in the' |
   Where-Object { $_.Line -notmatch 'decision 20[0-9]{2}-' }
 ```
+
+**A sixth class the citation classes do not cover: the stale window label.**
+`capture.rs` said "Two windows poll it at 10 Hz (`hud` and the hidden
+`hud-dock`)" and matched `"hud" | "hud-dock"` on close, for a window
+`tauri.conf.json` has not declared since the fork — it left with the large HUD,
+alongside `main`, `hud-dock`, `notice` and `log`. A label is a string, not an
+item, so no citation grep and no rustdoc check can see it; the arm compiles, the
+comment reads as fact, and a reader concludes the window exists. The arm is
+`"hud-dock"` alone now and the comment says what the second half was. **Grep the
+window labels against `tauri.conf.json` when a window is removed**, the same way
+`every_menu_id_that_is_built_has_a_handler` compares menu ids against their
+dispatch.
+
+**Nothing pinned that arm, and the test that looked like it did cannot run.**
+`scaffold.test.mjs:1542` asserts `/"hud" =>.../` against the backend source — but
+it sits inside a `test.skip`, and that block sets `const backend = ""` at its
+top, so the assertion is disabled twice over and would fail rather than pass if
+it were re-enabled. **Seven scaffold tests are in that state**, every one of them
+with `const backend = ""`: the ones at lines 428, 491, 565, 1481, 1511, 1562 and
+1637. They read in a diff as merely skipped, which is the shape recorded above
+for the `.tools/` fixtures and the deleted `granite_smoke` rigs — reporting
+nothing while looking like coverage that is temporarily off. Un-skipping one is
+not a one-line change: its input has to be restored first. **Left as found on
+2026-08-28** — deciding which of the seven still describe this product is an
+owner call, not a cleanup.
 
 **The backticked-identifier class was swept the same day**, by hand, against the
 scanner described in `CLAUDE.md` — 2,554 backticked spans, 1,193 item-shaped,
