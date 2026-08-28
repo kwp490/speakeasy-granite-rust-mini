@@ -70,8 +70,12 @@ tree.
 ## What is already true
 
 - The gate is green: `.\scripts\Invoke-ScaffoldChecks.ps1 -SkipNpmInstall`,
-  exit 0, **68 frontend tests, 0 skipped**. Read that as a statement about an
+  exit 0, **71 frontend tests, 0 skipped**. Read that as a statement about an
   **incrementally built tree** until this item is closed.
+- **1.7.1 is released** (2026-08-28) and installed on this machine, running on
+  the graphics card. All three proofs ran against the published artifact and the
+  published download was re-hashed against its own `SHA256SUMS`. See item 2b in
+  `CURRENT.md` for the digest and for why v1.7.0 was never tagged.
 - All seven `#[ignore]`d hardware tests were run on 2026-08-28 and pass, except
   the CUDA one, which correctly refuses because no CUDA worker is staged.
   **Re-stage before believing a hardware-test failure** — a two-day-old staged

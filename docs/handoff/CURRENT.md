@@ -1947,6 +1947,33 @@ directory, which is how the unit-test controls were run.
 
 ### 2b. Distribution — the release, and what it costs to cut another
 
+**1.7.1 was cut and published on 2026-08-28**, and it is the current release:
+`SpeakEasyMiniSetup.exe`, 38,097,635 bytes, sha256
+`2128ed7a20ed0fb0c77e8a4170dac596cd2bc3b2d7b20d4a55c592a39149a5ad`, with
+`SHA256SUMS` beside it. All three proofs ran against that exact artifact — gate,
+`Test-InstallerLifecycle.ps1`, `Test-SetupWizard.ps1` — and it was then installed
+here and confirmed on the graphics card. The published file was **downloaded back
+and re-hashed** against both its own `SHA256SUMS` and the build report; all three
+agreed. Do that: uploading the right bytes and publishing the right digest are two
+separate things to get wrong.
+
+**v1.7.0 is deliberately never tagged.** It was bumped, built and installed on
+this machine, and testing that install is what found the three Settings defects
+1.7.1 fixes. `install::decide_now` returns `RefuseSameVersion` on an equal stamp,
+so a rebuilt 1.7.0 could not have installed over the one already here — the same
+edge that re-cut 1.6.0 as 1.6.1. The CHANGELOG presents one release carrying both
+numbers' content, with a note saying so.
+
+**A bump is not finished until `Cargo.lock` moves with it**, and the failure does
+not name itself. `Increment-ProductVersion.ps1` refreshes the lock; on the 1.7.1
+bump it did not, and the run's output was truncated to its first three lines so
+nobody saw. The gate then failed with `cannot update the lock file ... because
+--locked was passed`, which reads as a broken checkout. Read the whole output of
+any step whose job is to change several files together.
+
+**1.6.0 and 1.6.1 were cut on 2026-08-26**; the paragraphs below describe 1.5.x
+and were the latest entry until this one.
+
 **1.5.1 was cut on 2026-08-25** — a fix release, because 1.5.0 destroys every
 dictation that reaches the two-minute ceiling. All three proofs pass against its
 artifacts, and the install/uninstall cycle also confirmed the registry-residue
