@@ -827,10 +827,11 @@ mod tests {
         //
         // So: everything goes, and what was not ours is *named* rather than
         // silently deleted, which is what lets the confirmation ask about it.
-        let root = std::env::temp_dir().join(format!(
-            "speakeasy-uninstall-proof-split-{}",
-            std::process::id()
-        ));
+        // A real temporary directory, bound so it is removed when this
+        // test ends -- on a panic too, which a fixed or pid-suffixed name
+        // under the shared temp directory never was.
+        let root_dir = tempfile::tempdir().expect("a temporary directory");
+        let root = root_dir.path().to_path_buf();
         let _ = std::fs::remove_dir_all(&root);
         let proof = root.join("proof");
         std::fs::create_dir_all(&proof).expect("proof");
@@ -895,10 +896,11 @@ mod tests {
         // The ordinary case: only our own files, so `removed_unrecognised` has to
         // be empty. A list that named something here would put a line in front of
         // every user asking about files that were always the installer's own.
-        let root = std::env::temp_dir().join(format!(
-            "speakeasy-uninstall-proof-only-ours-{}",
-            std::process::id()
-        ));
+        // A real temporary directory, bound so it is removed when this
+        // test ends -- on a panic too, which a fixed or pid-suffixed name
+        // under the shared temp directory never was.
+        let root_dir = tempfile::tempdir().expect("a temporary directory");
+        let root = root_dir.path().to_path_buf();
         let _ = std::fs::remove_dir_all(&root);
         let proof = root.join("proof");
         std::fs::create_dir_all(&proof).expect("proof");
@@ -980,10 +982,11 @@ mod tests {
         // cosmetic: `CLAUDE.md` records that "uninstall, install" has to be a
         // real clean-machine test, and a folder that outlives its uninstall is
         // where the next install's orphans come from.
-        let root = std::env::temp_dir().join(format!(
-            "speakeasy-uninstall-directory-{}",
-            std::process::id()
-        ));
+        // A real temporary directory, bound so it is removed when this
+        // test ends -- on a panic too, which a fixed or pid-suffixed name
+        // under the shared temp directory never was.
+        let root_dir = tempfile::tempdir().expect("a temporary directory");
+        let root = root_dir.path().to_path_buf();
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("proof")).expect("proof");
         std::fs::write(root.join("proof").join("worker.exe"), b"worker").expect("worker");
@@ -1004,10 +1007,11 @@ mod tests {
         // leftover must not land in `failed`: `main::remove` turns a non-empty
         // `failed` into a non-zero exit, and a product that is genuinely removed
         // apart from two megabytes of its own uninstaller has not failed.
-        let root = std::env::temp_dir().join(format!(
-            "speakeasy-uninstall-retained-image-{}",
-            std::process::id()
-        ));
+        // A real temporary directory, bound so it is removed when this
+        // test ends -- on a panic too, which a fixed or pid-suffixed name
+        // under the shared temp directory never was.
+        let root_dir = tempfile::tempdir().expect("a temporary directory");
+        let root = root_dir.path().to_path_buf();
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("root");
         let image = root.join("speakeasy-bootstrapper.exe");
@@ -1050,10 +1054,11 @@ mod tests {
         // spared any more, so an **empty** root is what is left -- and it is
         // still the realistic case, since it is exactly what pointing an
         // uninstall at the wrong directory produces.
-        let root = std::env::temp_dir().join(format!(
-            "speakeasy-uninstall-nothing-to-do-{}",
-            std::process::id()
-        ));
+        // A real temporary directory, bound so it is removed when this
+        // test ends -- on a panic too, which a fixed or pid-suffixed name
+        // under the shared temp directory never was.
+        let root_dir = tempfile::tempdir().expect("a temporary directory");
+        let root = root_dir.path().to_path_buf();
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("install root");
 
@@ -1083,10 +1088,11 @@ mod tests {
         // directories that held it reports a clean machine and leaves a tree, and
         // a `--keep-user-data` run that removed anything would delete the weights
         // it exists to preserve.
-        let root = std::env::temp_dir().join(format!(
-            "speakeasy-uninstall-profile-{}",
-            std::process::id()
-        ));
+        // A real temporary directory, bound so it is removed when this
+        // test ends -- on a panic too, which a fixed or pid-suffixed name
+        // under the shared temp directory never was.
+        let root_dir = tempfile::tempdir().expect("a temporary directory");
+        let root = root_dir.path().to_path_buf();
         let stage = || {
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(root.join("config")).expect("config");

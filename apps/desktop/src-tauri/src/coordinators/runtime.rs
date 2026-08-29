@@ -1,3 +1,58 @@
+/// What the model status becomes once a warm has finished, given what is on
+/// disk and what the warm hashed.
+///
+/// Split out of [`ModelCoordinator::settle_after_warm`] because the two rules it
+/// enforces are pure, and both were broken by the version that inlined them --
+/// where they could only be tested with 2.30 GB of real weights laid out on
+/// disk, which is to say not at all.
+///
+/// **Never `verifying`.** The warm thread's work is done by the time this runs.
+/// A presence answer of `installed_unverified` with nothing hashed stays
+/// `installed_unverified`: the files are here and nobody read them. The first
+/// version returned the presence answer unchanged from a catch-all *and* had
+/// `readiness` return `verifying`, so any warm that stopped short of the digest
+/// pass left the model line reading "Verifying installed model" for the life of
+/// the process, with the settings page polling every 750 ms behind it.
+///
+/// **Only the pack that was hashed.** `resolved` is re-resolved with the
+/// post-warm CUDA answer, which is exactly what the warm can change, so it is
+/// not necessarily the pack the digest pass read. Both id and revision must
+/// match or nothing is promoted.
+fn settled_model_state(
+    presence: (&'static str, Option<String>),
+    resolved: Option<&(String, String)>,
+    verification: &WarmVerification,
+) -> (&'static str, Option<String>) {
+    // The invariant is enforced here rather than assumed of the caller: whatever
+    // `readiness` reports, a *settled* status may not say a pass is running,
+    // because the warm thread's work is over. Stated as a mapping so that a
+    // future `readiness` returning `verifying` -- which is what the first
+    // version of this state machine did -- cannot leak through the
+    // fall-throughs below.
+    let presence = match presence {
+        ("verifying", _) => ("installed_unverified", None),
+        settled => settled,
+    };
+    let identity = match verification {
+        WarmVerification::NotAttempted => return presence,
+        WarmVerification::Verified { pack_id, revision }
+        | WarmVerification::Failed { pack_id, revision } => (pack_id, revision),
+    };
+    let hashed_this_pack = resolved
+        .is_some_and(|(id, revision)| id == identity.0 && revision == identity.1);
+    if !hashed_this_pack {
+        return presence;
+    }
+    match verification {
+        WarmVerification::Verified { .. } => ("verified_on_disk", None),
+        WarmVerification::Failed { .. } => (
+            "failed",
+            Some("granite_model_files_unverified".to_owned()),
+        ),
+        WarmVerification::NotAttempted => presence,
+    }
+}
+
 /// Whether a dictation started right now would find a model it can load.
 ///
 /// Readiness is a claim about the pack a dictation will actually load, so it
@@ -10,7 +65,7 @@
 /// is not gone just because there is one engine now — Granite still publishes
 /// CPU and CUDA packs — so this still asks the resolver rather than the catalog.
 ///
-/// # This is a presence check, and it stops short of `verified_on_disk`
+/// # This is a presence check, and it never claims a verification
 ///
 /// It used to call `reverify`, which hashes the resolved pack. That put a
 /// 2.30 GB read here, and this function runs **twice** on a configured launch —
@@ -21,11 +76,17 @@
 ///
 /// One of the three is enough, and the right one is the warm's: it is the hash
 /// taken immediately before the worker is handed the `model_root`, so it is the
-/// only one with any claim to describing the bytes that get loaded. It also
-/// already runs on its own thread. So presence decides *which* pack is here and
-/// whether setup is needed, exactly as `InstallManager::is_present` is
-/// documented for, and `verifying` is the honest name for a pack whose bytes
-/// nobody has read yet this launch.
+/// only one with any claim to describing the bytes that get loaded, and it
+/// already runs on its own thread.
+///
+/// So this answers presence and stops. `installed_unverified` is the honest
+/// name for what it finds: the required files are here at their pinned lengths
+/// and **nobody has read their bytes**. It is deliberately not `verifying` —
+/// that word says a pass is running, and a state that claims an action is in
+/// progress when no thread is doing it is the manufactured claim this
+/// repository keeps finding. `verifying` is set by
+/// [`ModelCoordinator::mark_verifying`] for exactly as long as a warm is
+/// actually hashing.
 fn readiness(root: &Path, cuda_worker_available: bool) -> (&'static str, Option<String>) {
     if bundled_manifest().is_err() {
         ("failed", Some("catalog_unavailable".to_owned()))
@@ -34,7 +95,7 @@ fn readiness(root: &Path, cuda_worker_available: bool) -> (&'static str, Option<
             InstallManager::new(root.join("models")).is_present(&selection.install_spec)
         })
     {
-        ("verifying", None)
+        ("installed_unverified", None)
     } else {
         ("absent", None)
     }
@@ -84,23 +145,52 @@ impl ModelCoordinator {
     /// alone the app would go on reporting "Setup needed" until relaunched.
     ///
     /// **Promotion** matters because `readiness` no longer hashes anything. The
-    /// warm's `verify_pack_files` is the one hash a launch takes, so its verdict
-    /// is the only thing entitled to say `verified_on_disk` — and, when it says
-    /// the bytes are wrong, the only thing entitled to say so. A warm that failed
-    /// for some other reason (no worker, memory below the floor, quarantine)
-    /// leaves the pack at `verifying`: it says nothing about the bytes, and
-    /// claiming a corrupt model on that evidence would be a manufactured fault.
-    fn settle_after_warm(&self, cuda_worker_available: bool, warm_state: &str) {
-        let (state, error) = readiness(&self.root, cuda_worker_available);
-        let (state, error) = match (state, warm_state) {
-            ("verifying", "ready") => ("verified_on_disk", None),
-            ("verifying", "granite_model_files_unverified") => (
-                "failed",
-                Some("granite_model_files_unverified".to_owned()),
-            ),
-            _ => (state, error),
-        };
+    /// warm's digest pass is the one hash a launch takes, so its verdict is the
+    /// only thing entitled to say `verified_on_disk`, and — when it says the
+    /// bytes are wrong — the only thing entitled to say that either.
+    ///
+    /// # Two rules, both of which were broken by the first version of this
+    ///
+    /// **It must promote the pack that was actually hashed.** The warm can
+    /// change which pack resolves: the CUDA answer arrives with the worker, and
+    /// this function re-resolves with it. So a `&'static str` "the warm said
+    /// ready" was being used as "these bytes were checked", and on a machine
+    /// where the capability flipped the resolution it would have stamped pack B
+    /// verified on the strength of pack A's digests. [`WarmVerification`]
+    /// carries the identity, and a mismatch promotes nothing.
+    ///
+    /// **It must never leave `verifying` behind.** The warm thread has ended by
+    /// the time this runs, so nothing is verifying, whatever happened. A warm
+    /// that never reached the digest pass — no worker, memory below the floor,
+    /// nothing configured, quarantine — lands on `installed_unverified`: the
+    /// files are here and nobody read them. Reporting `verifying` there left the
+    /// dock's model line saying "Verifying installed model" for the life of the
+    /// process and the Transcription page polling `model_install_status` every
+    /// 750 ms forever.
+    fn settle_after_warm(
+        &self,
+        cuda_worker_available: bool,
+        verification: &WarmVerification,
+    ) {
+        let presence = readiness(&self.root, cuda_worker_available);
+        // Only a pack that is still present can be promoted or condemned; if
+        // the resolver now points somewhere else, presence is the whole answer.
+        let resolved = (presence.0 == "installed_unverified")
+            .then(|| {
+                granite_engine::granite_selection(&self.root.join("models"), cuda_worker_available)
+            })
+            .flatten()
+            .map(|selection| (selection.pack_id, selection.pack_revision));
+        let (state, error) = settled_model_state(presence, resolved.as_ref(), verification);
         Self::set_status(&self.status, state, error);
+    }
+
+    /// Says a digest pass is running, for exactly as long as one is.
+    ///
+    /// Paired with [`Self::settle_after_warm`], which always runs after the warm
+    /// thread's work is done and therefore always replaces this.
+    fn mark_verifying(&self) {
+        Self::set_status(&self.status, "verifying", None);
     }
 }
 

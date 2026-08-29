@@ -144,18 +144,23 @@ fn setup_requirement(
     let Some(models) = app.try_state::<ModelCoordinator>() else {
         return Err("capture_status_unavailable");
     };
-    // `verifying` counts as installed. It means the pack's files are present at
-    // their pinned lengths and the launch warm has not finished hashing them,
-    // which is a window of seconds on every launch -- gating the dock on it
-    // would flash "Setup needed" at a user whose model is fine. A pack whose
-    // bytes are genuinely wrong lands on `failed` with
-    // `granite_model_files_unverified`, which is a named, actionable error the
-    // engine chip shows, rather than the generic "Setup needed" this returns.
-    if !matches!(
-        models.status_snapshot().state.as_str(),
-        "verified_on_disk" | "verifying"
-    ) {
-        return Ok(Some("model_missing"));
+    // Three states mean "a model is installed", and they differ only in what is
+    // known about its bytes.
+    //
+    // `verifying` is the one that refuses, and it refuses with its own reason
+    // rather than `model_missing`: a digest pass is running right now, it is
+    // bounded by the warm, and telling the user "Setup needed" while the app
+    // checks a model they already installed would be false. `installed_unverified`
+    // does *not* refuse -- nothing is running, nobody has read the bytes, and a
+    // dictation's own warm will hash them before loading anything.
+    //
+    // A pack whose bytes are genuinely wrong lands on `failed` and falls through
+    // to `model_missing` here, while the engine chip carries the specific
+    // `granite_model_files_unverified` and its instruction.
+    match models.status_snapshot().state.as_str() {
+        "verified_on_disk" | "installed_unverified" => {}
+        "verifying" => return Ok(Some("model_verifying")),
+        _ => return Ok(Some("model_missing")),
     }
     // Through the coordinator's cache rather than `CaptureWizardCoordinator::
     // devices` directly. This is on the 10 Hz path and that call is a full

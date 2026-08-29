@@ -607,6 +607,12 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
             .ok()
             .map(|paths| paths.granite_worker);
         let models = app.state::<ModelCoordinator>();
+        // The warm's first act is the digest pass, so this is true from here
+        // until `settle_after_warm` below replaces it -- and that call is
+        // unconditional, so the state cannot be left claiming a pass that has
+        // finished. It is what makes `model_verifying` a bounded refusal rather
+        // than a permanent one.
+        models.mark_verifying();
         let outcome = warm_granite_if_configured(
             GraniteEnvironment {
                 granite_worker_exe: granite_worker_exe.as_deref(),
@@ -639,7 +645,7 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
         // what promotes the pack to `verified_on_disk` or condemns it.
         models.settle_after_warm(
             coordinator.cuda_worker_available(),
-            coordinator.warm_state(),
+            &coordinator.warm_verification(),
         );
         // `engine` carries which Granite pack this machine resolved and why,
         // the way the deleted `streaming_warm` event carried the streaming
@@ -767,15 +773,21 @@ impl GpuQualificationCoordinator {
         }
     }
 
-    // `record` lived here: it promoted the GPU from "admissible" to
-    // "qualified" once a model had genuinely executed on it, and the streaming
-    // engine's warm-time smoke test was what called it. Granite has no
-    // equivalent smoke yet because it has no GPU path to smoke -- its CUDA
-    // support is a build feature and no CUDA worker is published -- so
-    // qualification would have had no way to ever become true. Rather than
-    // keep a promotion nothing can trigger, the coordinator now only reports
-    // what the probe sees, and `gpu_status` says "admissible, not qualified"
-    // honestly. This comes back with the CUDA worker, not before.
+    // `record` lived here: it promoted the GPU from "admissible" to "qualified"
+    // once a model had genuinely executed on it, and the streaming engine's
+    // warm-time smoke test was what called it.
+    //
+    // It was deleted on 2026-08-21 with a note saying it "comes back with the
+    // CUDA worker, not before". **The CUDA worker shipped on 2026-08-26 and
+    // nothing brought it back** -- a comment naming its own trigger is a task
+    // nothing tracks. Restoring it was then refused rather than faked, and that
+    // is still the position: `Qualified` carries an `ExecutionEvidence` whose
+    // `inference_sample_count` exists precisely so a caller cannot claim success
+    // without having inferred anything, and nothing at warm time has that
+    // number. `device=cuda` proves a held context and loaded weights, not
+    // samples pushed through. So the coordinator reports what the probe sees,
+    // and the sentence telling users their engine "has not passed its local
+    // execution check" was removed rather than made true by invention.
 }
 
 fn same_gpu_identity(

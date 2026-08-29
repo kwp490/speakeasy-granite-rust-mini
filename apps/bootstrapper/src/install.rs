@@ -392,7 +392,11 @@ mod tests {
 
     #[test]
     fn a_payload_tree_is_copied_whole() {
-        let root = std::env::temp_dir().join(format!("speakeasy-copy-tree-{}", std::process::id()));
+        // A real temporary directory, bound so it is removed when this
+        // test ends -- on a panic too, which a fixed or pid-suffixed name
+        // under the shared temp directory never was.
+        let root_dir = tempfile::tempdir().expect("a temporary directory");
+        let root = root_dir.path().to_path_buf();
         let source = root.join("from");
         let destination = root.join("to");
         std::fs::create_dir_all(source.join("proof")).expect("source tree");

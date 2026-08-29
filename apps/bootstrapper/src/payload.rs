@@ -525,8 +525,11 @@ mod tests {
 
     #[test]
     fn collect_orders_its_entries_so_the_installer_hashes_the_same_twice() {
-        let root =
-            std::env::temp_dir().join(format!("speakeasy-payload-collect-{}", std::process::id()));
+        // A real temporary directory, bound so it is removed when this
+        // test ends -- on a panic too, which a fixed or pid-suffixed name
+        // under the shared temp directory never was.
+        let root_dir = tempfile::tempdir().expect("a temporary directory");
+        let root = root_dir.path().to_path_buf();
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("proof")).expect("a temporary tree");
         std::fs::write(root.join("zeta.exe"), b"z").expect("write");

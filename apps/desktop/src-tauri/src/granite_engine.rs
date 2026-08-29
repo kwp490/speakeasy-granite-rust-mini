@@ -451,8 +451,36 @@ const fn domain_error(code: ErrorCode) -> DomainError {
 /// its own: warming is idempotent (a second `ensure_ready` while one is already
 /// loaded just clones the `Arc`) and retryable (a failed warm is not cached, so
 /// the next dictation tries again rather than latching a permanent failure).
+/// What a warm's digest pass actually hashed, and what it concluded.
+///
+/// A `&'static str` warm state cannot answer this. `settle_after_warm` has to
+/// promote a *pack* to `verified_on_disk`, and it re-resolves which pack that is
+/// -- with the post-warm CUDA answer, which is precisely the thing the warm can
+/// change. So "the warm said ready" and "this pack's bytes were checked" are two
+/// claims, and until 2026-08-29 the first was being used as the second: on a
+/// machine where the worker's capability flipped the resolution, pack B was
+/// stamped verified on the strength of pack A's digests.
+///
+/// Carrying the identity makes that unrepresentable. `Verified` names the exact
+/// artifact whose bytes passed, and a promotion that cannot match id *and*
+/// revision does not happen.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WarmVerification {
+    /// No digest pass ran this warm -- no worker, memory below the floor,
+    /// nothing configured, or the engine is quarantined. The model on disk is
+    /// neither proven nor suspect; nobody looked.
+    NotAttempted,
+    /// These exact bytes matched the manifest, immediately before the worker
+    /// was handed the model root.
+    Verified { pack_id: String, revision: String },
+    /// This pack's bytes did not match. A named, actionable install fault.
+    Failed { pack_id: String, revision: String },
+}
+
 pub struct GraniteEngineCoordinator {
     crashes: Mutex<CrashThrottle>,
+    /// What the last warm hashed. See [`WarmVerification`].
+    verification: Mutex<WarmVerification>,
     started_at: std::time::Instant,
     adapter: Mutex<Option<Arc<ResidentGraniteAdapter>>>,
     reason: Mutex<&'static str>,
@@ -503,6 +531,7 @@ impl Default for GraniteEngineCoordinator {
             device: Mutex::new("not_configured"),
             cuda_worker: Mutex::new(None),
             integrity: Mutex::new(ProviderIntegrity::Unrecorded),
+            verification: Mutex::new(WarmVerification::NotAttempted),
             warm: Mutex::new("cold"),
         }
     }
@@ -578,6 +607,23 @@ impl GraniteEngineCoordinator {
         self.warm
             .lock()
             .map_or("granite_state_unavailable", |state| *state)
+    }
+
+    /// What the last warm's digest pass hashed and concluded.
+    ///
+    /// `NotAttempted` before any warm, and after one that never reached the
+    /// digest pass. That is not a failure state and must not be rendered as
+    /// one: it means nobody has looked at the bytes.
+    pub fn warm_verification(&self) -> WarmVerification {
+        self.verification
+            .lock()
+            .map_or(WarmVerification::NotAttempted, |slot| slot.clone())
+    }
+
+    fn record_verification(&self, verification: WarmVerification) {
+        if let Ok(mut slot) = self.verification.lock() {
+            *slot = verification;
+        }
     }
 
     fn record_warm_state(&self, state: &'static str) {
@@ -702,7 +748,19 @@ impl GraniteEngineCoordinator {
         // replaces: the dock would sit amber for the life of the process while
         // the engine was in fact idle and retryable.
         self.record_warm_state("warming");
+        // The one digest pass a launch takes, immediately before the worker is
+        // handed `model_root`. The identity is recorded either way, because the
+        // caller has to promote *this* pack rather than whichever one it
+        // re-resolves afterwards.
+        let identity = (
+            choice.pack.id().to_owned(),
+            choice.pack.revision().to_owned(),
+        );
         if verify_pack_files(choice.pack, &choice.model_root).is_err() {
+            self.record_verification(WarmVerification::Failed {
+                pack_id: identity.0,
+                revision: identity.1,
+            });
             // Deliberately its own code rather than the generic warm failure.
             // A hash mismatch or a missing file is a static install defect the
             // user can act on, and it takes no quarantine strike — see
@@ -710,6 +768,10 @@ impl GraniteEngineCoordinator {
             self.record_warm_state("granite_model_files_unverified");
             return Err(domain_error(ErrorCode::AdapterFailed));
         }
+        self.record_verification(WarmVerification::Verified {
+            pack_id: identity.0,
+            revision: identity.1,
+        });
         let (adapter, worker) = match warm(
             granite_worker_exe,
             choice,
@@ -1745,6 +1807,13 @@ mod tests {
     #[test]
     fn a_hash_mismatch_fails_verification_without_quarantining() {
         let coordinator = GraniteEngineCoordinator::default();
+        // Nothing has looked at any bytes yet, and that is its own state --
+        // neither proven nor suspect. Asserted first so the transition below is
+        // a transition rather than a coincidence.
+        assert_eq!(
+            coordinator.warm_verification(),
+            WarmVerification::NotAttempted
+        );
         let manifest = bundled_manifest().expect("the bundled manifest must parse");
         let pack = granite_pack(&manifest);
         let install_root = tempfile::tempdir().expect("tempdir");
@@ -1783,6 +1852,22 @@ mod tests {
         ));
         assert_eq!(outcome, Err(domain_error(ErrorCode::AdapterFailed)));
         assert!(!coordinator.is_quarantined());
+        // The failure names the artifact whose bytes were read, and it is the
+        // pack that was actually resolved. `settle_after_warm` compares this
+        // against the pack it re-resolves and promotes nothing on a mismatch,
+        // so an identity that were merely plausible here -- or absent -- would
+        // let a different pack be stamped on this pack's evidence.
+        assert_eq!(
+            coordinator.warm_verification(),
+            WarmVerification::Failed {
+                pack_id: pack.id().to_owned(),
+                revision: pack.revision().to_owned(),
+            },
+            "a failed digest pass must record which pack failed"
+        );
+        // Exactly one pass ran: the worker was never spawned, so nothing
+        // downstream could have recorded a second verdict over this one.
+        assert_eq!(coordinator.warm_state(), "granite_model_files_unverified");
     }
 
     /// A minimal RIFF/WAVE reader for 16 kHz mono 16-bit PCM -- the same small,

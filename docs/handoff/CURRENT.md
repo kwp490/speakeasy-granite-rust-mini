@@ -3300,6 +3300,79 @@ workflow whose buttons do not exist.
 crates that had them: a public method linked to a private associated constant,
 and a Windows command line indented inside a doc comment was parsed as Rust.
 
+### 23. Three hashes, and the fix for them shipped two new defects — 2026-08-29
+
+**The count was three, not two.** `readiness` called `reverify`, and `readiness`
+runs twice on a configured launch — once synchronously in `ModelCoordinator::new`
+on the `setup` path, once after the warm — so with the warm's own
+`verify_pack_files` a launch read the 2.30 GB pack three times, about 6.90 GB,
+before the app was usable. Item 21 said "twice" because it counted the two
+*functions* and not the two *calls*. `admit_streaming_runtime` holds a fourth
+`reverify` and is dead code with no callers.
+
+**The first fix introduced two defects of its own**, and both are the kind this
+repository exists to catch.
+
+`readiness` was made to report `verifying`, and `settle_after_warm` promoted out
+of it only on `ready` or `granite_model_files_unverified`. Every other way a warm
+can end — no worker, memory below the floor, nothing configured, quarantine —
+fell through a catch-all that returned the presence answer unchanged. So a
+*finished* warm left the model line reading "Verifying installed model" for the
+life of the process, with the Transcription page polling `model_install_status`
+every 750 ms behind it. **A state that claims an action is in progress when no
+thread is doing it is a manufactured claim**, and it was introduced by the change
+that removed two others.
+
+And the promotion was keyed on a `&'static str` warm state. `settle_after_warm`
+**re-resolves** which pack is installed, using the post-warm CUDA answer — which
+is precisely the thing the warm discovers and can change. So "the warm said
+ready" was being read as "these bytes were checked", and on a machine where the
+worker's capability flipped the resolution it would have stamped pack B verified
+on pack A's digests.
+
+**What it is now.** `readiness` reports `installed_unverified`: files present at
+their pinned lengths, bytes unread. `WarmVerification` carries the pack id and
+revision the digest pass actually hashed, and `settled_model_state` promotes only
+on an exact match of both — matching the id alone is the obvious half-fix and it
+passes a same-pack-different-revision upgrade. `verifying` is set by
+`mark_verifying` for exactly as long as a pass is running, and the settle maps any
+`verifying` input to `installed_unverified` so the invariant holds regardless of
+what `readiness` reports. `setup_requirement` returns `model_verifying` and
+`start_dictation` refuses on the same state, in the one function both the dock
+and the shortcut go through.
+
+**Two test lessons.** The first regression test drove `ModelCoordinator` over an
+empty root, so `readiness` answered `absent` and the buggy branch was never
+reached — the test stayed green when the bug was restored. The decision is pure
+and is tested as such now. And the identity test asserted a *source string*,
+which broke the moment the logic was extracted while the invariant was untouched;
+it drives the function instead.
+
+### 24. The rest of the batch — 2026-08-29
+
+**Bootstrapper temp paths are real `TempDir`s.** Twelve sites named a fixed path
+under the shared temp directory; the pid suffix fixed cross-process collision but
+not leak-on-panic. The two `absent` sites keep a pid-suffixed name deliberately —
+they must name a path that does *not* exist.
+
+**Total physical memory is measured once per process.** A `OnceLock` rather than
+a TTL, because installed memory cannot change without a reboot and a process does
+not outlive one; a refreshing cache would be a mechanism defending against
+nothing. `TotalMemoryProbe` makes the measurement injectable so the test can
+*count* it — the claim the cache makes is unobservable otherwise.
+
+**React Hooks lint is enforced.** `App.tsx` carried a comment recording a real
+Rules-of-Hooks violation and noting the plugin was not installed. Both recommended
+rules are errors, and they were proved live by injecting a conditional hook.
+
+**Three stale comments corrected**: the GPU-qualification deletion note, which
+said no CUDA worker was published and named its own trigger — that trigger fired
+on 2026-08-26 and nothing came back, and restoring `record` is still refused
+because `ExecutionEvidence` needs an `inference_sample_count` nothing at warm time
+has; `runtime_wizard.rs`'s "cuBLAS and cuDNN", when the manifest pins cudart and
+cuBLAS; and Advanced's "ONNX Runtime · CPU" display-name example, naming a runtime
+the fork removed.
+
 ## Mistakes made this session, so they are not repeated
 
 - **A whole crate went red unnoticed.** The manifest trim broke

@@ -16,6 +16,10 @@ export const messages = {
   transcriber: "SpeakEasy transcriber",
   transcriberStates: {
     setupRequired: "Setup needed",
+    // Distinct from "Setup needed", which implies work the user has to do. This
+    // is the app checking a model they already installed, it lasts as long as
+    // one digest pass, and it clears itself.
+    checkingModel: "Checking model…",
     loadingModel: "Loading model",
     idle: "Ready",
     starting: "Starting…",
@@ -666,6 +670,10 @@ export const messages = {
       "Transcription is paused after repeated engine failures. Use Restart engine in Advanced settings.",
     granite_state_unavailable:
       "The transcription engine state is unavailable. Wait a moment and retry.",
+    // The shortcut's half of `model_verifying`. Bounded by the launch warm, so
+    // the instruction is to wait rather than to do anything.
+    model_verifying:
+      "The installed model is being checked. Dictation starts as soon as that finishes.",
     engine_unavailable: "The transcription engine is still starting. Wait a moment and retry.",
     runtime_stale_response:
       "The transcription engine did not answer in time while loading. Use Restart engine in Advanced settings.",
@@ -699,6 +707,9 @@ export const messages = {
     failed: "Failed",
     result_view_only: "Result view only",
     verifying: "Verifying installed model",
+    // Present at the pinned lengths, bytes unread. Deliberately not "Verified":
+    // the launch warm never reached its digest pass, so nothing has looked.
+    installed_unverified: "Installed, not yet checked",
     absent: "Absent",
     downloading: "Downloading",
     installing: "Installing",

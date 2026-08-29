@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::OnceLock;
 
 use sysinfo::{Disks, MemoryRefreshKind, RefreshKind, System};
 
@@ -27,7 +28,7 @@ pub trait HardwareProbe {
     fn probe(&self, install_root: &Path) -> HardwareSnapshot;
 }
 
-/// Total physical memory, and nothing else.
+/// Total physical memory, and nothing else, measured once per process.
 ///
 /// [`SafeStandardHardwareProbe::probe`] answers this too, but it costs a
 /// `System::new_all`, a refreshed disk list, a registry walk for display
@@ -36,14 +37,48 @@ pub trait HardwareProbe {
 /// path: the runtime floor check that runs **before every dictation**, and the
 /// engine warm.
 ///
+/// Cached because installed memory does not change without a reboot, and a
+/// process does not outlive one. A `OnceLock` rather than a refreshing cache
+/// for the same reason -- there is no staleness to manage, so a TTL would be a
+/// mechanism defending against nothing.
+///
 /// The full inventory stays where it is genuinely wanted -- `model_hardware`,
 /// which renders every field of it on the Advanced page.
 #[must_use]
 pub fn total_physical_memory_bytes() -> u64 {
-    System::new_with_specifics(
-        RefreshKind::nothing().with_memory(MemoryRefreshKind::nothing().with_ram()),
-    )
-    .total_memory()
+    static TOTAL: OnceLock<u64> = OnceLock::new();
+    *TOTAL.get_or_init(|| measure_total_physical_memory(&SysinfoMemory))
+}
+
+/// Where the memory figure comes from.
+///
+/// A parameter rather than a call, so a test can count how many times the
+/// measurement actually happens -- which is the whole claim the cache makes,
+/// and one that cannot be observed from the outside otherwise. The same reason
+/// the NVML probe is threaded through `GraniteEnvironment` rather than read
+/// from the environment: a production switch whose only purpose is to make the
+/// app misreport itself is the shape of defect this repository keeps removing.
+pub trait TotalMemoryProbe {
+    fn total_memory_bytes(&self) -> u64;
+}
+
+/// The real one, and the only implementation a shipped binary uses.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SysinfoMemory;
+
+impl TotalMemoryProbe for SysinfoMemory {
+    fn total_memory_bytes(&self) -> u64 {
+        System::new_with_specifics(
+            RefreshKind::nothing().with_memory(MemoryRefreshKind::nothing().with_ram()),
+        )
+        .total_memory()
+    }
+}
+
+/// The uncached measurement, for the cache above and for tests.
+#[must_use]
+pub fn measure_total_physical_memory(probe: &impl TotalMemoryProbe) -> u64 {
+    probe.total_memory_bytes()
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -141,6 +176,38 @@ const fn has_avx2() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// The cached figure is measured once, and the cache is what makes the
+    /// memory-only query cheap enough for the pre-dictation floor check.
+    ///
+    /// Counted rather than timed: `total_physical_memory_bytes` is fast enough
+    /// that a timing assertion would pass with the measurement still happening
+    /// on every call, which is exactly the shape of the 10 Hz device
+    /// enumeration this crate's callers were already caught by.
+    #[test]
+    fn total_memory_is_measured_once_and_reused() {
+        struct Counting(AtomicU32);
+        impl TotalMemoryProbe for Counting {
+            fn total_memory_bytes(&self) -> u64 {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                17_179_869_184
+            }
+        }
+        let probe = Counting(AtomicU32::new(0));
+        assert_eq!(measure_total_physical_memory(&probe), 17_179_869_184);
+        assert_eq!(probe.0.load(Ordering::Relaxed), 1);
+
+        // The production entry point caches for the life of the process, so a
+        // hundred dictations cost one measurement. Asserted by value stability
+        // rather than by count, because the `OnceLock` is process-global and a
+        // sibling test may have primed it.
+        let first = total_physical_memory_bytes();
+        for _ in 0..100 {
+            assert_eq!(total_physical_memory_bytes(), first);
+        }
+        assert!(first > 0, "a machine running this test has memory");
+    }
 
     #[test]
     fn safe_probe_never_promotes_detected_hardware_to_qualification() {

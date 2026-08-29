@@ -21,7 +21,7 @@ import { useMutation } from "./useMutation";
  * "Two vocabulary registers"), and it carries two things the other five do not:
  *
  * - The **display-name translation**, so the summary reads
- *   "ONNX Runtime · CPU" rather than `onnxruntime_cpu`.
+ *   "Processor (CPU)" rather than `cpu`.
  * - A **Show raw values** disclosure holding the untranslated identifiers, because
  *   those are what the diagnostic log and an exported bundle actually contain, and
  *   a user comparing the two needs to see the same strings.

@@ -545,20 +545,24 @@ test("startup model verification is explicit and failure-visible", async () => {
   // the `model_root`, and it already runs on its own thread.
   assert.doesNotMatch(readiness, /\.reverify\(/);
   assert.match(readiness, /\.is_present\(&selection\.install_spec\)/);
-  assert.match(readiness, /"verifying"/);
-  // `verified_on_disk` is the warm's to award, because the warm holds the only
-  // hash. Presence alone must never claim it.
+  // Presence reports `installed_unverified`, never `verifying` and never
+  // `verified_on_disk`. Both of those are claims about bytes nobody has read:
+  // `verifying` says a pass is running, and readiness runs on the `setup` path
+  // where none is, which left the model line saying "Verifying installed model"
+  // for the life of the process. `verified_on_disk` is the warm's to award.
+  assert.match(readiness, /"installed_unverified"/);
+  assert.doesNotMatch(readiness, /"verifying"/);
   assert.doesNotMatch(readiness, /"verified_on_disk"/);
+  // The promotion is guarded on the pack the digest pass actually hashed. The
+  // warm is what discovers whether the worker is CUDA-capable, and that answer
+  // changes which pack resolves, so "the warm said ready" is not "these bytes
+  // were checked" — matching on the id alone would promote the same pack at a
+  // different revision.
   assert.match(
     backend,
-    /fn settle_after_warm\([\s\S]{0,400}?\("verifying", "ready"\) => \("verified_on_disk", None\)/,
+    /id == identity\.0 && revision == identity\.1/,
   );
-  // A warm that failed for some *other* reason says nothing about the bytes, so
-  // only the verification code may condemn the pack.
-  assert.match(
-    backend,
-    /\("verifying", "granite_model_files_unverified"\) => \(\s*"failed"/,
-  );
+  assert.match(backend, /WarmVerification::Verified \{ \.\. \} => \("verified_on_disk", None\)/);
   // …and readiness must be reachable more than once. The CUDA worker's
   // availability changes which pack resolves without touching a pack, so an
   // answer computed only in `new` goes stale and the app says "Setup needed"
@@ -567,11 +571,19 @@ test("startup model verification is explicit and failure-visible", async () => {
   assert.match(backend, /fn new\(root: PathBuf, cuda_worker_available: bool\)[\s\S]{0,200}?readiness\(&root, cuda_worker_available\)/);
   assert.match(
     backend,
-    /fn settle_after_warm\(&self, cuda_worker_available: bool, warm_state: &str\)[\s\S]{0,200}?readiness\(&self\.root, cuda_worker_available\)/,
+    /fn settle_after_warm\([\s\S]{0,200}?readiness\(&self\.root, cuda_worker_available\)/,
   );
-  // A pack still being hashed is installed, and the dock must not call that
-  // "Setup needed" for the seconds a warm takes.
-  assert.match(backend, /"verified_on_disk" \| "verifying"/);
+  // An installed pack is installed whether or not its bytes have been read, and
+  // the dock must not call either "Setup needed". A pass that is genuinely
+  // running gets its own reason, so the refusal says what is happening and
+  // clears itself.
+  assert.match(backend, /"verified_on_disk" \| "installed_unverified" => \{\}/);
+  assert.match(backend, /"verifying" => return Ok\(Some\("model_verifying"\)\)/);
+  // The same refusal reaches the global shortcut, through the one function both
+  // controllers share — two copies of this rule is how `can_start` came to
+  // refuse a press the shortcut accepted.
+  assert.match(backend, /fn start_dictation[\s\S]{0,2500}?return Err\("model_verifying"\)/);
+  assert.match(app, /model_verifying/);
   assert.match(backend, /fn status_snapshot\(&self\)[\s\S]*PoisonError::into_inner/);
   assert.match(backend, /fn model_install_status\(\s*app:/);
   assert.match(backend, /try_state::<ModelCoordinator>[\s\S]*state: "verifying"/);

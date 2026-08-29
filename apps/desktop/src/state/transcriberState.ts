@@ -27,6 +27,11 @@ export const REQUEST_DEBOUNCE_MS = 150;
 export type SetupReason =
   | "setup_incomplete"
   | "model_missing"
+  // A digest pass is running right now, and it is bounded by the launch warm.
+  // Its own reason rather than `model_missing`, because the model is installed
+  // and telling that user "Setup needed" would be false — and because the
+  // remedy `model_missing` implies (install a model) is not one they have.
+  | "model_verifying"
   | "microphone_missing"
   | "shortcut_unavailable";
 
@@ -215,6 +220,7 @@ export const initialTranscriberModel: TranscriberModel = {
 const SETUP_REASONS: ReadonlySet<string> = new Set<SetupReason>([
   "setup_incomplete",
   "model_missing",
+  "model_verifying",
   "microphone_missing",
   "shortcut_unavailable",
 ]);

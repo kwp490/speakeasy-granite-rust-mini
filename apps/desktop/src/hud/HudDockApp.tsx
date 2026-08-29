@@ -212,7 +212,9 @@ function DockActionButton({
   // name says which, because the dots cannot.
   const busy =
     kind === "setup_required"
-      ? messages.transcriberStates.setupRequired
+      ? model.state.reason === "model_verifying"
+        ? messages.transcriberStates.checkingModel
+        : messages.transcriberStates.setupRequired
       : kind === "loading_model"
         ? messages.transcriberStates.loadingModel
         : messages.transcriberStates.transcribing;

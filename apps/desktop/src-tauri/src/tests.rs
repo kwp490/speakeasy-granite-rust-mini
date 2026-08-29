@@ -1746,6 +1746,179 @@ mod tests {
         );
     }
 
+    /// A finished warm never leaves the model claiming a verification.
+    ///
+    /// The warm thread's work is over by the time the status settles, so no
+    /// outcome may leave `verifying` standing. The first version of this state
+    /// machine did exactly that for every warm that stopped short of the digest
+    /// pass -- no worker, memory below the floor, nothing configured,
+    /// quarantine -- because the presence answer *was* `verifying` and a
+    /// catch-all returned it unchanged. The model line then read "Verifying
+    /// installed model" for the life of the process while nothing was hashing,
+    /// and the Transcription page polled `model_install_status` every 750 ms
+    /// behind it.
+    ///
+    /// Drives the pure decision rather than the coordinator, because the branch
+    /// that had the bug is only reachable with a pack *present* -- and a test
+    /// that needed 2.30 GB of real weights on disk to reach it would never run.
+    /// An earlier version of this test used an empty root, could not reach the
+    /// branch at all, and stayed green when the bug was restored.
+    #[test]
+    fn a_finished_warm_never_leaves_the_model_verifying() {
+        let present = ("installed_unverified", None);
+        let resolved = ("granite-speech-4.1-2b-q4_k_m-cpu".to_owned(), "1".to_owned());
+
+        for verification in [
+            WarmVerification::NotAttempted,
+            // A pack that is not the one on disk: the identity guard declines
+            // to promote, and the fall-through must still not say `verifying`.
+            WarmVerification::Verified {
+                pack_id: "some-other-pack".to_owned(),
+                revision: "1".to_owned(),
+            },
+            WarmVerification::Failed {
+                pack_id: "some-other-pack".to_owned(),
+                revision: "1".to_owned(),
+            },
+        ] {
+            let (state, _) =
+                settled_model_state(present.clone(), Some(&resolved), &verification);
+            assert_ne!(
+                state, "verifying",
+                "the warm has ended, so nothing is verifying: {verification:?}"
+            );
+            assert_eq!(
+                state, "installed_unverified",
+                "nobody read these bytes: {verification:?}"
+            );
+        }
+
+        // Including when the presence answer itself claims a pass is running.
+        // `readiness` does not return that today, and the first version of this
+        // state machine did -- so the guarantee is enforced here rather than
+        // assumed of the caller.
+        for verification in [
+            WarmVerification::NotAttempted,
+            WarmVerification::Verified {
+                pack_id: "some-other-pack".to_owned(),
+                revision: "1".to_owned(),
+            },
+        ] {
+            let (state, _) =
+                settled_model_state(("verifying", None), Some(&resolved), &verification);
+            assert_eq!(
+                state, "installed_unverified",
+                "a settled status may never say a pass is running: {verification:?}"
+            );
+        }
+
+        // And the two outcomes that *did* read them settle to real answers.
+        let (verified, _) = settled_model_state(
+            present.clone(),
+            Some(&resolved),
+            &WarmVerification::Verified {
+                pack_id: resolved.0.clone(),
+                revision: resolved.1.clone(),
+            },
+        );
+        assert_eq!(verified, "verified_on_disk");
+        let (failed, error) = settled_model_state(
+            present,
+            Some(&resolved),
+            &WarmVerification::Failed {
+                pack_id: resolved.0.clone(),
+                revision: resolved.1.clone(),
+            },
+        );
+        assert_eq!(failed, "failed");
+        assert_eq!(error.as_deref(), Some("granite_model_files_unverified"));
+    }
+
+    /// An absent pack stays absent whatever the warm claims.
+    #[test]
+    fn a_warm_verdict_cannot_conjure_a_pack_that_is_not_there() {
+        let root = tempfile::tempdir().expect("model root");
+        let models = ModelCoordinator::new(root.path().to_path_buf(), false);
+        models.mark_verifying();
+        assert_eq!(models.status_snapshot().state, "verifying");
+        models.settle_after_warm(
+            false,
+            &WarmVerification::Verified {
+                pack_id: "granite-speech-4.1-2b-q4_k_m-cpu".to_owned(),
+                revision: "1".to_owned(),
+            },
+        );
+        assert_eq!(
+            models.status_snapshot().state,
+            "absent",
+            "no pack is installed under this root"
+        );
+    }
+
+    /// Only the pack the warm actually hashed may be promoted.
+    ///
+    /// The warm is what discovers whether the worker is CUDA-capable, and that
+    /// answer changes which pack resolves -- so the settle re-resolves with a
+    /// different input than the digest pass used. Carrying only a `&'static str`
+    /// warm state meant "the warm said ready" was read as "these bytes were
+    /// checked", and on a machine where the capability flipped the resolution it
+    /// would have stamped pack B verified on pack A's digests.
+    ///
+    /// Both fields are checked, because matching on the id alone is the obvious
+    /// half-fix and it passes a same-pack-different-revision case that is a real
+    /// upgrade scenario.
+    #[test]
+    fn a_promotion_requires_the_identity_the_warm_hashed() {
+        let present = ("installed_unverified", None);
+        let on_disk = ("granite-speech-4.1-2b-q4_k_m-cpu".to_owned(), "1".to_owned());
+
+        let promoted = |hashed: WarmVerification| {
+            settled_model_state(present.clone(), Some(&on_disk), &hashed).0
+        };
+
+        assert_eq!(
+            promoted(WarmVerification::Verified {
+                pack_id: on_disk.0.clone(),
+                revision: on_disk.1.clone(),
+            }),
+            "verified_on_disk",
+            "the pack that was hashed is the pack that is here"
+        );
+        assert_eq!(
+            promoted(WarmVerification::Verified {
+                pack_id: "granite-speech-4.1-2b-q4_k_m-cuda".to_owned(),
+                revision: on_disk.1.clone(),
+            }),
+            "installed_unverified",
+            "a different pack's digests prove nothing about this one"
+        );
+        assert_eq!(
+            promoted(WarmVerification::Verified {
+                pack_id: on_disk.0.clone(),
+                revision: "2".to_owned(),
+            }),
+            "installed_unverified",
+            "the same pack at another revision is different bytes"
+        );
+        // And the condemnation is guarded the same way: a mismatched failure
+        // must not mark a pack nobody checked as corrupt.
+        assert_eq!(
+            promoted(WarmVerification::Failed {
+                pack_id: "granite-speech-4.1-2b-q4_k_m-cuda".to_owned(),
+                revision: on_disk.1.clone(),
+            }),
+            "installed_unverified",
+            "another pack's failure is not this pack's fault"
+        );
+        assert_eq!(
+            promoted(WarmVerification::Failed {
+                pack_id: on_disk.0.clone(),
+                revision: on_disk.1.clone(),
+            }),
+            "failed"
+        );
+    }
+
     /// A history coordinator with persistence switched on and the plaintext
     /// disclosure accepted, over a temporary root.
     fn history_with_persistence(root: &Path) -> HistoryCoordinator {

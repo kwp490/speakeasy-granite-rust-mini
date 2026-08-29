@@ -95,10 +95,11 @@ mod tests {
         // only reading the target back distinguishes them. This is the same
         // class of mistake as an upgrade leaving a shortcut on the old layout,
         // which is what this module exists to stop.
-        let directory = std::env::temp_dir().join(format!(
-            "speakeasy-shortcut-roundtrip-{}",
-            std::process::id()
-        ));
+        // A real temporary directory, bound so it is removed when this
+        // test ends -- on a panic too, which a fixed or pid-suffixed name
+        // under the shared temp directory never was.
+        let directory_dir = tempfile::tempdir().expect("a temporary directory");
+        let directory = directory_dir.path().to_path_buf();
         std::fs::create_dir_all(&directory).expect("temp directory");
         let link = directory.join("SpeakEasy Mini Setup and Repair.lnk");
         // A real file, so the target is something the shell can store rather
