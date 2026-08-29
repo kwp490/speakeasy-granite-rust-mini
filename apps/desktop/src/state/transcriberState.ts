@@ -32,6 +32,13 @@ export type SetupReason =
   // and telling that user "Setup needed" would be false — and because the
   // remedy `model_missing` implies (install a model) is not one they have.
   | "model_verifying"
+  // The engine cannot run, whatever the model on disk says. Refused before a
+  // sample is captured rather than after: a machine below the memory floor used
+  // to let the user speak for two minutes and then report that the engine could
+  // not start.
+  | "granite_worker_missing"
+  | "memory_below_granite_floor"
+  | "granite_quarantined"
   | "microphone_missing"
   | "shortcut_unavailable";
 
@@ -221,6 +228,9 @@ const SETUP_REASONS: ReadonlySet<string> = new Set<SetupReason>([
   "setup_incomplete",
   "model_missing",
   "model_verifying",
+  "granite_worker_missing",
+  "memory_below_granite_floor",
+  "granite_quarantined",
   "microphone_missing",
   "shortcut_unavailable",
 ]);

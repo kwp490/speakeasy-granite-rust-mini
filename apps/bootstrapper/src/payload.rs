@@ -404,19 +404,22 @@ fn collect_into(
 mod tests {
     use super::*;
 
-    /// A file standing in for the bootstrapper's own image.
-    fn host(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "speakeasy-payload-test-{name}-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_file(&path);
+    /// A file standing in for the bootstrapper's own image, in a directory that
+    /// removes itself.
+    ///
+    /// The `TempDir` is returned alongside the path rather than dropped here:
+    /// dropping it would delete the directory before the caller had used the
+    /// file. Every caller binds it for the length of the test, which is what
+    /// makes a panic leave nothing behind.
+    fn host(name: &str) -> (tempfile::TempDir, PathBuf) {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let path = directory.path().join(format!("speakeasy-payload-{name}"));
         std::fs::write(
             &path,
             b"MZ this is not really a PE image, and does not need to be",
         )
         .expect("a temporary file");
-        path
+        (directory, path)
     }
 
     fn entry(path: &str, bytes: &[u8]) -> Entry {
@@ -428,7 +431,7 @@ mod tests {
 
     #[test]
     fn an_appended_archive_reads_back_exactly() {
-        let file = host("round-trip");
+        let (_file_dir, file) = host("round-trip");
         let packed = vec![
             entry("ai-speakeasy-mini.exe", b"the desktop executable"),
             entry("proof/granite-worker.exe", b"the worker, in a subdirectory"),
@@ -450,7 +453,7 @@ mod tests {
     fn an_executable_with_no_archive_is_not_an_error() {
         // The locally built bootstrapper. It has to fall through to the
         // `payload/` directory beside it, not refuse to install.
-        let file = host("bare");
+        let (_file_dir, file) = host("bare");
         assert!(
             read_archive(&file)
                 .expect("a bare executable is readable")
@@ -464,7 +467,7 @@ mod tests {
     fn a_truncated_download_is_refused_rather_than_partly_installed() {
         // The failure this whole format is shaped around: trailing bytes are not
         // part of the PE image, so a half-downloaded installer still runs.
-        let file = host("truncated");
+        let (_file_dir, file) = host("truncated");
         append_archive(&file, &[entry("ai-speakeasy-mini.exe", &[7u8; 4096])]).expect("append");
         let whole = std::fs::read(&file).expect("read back");
         // Cut from the middle of the payload and keep the trailer, which is what
@@ -485,7 +488,7 @@ mod tests {
     fn a_single_flipped_byte_is_refused() {
         // The digest's own job. Length and trailer are intact here, so nothing
         // but the hash distinguishes this from a good archive.
-        let file = host("flipped");
+        let (_file_dir, file) = host("flipped");
         append_archive(&file, &[entry("ai-speakeasy-mini.exe", &[3u8; 512])]).expect("append");
         let mut bytes = std::fs::read(&file).expect("read back");
         let middle = bytes.len() / 2;
@@ -504,7 +507,7 @@ mod tests {
         // `Path::join` with an absolute path replaces the root, so this is the
         // difference between writing into the install directory and writing into
         // `C:\Windows`.
-        let file = host("escape");
+        let (_file_dir, file) = host("escape");
         for escape in [
             "../outside.exe",
             "/absolute.exe",

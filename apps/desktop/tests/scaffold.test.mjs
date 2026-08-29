@@ -562,7 +562,7 @@ test("startup model verification is explicit and failure-visible", async () => {
     backend,
     /id == identity\.0 && revision == identity\.1/,
   );
-  assert.match(backend, /WarmVerification::Verified \{ \.\. \} => \("verified_on_disk", None\)/);
+  assert.match(backend, /if verification\.bytes_match\(\) \{\s*\("verified_on_disk", None\)/);
   // …and readiness must be reachable more than once. The CUDA worker's
   // availability changes which pack resolves without touching a pack, so an
   // answer computed only in `new` goes stale and the app says "Setup needed"

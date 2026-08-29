@@ -594,6 +594,17 @@ fn dictation_is_finishing(app: &tauri::AppHandle) -> bool {
 /// [`granite_engine::warm_granite_if_configured`]'s own doc for exactly what
 /// "not configured" means here.
 fn warm_granite_engine(app: &tauri::AppHandle) {
+    // Synchronously, before the thread exists. The warm's first act is the
+    // digest pass, and the window between spawning and reaching it is a window
+    // in which the dock and the shortcut are exposed to a model that is about to
+    // be hashed but does not say so -- so `can_start` would be true and the
+    // shortcut would accept a press the state machine is about to refuse.
+    //
+    // It is a no-op unless a pack is actually present, so a machine with nothing
+    // installed does not flash a verification it will never perform.
+    if let Some(models) = app.try_state::<ModelCoordinator>() {
+        models.mark_verifying();
+    }
     let app = app.clone();
     std::thread::spawn(move || {
         let coordinator = app.state::<GraniteEngineCoordinator>();
@@ -607,12 +618,6 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
             .ok()
             .map(|paths| paths.granite_worker);
         let models = app.state::<ModelCoordinator>();
-        // The warm's first act is the digest pass, so this is true from here
-        // until `settle_after_warm` below replaces it -- and that call is
-        // unconditional, so the state cannot be left claiming a pass that has
-        // finished. It is what makes `model_verifying` a bounded refusal rather
-        // than a permanent one.
-        models.mark_verifying();
         let outcome = warm_granite_if_configured(
             GraniteEnvironment {
                 granite_worker_exe: granite_worker_exe.as_deref(),

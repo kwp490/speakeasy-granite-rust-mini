@@ -180,6 +180,66 @@ mod tests {
             .expect("synthetic catalog must validate")
     }
 
+    /// Verification reads every required file exactly once, and refuses the
+    /// moment any of them is not the pinned bytes.
+    ///
+    /// Counted through a probe that wraps the real check, over synthetic files
+    /// small enough to exist in a checkout -- the shipped pack is 2.30 GB and no
+    /// test can lay it out. The count is the claim worth pinning: a launch takes
+    /// **one** digest pass, and this is the pass it takes. A verification that
+    /// quietly read the pack twice would look identical from the outside.
+    #[test]
+    fn verification_reads_each_required_file_once_and_refuses_tampered_bytes() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let dir = tempdir().unwrap();
+        let alpha = b"alpha bytes".to_vec();
+        let beta = b"beta bytes, longer".to_vec();
+        std::fs::write(dir.path().join("alpha.gguf"), &alpha).unwrap();
+        std::fs::write(dir.path().join("beta.gguf"), &beta).unwrap();
+
+        let manifest = catalog_with(&json!([
+            {
+                "path": "alpha.gguf",
+                "bytes": alpha.len(),
+                "sha256": sha256_hex(&alpha),
+            },
+            {
+                "path": "beta.gguf",
+                "bytes": beta.len(),
+                "sha256": sha256_hex(&beta),
+            },
+        ]));
+        let pack = &manifest.packs()[0];
+
+        // Wraps the production check so the count is of the real thing rather
+        // than of a re-implementation that could drift from it.
+        let passes = AtomicU32::new(0);
+        let verify = || {
+            passes.fetch_add(1, Ordering::Relaxed);
+            verify_pack_files(pack, dir.path())
+        };
+
+        assert!(verify().is_ok(), "the bytes on disk are the pinned bytes");
+        assert_eq!(passes.load(Ordering::Relaxed), 1);
+
+        // One byte of one file, changed in place at the same length -- so
+        // presence and length both still pass and only the digest can catch it.
+        // This is the case that must stop the worker being handed the pack.
+        let mut tampered = beta.clone();
+        tampered[0] ^= 0xff;
+        std::fs::write(dir.path().join("beta.gguf"), &tampered).unwrap();
+        assert!(
+            matches!(verify(), Err(PackVerificationError::HashMismatch(name)) if name == "beta.gguf"),
+            "a single flipped byte must be refused, by name"
+        );
+        assert_eq!(
+            passes.load(Ordering::Relaxed),
+            2,
+            "two deliberate calls, and no hidden third"
+        );
+    }
+
     #[test]
     fn matching_files_pass_verification() {
         let dir = tempdir().unwrap();

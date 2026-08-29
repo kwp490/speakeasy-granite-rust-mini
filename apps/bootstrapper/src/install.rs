@@ -375,10 +375,12 @@ mod tests {
         // that is not there must not leave a version stamp behind, because the
         // next run would read it and refuse to install over a machine that has
         // nothing on it.
-        let absent = std::env::temp_dir().join(format!(
-            "speakeasy-payload-that-does-not-exist-{}",
-            std::process::id()
-        ));
+        // A path inside a directory that exists, pointing at a file that does
+        // not. Derived from a `TempDir` rather than named in the shared temp
+        // directory, so nothing is assumed about what another process left
+        // lying around under a guessable name.
+        let absent_dir = tempfile::tempdir().expect("a temporary directory");
+        let absent = absent_dir.path().join("payload-that-does-not-exist");
         let destination = std::env::temp_dir().join(format!(
             "speakeasy-install-target-unused-{}",
             std::process::id()

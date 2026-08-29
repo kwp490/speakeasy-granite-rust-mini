@@ -34,7 +34,8 @@ pub use granite_gpu::{
 };
 pub use hardware::{
     DetectedAdapter, HardwareProbe, HardwareSnapshot, SafeStandardHardwareProbe, SysinfoMemory,
-    TotalMemoryProbe, measure_total_physical_memory, total_physical_memory_bytes,
+    TotalMemoryProbe, cached_total_memory, measure_total_physical_memory,
+    total_physical_memory_bytes,
 };
 pub use lifecycle::{
     ArchiveEntry, ArchiveEntryKind, ArchiveLimits, ArchiveValidationError, InstallFailure,

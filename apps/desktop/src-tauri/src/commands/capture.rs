@@ -162,6 +162,30 @@ fn setup_requirement(
         "verifying" => return Ok(Some("model_verifying")),
         _ => return Ok(Some("model_missing")),
     }
+    // A model on disk is not the same as an engine that can run it, and the
+    // difference is a recorded decision rather than a nicety: "Refusing at
+    // `begin`, before a sample is captured, is the same answer at the only
+    // useful moment." The memory floor was being checked in
+    // `run_retained_transcription` -- *after* the recording -- so a machine
+    // below the 8 GiB floor let the user speak for two minutes and then said
+    // the engine could not start. Same for a missing worker binary and for a
+    // quarantined engine.
+    //
+    // Only the terminal answers gate. `cold` and `warming` are a warm in
+    // flight, and `ready` is the good case; none of them is a reason to refuse.
+    // `granite_model_files_unverified` is deliberately absent too -- it is the
+    // model's fault, not the engine's, and the branch above already reports it
+    // through `failed`.
+    if let Some(granite) = app.try_state::<GraniteEngineCoordinator>() {
+        match granite.warm_state() {
+            "granite_worker_missing" => return Ok(Some("granite_worker_missing")),
+            "memory_below_granite_floor" => {
+                return Ok(Some("memory_below_granite_floor"));
+            }
+            "granite_quarantined" => return Ok(Some("granite_quarantined")),
+            _ => {}
+        }
+    }
     // Through the coordinator's cache rather than `CaptureWizardCoordinator::
     // devices` directly. This is on the 10 Hz path and that call is a full
     // WASAPI enumeration; see `has_supported_microphone`.

@@ -471,10 +471,45 @@ pub enum WarmVerification {
     /// neither proven nor suspect; nobody looked.
     NotAttempted,
     /// These exact bytes matched the manifest, immediately before the worker
-    /// was handed the model root.
+    /// was handed the model root, **during this invocation**.
     Verified { pack_id: String, revision: String },
+    /// A resident adapter was already loaded, so this invocation hashed
+    /// nothing; the identity is what an *earlier* pass in this process verified.
+    ///
+    /// Its own variant rather than being folded into `Verified`, because the
+    /// two are different claims and the difference is exactly what made a
+    /// shared "last warm" field unsafe to settle from. `ensure_ready` returns
+    /// the cached adapter before any digest pass, so a second warm recorded
+    /// nothing and the settle read the *previous* invocation's verdict as if it
+    /// were its own -- which is the pack-mismatch defect re-entering by another
+    /// door, since the resolution can change between two warms.
+    AlreadyLoaded { pack_id: String, revision: String },
     /// This pack's bytes did not match. A named, actionable install fault.
     Failed { pack_id: String, revision: String },
+}
+
+impl WarmVerification {
+    /// The artifact this outcome is about, when it is about one.
+    #[must_use]
+    pub fn identity(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::NotAttempted => None,
+            Self::Verified { pack_id, revision }
+            | Self::AlreadyLoaded { pack_id, revision }
+            | Self::Failed { pack_id, revision } => Some((pack_id, revision)),
+        }
+    }
+
+    /// Whether this outcome says the bytes on disk match the manifest.
+    ///
+    /// True for `AlreadyLoaded` as well: a pass ran earlier in this process, on
+    /// that exact artifact, and its result is still what the loaded adapter was
+    /// built from. What it is *not* is evidence about a different artifact,
+    /// which is why the caller still compares identities.
+    #[must_use]
+    pub const fn bytes_match(&self) -> bool {
+        matches!(self, Self::Verified { .. } | Self::AlreadyLoaded { .. })
+    }
 }
 
 pub struct GraniteEngineCoordinator {
@@ -739,6 +774,14 @@ impl GraniteEngineCoordinator {
             .lock()
             .map_err(|_| domain_error(ErrorCode::AdapterFailed))?;
         if let Some(adapter) = slot.as_ref() {
+            // Nothing was hashed here. Recorded as its own outcome rather than
+            // left alone, because leaving the field holding the previous
+            // invocation's verdict is what let a caller settle from a pass that
+            // did not run.
+            self.record_verification(WarmVerification::AlreadyLoaded {
+                pack_id: choice.pack.id().to_owned(),
+                revision: choice.pack.revision().to_owned(),
+            });
             return Ok(Arc::clone(adapter));
         }
         self.record_engine_reason(choice.reason.code());
@@ -921,6 +964,13 @@ const fn granite_worker_is_unusable(code: ErrorCode) -> bool {
 ///
 /// Returns a recoverable [`DomainError`] under the same conditions
 /// [`GraniteEngineCoordinator::ensure_ready`] does.
+/// Warms the engine, and reports what **this invocation** did about the bytes.
+///
+/// The outcome is returned rather than left for the caller to read back off the
+/// coordinator. A shared "last warm" field cannot answer "what did this call
+/// find", and the two diverge in a way that matters: `ensure_ready` returns a
+/// resident adapter without hashing, so a second warm would have settled the
+/// model status from the first warm's verdict. See [`WarmVerification`].
 pub fn warm_granite_if_configured(
     environment: GraniteEnvironment<'_>,
     coordinator: &GraniteEngineCoordinator,
@@ -941,19 +991,23 @@ pub fn warm_granite_if_configured(
     // report a fault as a to-do.
     let Some(granite_worker_exe) = environment.granite_worker_exe else {
         coordinator.record_warm_state("granite_worker_missing");
+        coordinator.record_verification(WarmVerification::NotAttempted);
         return Ok(());
     };
     if !granite_memory_is_sufficient(environment.total_memory_bytes) {
         coordinator.record_engine_reason("memory_below_granite_floor");
         coordinator.record_warm_state("memory_below_granite_floor");
+        coordinator.record_verification(WarmVerification::NotAttempted);
         return Ok(());
     }
     // Same ordering as `run_granite_final_pass`, and for the same reason —
     // see the comment there.
     if coordinator.is_quarantined() {
+        coordinator.record_verification(WarmVerification::NotAttempted);
         return Err(domain_error(ErrorCode::EngineQuarantined));
     }
     let Ok(manifest) = bundled_manifest() else {
+        coordinator.record_verification(WarmVerification::NotAttempted);
         coordinator.record_warm_state("not_configured");
         return Ok(());
     };
@@ -962,6 +1016,7 @@ pub fn warm_granite_if_configured(
         environment.install_root,
         coordinator.cuda_worker_available(),
     ) else {
+        coordinator.record_verification(WarmVerification::NotAttempted);
         coordinator.record_warm_state("not_configured");
         return Ok(());
     };

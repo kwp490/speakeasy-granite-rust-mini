@@ -1834,13 +1834,27 @@ mod tests {
         assert_eq!(error.as_deref(), Some("granite_model_files_unverified"));
     }
 
-    /// An absent pack stays absent whatever the warm claims.
+    /// A machine with no model never flashes a verification it cannot perform.
+    ///
+    /// `mark_verifying` runs before the warm thread is spawned, on every launch
+    /// and after every install. It used to set `verifying` unconditionally, so a
+    /// machine with nothing installed announced that it was checking a model the
+    /// user does not have -- and then settled straight back to `absent`. The
+    /// dock is polled at 10 Hz, so that flash is visible.
     #[test]
-    fn a_warm_verdict_cannot_conjure_a_pack_that_is_not_there() {
+    fn an_absent_model_never_announces_a_verification() {
         let root = tempfile::tempdir().expect("model root");
         let models = ModelCoordinator::new(root.path().to_path_buf(), false);
+        assert_eq!(models.status_snapshot().state, "absent");
+
         models.mark_verifying();
-        assert_eq!(models.status_snapshot().state, "verifying");
+        assert_eq!(
+            models.status_snapshot().state,
+            "absent",
+            "there is nothing on disk to hash, so nothing is being checked"
+        );
+
+        // And a verdict naming a pack that is not installed cannot conjure one.
         models.settle_after_warm(
             false,
             &WarmVerification::Verified {
@@ -1848,10 +1862,60 @@ mod tests {
                 revision: "1".to_owned(),
             },
         );
+        assert_eq!(models.status_snapshot().state, "absent");
+    }
+
+    /// A second warm settles from its own outcome, not the first warm's.
+    ///
+    /// `ensure_ready` returns a resident adapter *before* any digest pass, so a
+    /// warm that finds one loaded hashes nothing. Reading the coordinator's
+    /// shared "last warm" field then handed the second warm the first warm's
+    /// verdict -- a claim about a pass that did not run in that invocation, and
+    /// the pack-mismatch defect re-entering by another door, since the
+    /// resolution can change between two warms.
+    ///
+    /// `AlreadyLoaded` is its own outcome for that reason. It still promotes
+    /// when the identity matches -- a pass did run earlier in this process, on
+    /// those exact bytes -- and it is still compared, so it cannot vouch for a
+    /// pack it was never about.
+    #[test]
+    fn a_repeated_warm_reports_what_that_invocation_did() {
+        let on_disk = ("granite-speech-4.1-2b-q4_k_m-cpu".to_owned(), "1".to_owned());
+        let present = ("installed_unverified", None);
+
+        let already = WarmVerification::AlreadyLoaded {
+            pack_id: on_disk.0.clone(),
+            revision: on_disk.1.clone(),
+        };
+        assert!(already.bytes_match());
         assert_eq!(
-            models.status_snapshot().state,
-            "absent",
-            "no pack is installed under this root"
+            already.identity(),
+            Some((on_disk.0.as_str(), on_disk.1.as_str()))
+        );
+        assert_eq!(
+            settled_model_state(present.clone(), Some(&on_disk), &already).0,
+            "verified_on_disk",
+            "a pass ran earlier in this process, on these exact bytes"
+        );
+
+        // The same outcome about a *different* artifact vouches for nothing,
+        // which is the whole reason the identity travels with it.
+        let elsewhere = WarmVerification::AlreadyLoaded {
+            pack_id: "granite-speech-4.1-2b-q4_k_m-cuda".to_owned(),
+            revision: on_disk.1.clone(),
+        };
+        assert_eq!(
+            settled_model_state(present.clone(), Some(&on_disk), &elsewhere).0,
+            "installed_unverified"
+        );
+
+        // And a warm that reached no pass at all says so, rather than leaving
+        // the previous invocation's verdict standing.
+        assert!(!WarmVerification::NotAttempted.bytes_match());
+        assert_eq!(WarmVerification::NotAttempted.identity(), None);
+        assert_eq!(
+            settled_model_state(present, Some(&on_disk), &WarmVerification::NotAttempted).0,
+            "installed_unverified"
         );
     }
 

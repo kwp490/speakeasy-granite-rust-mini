@@ -33,23 +33,21 @@ fn settled_model_state(
         ("verifying", _) => ("installed_unverified", None),
         settled => settled,
     };
-    let identity = match verification {
-        WarmVerification::NotAttempted => return presence,
-        WarmVerification::Verified { pack_id, revision }
-        | WarmVerification::Failed { pack_id, revision } => (pack_id, revision),
+    let Some(identity) = verification.identity() else {
+        return presence;
     };
-    let hashed_this_pack = resolved
-        .is_some_and(|(id, revision)| id == identity.0 && revision == identity.1);
-    if !hashed_this_pack {
+    let about_this_pack =
+        resolved.is_some_and(|(id, revision)| id == identity.0 && revision == identity.1);
+    if !about_this_pack {
         return presence;
     }
-    match verification {
-        WarmVerification::Verified { .. } => ("verified_on_disk", None),
-        WarmVerification::Failed { .. } => (
+    if verification.bytes_match() {
+        ("verified_on_disk", None)
+    } else {
+        (
             "failed",
             Some("granite_model_files_unverified".to_owned()),
-        ),
-        WarmVerification::NotAttempted => presence,
+        )
     }
 }
 
@@ -185,12 +183,23 @@ impl ModelCoordinator {
         Self::set_status(&self.status, state, error);
     }
 
-    /// Says a digest pass is running, for exactly as long as one is.
+    /// Says a digest pass is running, for exactly as long as one is -- and only
+    /// when there is something to hash.
     ///
-    /// Paired with [`Self::settle_after_warm`], which always runs after the warm
-    /// thread's work is done and therefore always replaces this.
+    /// A model that is `absent` stays `absent`. Announcing a verification over a
+    /// machine with no pack installed is a flash of a state that cannot be true:
+    /// the warm will not reach a digest pass, and the user watching the dock sees
+    /// the app claim to be checking a model they have not installed.
+    ///
+    /// Called **before** the warm thread is spawned, not inside it, so there is
+    /// no window in which the dock and the shortcut are exposed to a model that
+    /// is about to start being hashed but does not say so yet. Paired with
+    /// [`Self::settle_after_warm`], which always runs once the warm's work is
+    /// done and therefore always replaces this.
     fn mark_verifying(&self) {
-        Self::set_status(&self.status, "verifying", None);
+        if self.status_snapshot().state == "installed_unverified" {
+            Self::set_status(&self.status, "verifying", None);
+        }
     }
 }
 

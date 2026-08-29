@@ -314,12 +314,18 @@ pub struct ModelInstallView {
 /// The CUDA runtime as an offer: what it costs, whether it is here, and what an
 /// install is currently doing.
 ///
-/// Separate from [`ModelInstallView`] rather than folded into it, and that is
-/// load-bearing rather than tidiness: `setup_requirement` reads the model
-/// coordinator's state and treats anything other than `verified_on_disk` as
-/// `model_missing`. A runtime download writing `downloading` there would make a
-/// perfectly ready app announce "Setup needed" for the twenty minutes it takes
-/// to fetch 2.97 GB.
+/// **Historical.** The 2.97 GB on-demand runtime download this describes left
+/// with the streaming engine; setup fetches the CUDA worker and its two NVIDIA
+/// redistributables now (438.5 MB), and nothing in the app downloads a runtime
+/// after installation. The type survives because `phase9.schema.json` still
+/// names it as a response shape.
+///
+/// The reason it was kept separate from [`ModelInstallView`] is still worth
+/// knowing, because the hazard is live even though this flow is not:
+/// `setup_requirement` reads the model coordinator's state, and anything that
+/// writes a transient state there makes a ready app announce "Setup needed"
+/// for as long as the transient lasts. That is exactly what a `verifying` state
+/// leaking out of a finished warm did.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CudaRuntimeView {
     /// `absent`, `partial`, `downloading`, `installing`, `installed`,

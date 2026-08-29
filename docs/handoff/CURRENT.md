@@ -3373,6 +3373,70 @@ has; `runtime_wizard.rs`'s "cuBLAS and cuDNN", when the manifest pins cudart and
 cuBLAS; and Advanced's "ONNX Runtime · CPU" display-name example, naming a runtime
 the fork removed.
 
+### 25. A shared "last warm" field, and a floor checked after the recording — 2026-08-29
+
+Two more corrections to the verification work, both found by review rather than
+by a test.
+
+**`ensure_ready` returns a resident adapter before any digest pass**, so a second
+warm hashes nothing. `settle_after_warm` was reading the coordinator's shared
+`WarmVerification` field, which still held the *first* warm's verdict — a claim
+about a pass that did not run in that invocation, and the pack-mismatch defect
+re-entering by another door, since the resolution can change between two warms.
+The outcome is per-invocation now, `AlreadyLoaded` is its own variant, and every
+early return in `warm_granite_if_configured` records `NotAttempted` rather than
+leaving the previous verdict standing. `AlreadyLoaded` still promotes when the
+identity matches — a pass did run earlier in this process, on those exact bytes —
+and it is still compared, so it cannot vouch for a pack it was never about.
+
+**`mark_verifying` ran inside the spawned thread and fired unconditionally.** Two
+faults: a window between spawn and the digest pass in which the dock and the
+shortcut were exposed to a model about to be hashed that did not say so, and a
+`verifying` flash on machines with **no model installed** — the app announcing it
+was checking something the user does not have. It runs before the thread now, and
+is a no-op unless a pack is present.
+
+**The 8 GiB memory floor was checked after the recording.** `runtime.begin` is
+called from `run_retained_transcription`, so a machine below the floor let the
+user speak for up to two minutes and *then* reported that the engine could not
+start. The recorded decision says the opposite in as many words — "Refusing at
+`begin`, before a sample is captured, is the same answer at the only useful
+moment" — so this was a decision that had quietly stopped being implemented.
+`setup_requirement` now reports the three terminal engine states
+(`granite_worker_missing`, `memory_below_granite_floor`, `granite_quarantined`)
+as setup reasons, which gates the dock and, through `start_dictation`, the
+shortcut. Only terminal answers gate: `cold` and `warming` are a warm in flight,
+and `granite_model_files_unverified` is the model's fault and already reported.
+
+**The memory-cache test was weak and is now real.** It asserted value stability
+of the process-global `OnceLock`, which a function with no cache at all also
+satisfies. `cached_total_memory` takes the cell as a parameter so the test owns a
+fresh one and counts the probe: a hundred calls, one measurement. Proved by
+removing the cache, which turns it red.
+
+**Remaining test-only pid paths are `TempDir`s**, including the two `absent`
+sites, which now name a child of a directory that exists rather than guessing at
+an unused name in the shared temp directory.
+
+**The `HKCU` test is reclassified rather than faked.** A double would assert this
+test's model of the registry rather than the registry, and the thing under test
+*is* the registry semantics. It keeps the per-process key and the `Drop` guard,
+and declines loudly when the environment cannot write to `HKCU` — printing that
+the behaviour was **not** exercised, because a silent skip is indistinguishable
+from a pass.
+
+**A counting verifier over synthetic files** now pins that a digest pass reads
+each required file once and refuses a single flipped byte by name — at the same
+length, so presence and length both still pass and only the digest can catch it.
+The shipped pack is 2.30 GB and cannot be laid out in a test; this is the same
+production function over files a checkout can hold.
+
+**The fourth stale comment**: `CudaRuntimeView` described a 2.97 GB on-demand
+runtime download that left with the streaming engine. Marked historical, with the
+hazard it recorded kept — a transient state written to the model coordinator
+makes a ready app announce "Setup needed", which is exactly what a `verifying`
+leak did.
+
 ## Mistakes made this session, so they are not repeated
 
 - **A whole crate went red unnoticed.** The manifest trim broke

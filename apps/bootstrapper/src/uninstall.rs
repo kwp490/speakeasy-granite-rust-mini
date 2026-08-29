@@ -932,6 +932,25 @@ mod tests {
     ///
     /// Its own key rather than the product's, so a failing test cannot damage a
     /// real installation, and so this can be run on a machine that has one.
+    ///
+    /// # Environment-dependent, and deliberately so
+    ///
+    /// This writes to the real `HKCU`. There is no fake behind it because
+    /// `remove_key_if_empty` takes a `winreg::RegKey` and the thing under test
+    /// *is* the registry semantics -- whether a key with no values and no
+    /// subkeys is deletable, and whether an occupied one refuses. A hand-written
+    /// double would be asserting this test's model of the registry rather than
+    /// the registry, which is the shape of proof this repository keeps throwing
+    /// out. Introducing a trait to abstract it would move the untested edge
+    /// rather than remove it.
+    ///
+    /// What is done instead: the key name carries the process id, so concurrent
+    /// `cargo test` runs cannot collide; a `Drop` guard removes it even when an
+    /// assertion panics; and a sandbox without `HKCU` write access skips rather
+    /// than fails, because "this environment cannot write to the registry" is
+    /// not evidence about the code. **A skip here is a gap, not a pass** -- it
+    /// is reported as `ignored`, and a run that skips it has not exercised this
+    /// behaviour at all.
     #[test]
     fn an_emptied_product_key_is_removed_and_an_occupied_one_is_not() {
         use winreg::RegKey;
@@ -955,9 +974,15 @@ mod tests {
             std::process::id()
         );
         let path = path.as_str();
+        // A sandbox with no `HKCU` write access proves nothing about this code,
+        // so it declines rather than reporting a defect. Loud, because a silent
+        // skip is indistinguishable from a pass.
+        if user.create_subkey(path).is_err() {
+            eprintln!("SKIPPED: this environment cannot write to HKCU.");
+            eprintln!("The registry semantics under test were NOT exercised.");
+            return;
+        }
         let _cleanup = RemoveOnDrop(path);
-
-        user.create_subkey(path).expect("create the empty key");
         remove_key_if_empty(&user, path);
         assert!(
             user.open_subkey(path).is_err(),
@@ -1143,9 +1168,9 @@ mod tests {
         // Uninstalling something already gone is the ordinary result of running
         // it twice, and reporting failure there teaches users to ignore output
         // that matters the one time it does not.
-        let absent =
-            std::env::temp_dir().join(format!("speakeasy-uninstall-absent-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&absent);
+        // A directory that exists, naming a child that does not.
+        let absent_dir = tempfile::tempdir().expect("a temporary directory");
+        let absent = absent_dir.path().join("uninstall-absent");
 
         let mut outcome = Outcome::default();
         remove_program_files(&absent, &RunningImage::Elsewhere, &mut outcome);

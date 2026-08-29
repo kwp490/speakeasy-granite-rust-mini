@@ -47,7 +47,19 @@ pub trait HardwareProbe {
 #[must_use]
 pub fn total_physical_memory_bytes() -> u64 {
     static TOTAL: OnceLock<u64> = OnceLock::new();
-    *TOTAL.get_or_init(|| measure_total_physical_memory(&SysinfoMemory))
+    cached_total_memory(&TOTAL, &SysinfoMemory)
+}
+
+/// The caching itself, over a caller-supplied cell.
+///
+/// The cell is a parameter so a test can own one. The process-global `OnceLock`
+/// above can be primed by any sibling test, so a test driving it can only assert
+/// that the *value* is stable -- which a function with no cache at all also
+/// satisfies. Pointing the same code at a fresh cell is what makes "measured
+/// once" an assertion rather than a hope.
+#[must_use]
+pub fn cached_total_memory(cell: &OnceLock<u64>, probe: &impl TotalMemoryProbe) -> u64 {
+    *cell.get_or_init(|| probe.total_memory_bytes())
 }
 
 /// Where the memory figure comes from.
@@ -196,17 +208,32 @@ mod tests {
         }
         let probe = Counting(AtomicU32::new(0));
         assert_eq!(measure_total_physical_memory(&probe), 17_179_869_184);
-        assert_eq!(probe.0.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            probe.0.load(Ordering::Relaxed),
+            1,
+            "the uncached measurement runs exactly when it is asked to"
+        );
 
-        // The production entry point caches for the life of the process, so a
-        // hundred dictations cost one measurement. Asserted by value stability
-        // rather than by count, because the `OnceLock` is process-global and a
-        // sibling test may have primed it.
-        let first = total_physical_memory_bytes();
+        // The cached path, over a cell this test owns. A hundred calls -- a
+        // hundred dictations' worth of floor checks -- cost one measurement.
+        // The process-global cell cannot be used for this: a sibling test may
+        // have primed it, so only value stability would be observable, and a
+        // function with no cache at all satisfies that too.
+        let cell = OnceLock::new();
+        let counting = Counting(AtomicU32::new(0));
         for _ in 0..100 {
-            assert_eq!(total_physical_memory_bytes(), first);
+            assert_eq!(cached_total_memory(&cell, &counting), 17_179_869_184);
         }
+        assert_eq!(
+            counting.0.load(Ordering::Relaxed),
+            1,
+            "installed memory cannot change without a reboot, so one read is all"
+        );
+
+        // And the shipped entry point answers the same way over its own cell.
+        let first = total_physical_memory_bytes();
         assert!(first > 0, "a machine running this test has memory");
+        assert_eq!(total_physical_memory_bytes(), first);
     }
 
     #[test]
