@@ -117,7 +117,7 @@ impl TargetObserver {
     ///
     /// Returns a typed refusal when the bounded queue, worker, foreground
     /// identity, process security, or focused element cannot be observed safely,
-    /// or when the inspection exceeds [`Self::INSPECT_DEADLINE`].
+    /// or when the inspection exceeds the inspection deadline.
     pub fn inspect(&self, session_id: SessionId) -> Result<TargetSnapshot, DeliveryRefusal> {
         let (response, result) = mpsc::sync_channel(1);
         self.requests

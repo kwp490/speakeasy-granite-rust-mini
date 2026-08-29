@@ -853,7 +853,10 @@ mod tests {
     #[test]
     fn the_graphics_card_plan_fetches_the_worker_and_its_libraries() {
         let manifest = staged_manifest_publishing_the_cuda_worker();
-        let root = std::env::temp_dir().join("speakeasy-plan-simulated-pin");
+        let root = std::env::temp_dir().join(format!(
+            "speakeasy-plan-simulated-pin-{}",
+            std::process::id()
+        ));
 
         let cpu = plan_from(&manifest, ExecutionProvider::Cpu, root.clone())
             .expect("a processor plan must be buildable");
@@ -924,7 +927,10 @@ mod tests {
     /// catalog, and it is a stronger check for it.
     #[test]
     fn a_payload_that_was_not_downloaded_stages_nothing_and_creates_nothing() {
-        let root = std::env::temp_dir().join("speakeasy-stage-gpu-nothing-fetched");
+        let root = std::env::temp_dir().join(format!(
+            "speakeasy-stage-gpu-nothing-fetched-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("an install root to stage into");
 
@@ -973,7 +979,8 @@ mod tests {
     /// where a file should be.
     #[test]
     fn a_staged_file_arrives_whole_and_leaves_no_temporary() {
-        let root = std::env::temp_dir().join("speakeasy-stage-atomically");
+        let root =
+            std::env::temp_dir().join(format!("speakeasy-stage-atomically-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a staging root");
         let destination = root.join("granite-worker.exe");

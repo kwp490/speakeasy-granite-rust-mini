@@ -1688,6 +1688,64 @@ mod tests {
         );
     }
 
+    /// A launch hashes the model exactly once, and the readiness path never
+    /// does it.
+    ///
+    /// A configured launch used to take **three** full hashes of the 2.30 GB
+    /// pack -- about 6.90 GB of reading before the app was usable. `readiness`
+    /// called `reverify`, and `readiness` runs twice: once inside
+    /// `ModelCoordinator::new`, synchronously on the `setup` path, and again
+    /// after the warm. The engine warm's own `verify_pack_files` was the third.
+    ///
+    /// Only the warm's is worth keeping -- it is the hash taken immediately
+    /// before the worker is handed the `model_root`, and it already runs on its
+    /// own thread. Asserted against source because the cost is a *call site*:
+    /// nothing observable at runtime distinguishes one hash from three except
+    /// how long a launch takes, which is exactly the measurement this repository
+    /// keeps recording as unreliable on a debug build.
+    #[test]
+    fn a_launch_hashes_the_model_once_and_never_on_the_readiness_path() {
+        let readiness = include_str!("coordinators/runtime.rs");
+        assert!(
+            !readiness.contains(".reverify("),
+            "readiness runs on the setup path and again after every warm; \
+             hashing there is two of the three reads that were removed"
+        );
+        assert!(
+            readiness.contains(".is_present("),
+            "readiness still has to answer which pack is on disk"
+        );
+
+        // The one surviving hash, and where it is.
+        let engine = include_str!("granite_engine.rs");
+        assert_eq!(
+            engine.matches("verify_pack_files(").count(),
+            1,
+            "exactly one call site: the single hash a launch takes"
+        );
+
+        // Nothing on a live path may reintroduce one. `admit_streaming_runtime`
+        // is the streaming engine's and has no callers; it is named here so
+        // that deleting it does not silently break this count.
+        let coordinators = include_str!("coordinators.rs");
+        let live_reverify: Vec<_> = coordinators
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.contains(".reverify("))
+            .map(|(number, _)| number + 1)
+            .collect();
+        assert_eq!(
+            live_reverify.len(),
+            1,
+            "the only `reverify` left in the coordinators is the dead \
+             `admit_streaming_runtime`. Found: {live_reverify:?}"
+        );
+        assert!(
+            coordinators.contains("pub async fn admit_streaming_runtime"),
+            "if that function is finally deleted, so is the line above"
+        );
+    }
+
     /// A history coordinator with persistence switched on and the plaintext
     /// disclosure accepted, over a temporary root.
     fn history_with_persistence(root: &Path) -> HistoryCoordinator {

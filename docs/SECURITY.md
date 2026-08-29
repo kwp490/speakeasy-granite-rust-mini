@@ -5,14 +5,19 @@ local, personal use, not public distribution.
 
 ## Process and file integrity
 
-- The desktop resolves its worker, native bridge, and ONNX Runtime only from
-  canonical, app-owned absolute paths — it never searches the current
-  directory or `PATH` for a helper binary.
-- The inference worker verifies model files against the trusted manifest's
-  checksums before use; a partial or mismatched download is never activated.
-- The inference worker runs as a supervised child process (Windows Job
-  object, deadlines, crash-loop quarantine after repeated failures) so a
-  native crash can't take down the desktop app or leave orphaned processes.
+- The desktop resolves the Granite worker, the model root, and — on a
+  graphics-card installation — the CUDA runtime files beside the worker, only
+  from canonical, app-owned absolute paths under `%LOCALAPPDATA%\SpeakEasy Mini`
+  and `%APPDATA%\ai.speakeasy.mini`. It never searches the current directory or
+  `PATH` for a helper binary.
+- Model files are hashed against the trusted manifest's SHA-256 digests
+  immediately before the worker is started, so a partial or mismatched download
+  is never loaded. That check is desktop-side: the worker is handed a verified
+  path and checks presence rather than digests, deliberately, because the
+  manifest is the trust root either way.
+- The Granite worker runs as a supervised child process (Windows Job object,
+  deadlines, crash-loop quarantine after repeated failures) so a native crash
+  can't take down the desktop app or leave orphaned processes.
 
 ## Installer behavior
 

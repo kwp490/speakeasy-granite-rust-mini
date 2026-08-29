@@ -4160,6 +4160,7 @@ dependencies = [
  "speakeasy-storage",
  "speakeasy-windows",
  "sysinfo",
+ "tempfile",
  "winreg",
  "winsafe",
 ]

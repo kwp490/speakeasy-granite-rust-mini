@@ -130,9 +130,13 @@ $allowedDependencies = @{
     # `speakeasy-domain` supplies `CancelToken` and nothing else: it is what makes
     # the reused download and install lifecycle interruptible, and setup's whole
     # resume story rests on being able to stop a transfer without discarding it.
+    # `tempfile` is tests-only, and it is what makes them safe to run: two of them
+    # used to touch the developer's real machine -- the provider record under
+    # `%APPDATA%` and a key under `HKCU` -- and the rest named fixed paths in the
+    # shared temp directory, so two `cargo test` processes collided.
     'speakeasy-bootstrapper' = @(
         'semver', 'sha2', 'speakeasy-domain', 'speakeasy-models', 'speakeasy-storage',
-        'speakeasy-windows', 'sysinfo', 'winreg', 'winsafe'
+        'speakeasy-windows', 'sysinfo', 'tempfile', 'winreg', 'winsafe'
     )
     # No `speakeasy-models`: the trusted manifest does carry Granite packs, but
     # the digest check is caller-side -- `apps/desktop` hashes the pack's files

@@ -385,6 +385,18 @@ pub fn clear_installed_provider() -> bool {
     let Some(directory) = directory() else {
         return false;
     };
+    clear_installed_provider_in(&directory)
+}
+
+/// The clearing itself, against a directory the caller names.
+///
+/// Split out so the test can drive it against a temporary directory. It used to
+/// call `directory()` -- the real `%APPDATA%\ai.speakeasy.mini\config` -- read
+/// the developer's own `install-provider.txt`, overwrite it, delete it, and put
+/// it back at the very end. Any panic between those two points left a real
+/// installation with no provider record, which `apps/desktop` reads as
+/// `unrecorded`. A test that has to finish in order to be safe is not safe.
+fn clear_installed_provider_in(directory: &Path) -> bool {
     match std::fs::remove_file(directory.join(PROVIDER)) {
         Ok(()) => true,
         Err(error) => error.kind() == std::io::ErrorKind::NotFound,
@@ -641,31 +653,25 @@ mod tests {
     /// and without a prior record, and both have to end in the same state.
     #[test]
     fn clearing_the_provider_record_is_idempotent_and_leaves_nothing() {
-        let Some(directory) = directory() else {
-            return;
-        };
+        let root = tempfile::tempdir().expect("temporary config root");
+        let directory = root.path();
         let path = directory.join(PROVIDER);
-        let restore = std::fs::read_to_string(&path).ok();
 
-        assert!(std::fs::create_dir_all(&directory).is_ok());
         assert!(write_one(
-            &directory,
+            directory,
             PROVIDER,
             Provider::GraphicsCard.code()
         ));
         assert!(path.exists(), "the fixture must be in place to be cleared");
 
         assert!(
-            clear_installed_provider(),
+            clear_installed_provider_in(directory),
             "a present record must be removed"
         );
         assert!(!path.exists());
-        assert!(clear_installed_provider(), "already absent is success");
-
-        // Put back whatever this machine had, so running the suite does not
-        // silently reconfigure the developer's own installation.
-        if let Some(previous) = restore {
-            assert!(write_one(&directory, PROVIDER, &previous));
-        }
+        assert!(
+            clear_installed_provider_in(directory),
+            "already absent is success"
+        );
     }
 }

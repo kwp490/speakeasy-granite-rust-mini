@@ -43,8 +43,9 @@ engine, but no models. It walks eight steps:
    graphics-card option is offered on a machine with a supported NVIDIA card and
    shown disabled, with the reason, on one without; it is never hidden. See
    [the CUDA note](#a-note-on-graphics-cards).
-3. **Downloads the model** — setup reports 2.1 GB, or 2.5 GB if you chose the
-   graphics card — and verifies every file against a SHA-256 digest pinned in
+3. **Downloads the model** — 2.30 GB (2.14 GiB), or about 2.74 GB if you chose
+   the graphics card, which adds 438.5 MB for the CUDA worker and two NVIDIA
+   redistributables — and verifies every file against a SHA-256 digest pinned in
    [`models/trusted-manifest.json`](models/trusted-manifest.json). Interrupted
    downloads resume where they stopped.
 4. **Installs**, into `%LOCALAPPDATA%\SpeakEasy Mini`, for your user account

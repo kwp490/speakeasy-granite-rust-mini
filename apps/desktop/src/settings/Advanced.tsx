@@ -12,6 +12,7 @@ import type {
   ResetPreview,
 } from "./types";
 import type { ProfileController } from "./useProfile";
+import { useMutation } from "./useMutation";
 
 /**
  * Advanced: runtime status, performance, credentials, maintenance, About.
@@ -32,7 +33,8 @@ export function Advanced({ profile }: { profile: ProfileController }) {
   const [diagnostics, setDiagnostics] = useState<DiagnosticsStatus | null>(null);
   const [credentials, setCredentials] = useState<CredentialStatus | null>(null);
   const [statusUnavailable, setStatusUnavailable] = useState(false);
-  const [exportAction, setExportAction] = useState("");
+  const exportDiagnostics = useMutation<DiagnosticsExport>();
+  const previewReset = useMutation<ResetPreview>();
   const [resetPreview, setResetPreview] = useState<ResetPreview | null>(null);
   const [engineAction, setEngineAction] = useState("");
 
@@ -263,16 +265,20 @@ export function Advanced({ profile }: { profile: ProfileController }) {
         <h3 id="advanced-maintenance">{messages.maintenanceSection}</h3>
         <div className="actions">
           <button
+            disabled={exportDiagnostics.pending}
             onClick={() => {
-              void invoke<DiagnosticsExport>("diagnostics_export").then((exported) => {
-                setExportAction(`${messages.diagnosticsExported} ${exported.file_name}`);
-              });
+              void exportDiagnostics.run(
+                () => invoke<DiagnosticsExport>("diagnostics_export"),
+                (exported) => `${messages.diagnosticsExported} ${exported.file_name}`,
+              );
             }}
             type="button"
           >
-            {messages.exportDiagnostics}
+            {exportDiagnostics.pending ? messages.working : messages.exportDiagnostics}
           </button>
-          <output aria-live="polite">{exportAction}</output>
+          <output aria-live="polite">
+            {exportDiagnostics.error ?? exportDiagnostics.message}
+          </output>
         </div>
         <div className="actions">
           <button onClick={() => void restartEngine()} type="button">
@@ -282,14 +288,24 @@ export function Advanced({ profile }: { profile: ProfileController }) {
         </div>
         <p className="setting-detail">{messages.resetExclusions}</p>
         {resetPreview === null ? (
-          <button
-            onClick={() => {
-              void invoke<ResetPreview>("reset_preview").then(setResetPreview);
-            }}
-            type="button"
-          >
-            {messages.previewReset}
-          </button>
+          <>
+            <button
+              disabled={previewReset.pending}
+              onClick={() => {
+                void previewReset
+                  .run(() => invoke<ResetPreview>("reset_preview"))
+                  .then((preview) => {
+                    // Only on success. A refused preview must not open the
+                    // destructive panel behind it.
+                    if (preview !== null) setResetPreview(preview);
+                  });
+              }}
+              type="button"
+            >
+              {previewReset.pending ? messages.working : messages.previewReset}
+            </button>
+            <output aria-live="polite">{previewReset.error}</output>
+          </>
         ) : (
           <div className="warning-panel">
             <p>{resetPreview.categories.map(formatResetCategory).join(", ")}</p>

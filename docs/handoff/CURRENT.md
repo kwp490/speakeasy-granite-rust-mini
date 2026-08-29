@@ -3215,31 +3215,90 @@ two seconds; nothing is gated on it, so a stale answer only delays "Setup needed
 clearing. `useHudStatus.ts`'s `inFlight` ref was documented as guarding the poll
 and did not; the poll self-schedules now.
 
-### 21. Startup buffered the whole 2.30 GB model — partly fixed 2026-08-28
+### 21. Startup hashed the 2.30 GB model three times — fixed 2026-08-29
 
 `InstallManager::reverify` collected every file's bytes before verifying any, a
 single 2.30 GB allocation inside `ModelCoordinator::new`. It streams now.
 
-**Two halves remain open, and both need a decision rather than code.**
+**It was three hashes, not two, and the entry above undercounted.** `readiness`
+called `reverify`, and `readiness` runs **twice** on a configured launch — once
+synchronously inside `ModelCoordinator::new` on the `setup` path, and again from
+what was then `refresh_readiness`, after the warm. With the warm's own
+`verify_pack_files` that is 3 x 2.30 GB, about **6.90 GB** of reading before the
+app is usable. The first draft said "twice" because it counted the two functions
+and not the two calls.
 
-**The double read.** A launch also hashes the pack at the engine warm. An earlier
-draft of this entry called the two "different trust boundaries"; that overstates
-it. Both run in the desktop process, and the worker then reopens the files by
-path — `granite-worker`'s own docs say it checks presence, not digests,
-deliberately, because the caller verified. So the second hash narrows the
-modification window and does not prove the worker loaded those bytes. It is not
-*entirely* redundant — readiness verifies the pack resolved at construction and
-the warm re-resolves, so the two can name different file sets — but against
-accidental corruption it is close to redundant, and against a live tamperer
-neither read suffices. That wants verification inside the worker, or loading from
-already-verified handles. **Needs a threat-model decision and a measurement of
-what the second read costs.**
+**Now one, and it is the warm's.** `readiness` uses `InstallManager::is_present`
+— exactly what that function is documented for — and reports `verifying`.
+`ModelCoordinator::settle_after_warm` promotes to `verified_on_disk` on a warm
+that reached `ready`, or to `failed` with `granite_model_files_unverified` when
+the warm says the bytes are wrong. Any *other* warm failure leaves `verifying`,
+because a missing worker or a memory floor says nothing about the model's bytes
+and condemning it on that evidence would be a manufactured fault.
+`setup_requirement` accepts `verifying`, so the dock does not flash "Setup
+needed" for the seconds a warm takes.
 
-**Asynchronous verification.** Moving verification off the setup path behind a
-`verifying` state was deferred, not refused: `setup_requirement` gates on
-`state != "verified_on_disk"`, so today it would render "Setup needed" for the
-first seconds of every launch. The change is a distinct state plus the gate and
-copy that go with it.
+The surviving hash is the right one to keep: it is taken immediately before the
+worker is handed the `model_root`, and it already runs on its own thread — so
+the asynchronous verification this entry deferred is what the code now does,
+without the separate state machine that deferral assumed it would need.
+
+**It is still not an execution-time check, and that stays open.** It runs in the
+desktop process and the worker reopens the files by path; `granite-worker`'s own
+docs say it checks presence rather than digests, deliberately, because the
+caller verified. Closing that gap means verifying inside the worker or handing it
+already-verified handles. Needs a threat-model decision, not more code.
+
+### 22. The premature "delivered" notice, and five other honesty repairs — 2026-08-29
+
+**The ceiling notice claimed delivery before transcription started.**
+`show_capture_limit_notice` runs *before* `transcribe_and_deliver`, and the pass
+that follows can find no speech, fail the plausibility gate, time out or be
+refused by a password field. On a CPU install the user read "your transcript was
+delivered" up to 44 s before the text landed. It now says it is being
+transcribed; what became of the text is the dock's to report.
+
+**Bootstrapper tests were not hermetic.** One read, overwrote and deleted the
+developer's real `install-provider.txt` under `%APPDATA%`, restoring it only on
+the success path — so any panic left a real installation reading `unrecorded`.
+`clear_installed_provider_in` takes a directory now and the test uses a
+`tempfile::tempdir`. The registry test got a per-process key name and a `Drop`
+guard, and sixteen fixed paths under the shared temp directory got the process
+id, so two `cargo test` runs no longer collide. 76 pass, 0 fail; it was 74 pass,
+2 fail in the reviewer's sandbox.
+
+**Every dictation ran a full hardware inventory for one number.**
+`SafeStandardHardwareProbe::probe` builds a `System::new_all`, refreshes the disk
+list, walks the registry for display adapters and reads the OS build;
+`run_retained_transcription` called it immediately before inference to get
+`total_memory_bytes`, which cannot change without a reboot.
+`speakeasy_models::total_physical_memory_bytes` is the memory-only query. The
+full probe stays where the Advanced page renders every field of it.
+
+**Settings actions had no failure state.** Diagnostics export, reset preview,
+history export and history delete were all `void invoke(...).then(set...)` with
+no rejection handler: an unhandled rejection, a control that reports success by
+not erroring, and optimistic state that stayed changed after a refusal. The
+delete was the worst — it cleared its own confirmation check box and printed
+"Deleted" whether or not the database had been touched. `useMutation` gives them
+pending, success and catalog-mapped error states, refuses double submission, and
+updates caller state only on success.
+
+**Public documentation contradicted the product.** The testing guide said the
+repository was private and that setup fetches WebView2 — it detects and
+instructs, and the dead `downloadBootstrapper` in `tauri.proof.conf.json` is
+gone. Model sizes disagreed across three documents and none matched the
+manifest: it is **2,298,601,952 bytes** (2.30 GB decimal, 2.14 GiB), plus
+438.5 MB of transfer on the graphics-card path, downloaded by *setup* rather
+than at first launch. The privacy table described a "session clear" control that
+does not exist and auto-copy/auto-paste as separate settings. `SECURITY.md`
+named the native bridge and ONNX Runtime, both removed by the fork. The user
+guide numbered its steps 1-5 then 4-5 and documented a "Capture and Transcribe"
+workflow whose buttons do not exist.
+
+**Two rustdoc warnings fixed**, so `RUSTDOCFLAGS=-D warnings` is clean on the
+crates that had them: a public method linked to a private associated constant,
+and a Windows command line indented inside a doc comment was parsed as Rust.
 
 ## Mistakes made this session, so they are not repeated
 

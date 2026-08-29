@@ -32,7 +32,10 @@ pub use granite_gpu::{
     NvmlCudaContextProbe, gpu_configuration_is_installable, graphics_card_payload_sources,
     inspect_gpu_payload, prove_cuda_context, required_cuda_runtime_files,
 };
-pub use hardware::{DetectedAdapter, HardwareProbe, HardwareSnapshot, SafeStandardHardwareProbe};
+pub use hardware::{
+    DetectedAdapter, HardwareProbe, HardwareSnapshot, SafeStandardHardwareProbe,
+    total_physical_memory_bytes,
+};
 pub use lifecycle::{
     ArchiveEntry, ArchiveEntryKind, ArchiveLimits, ArchiveValidationError, InstallFailure,
     InstallState, RuntimeEvidence, RuntimeState, ValidatedArchivePlan, validate_archive_plan,

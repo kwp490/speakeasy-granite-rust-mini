@@ -527,32 +527,51 @@ test("startup model verification is explicit and failure-visible", async () => {
   assert.match(app, /model_status_unavailable/);
   assert.doesNotMatch(app, /invoke<string\[\]>\("model_verified"\)/);
   assert.match(catalog, /verifying: "Verifying installed model"/);
-  // Startup readiness must reverify *the pack dictation will actually load*,
-  // not merely some pack. This used to be `.any()` over the whole manifest,
-  // which meant installing the CPU pack on a CUDA-capable machine reported
-  // "verified on disk" while the resolver went on picking the uninstalled CUDA
-  // pack — the app claimed ready and failed every dictation. Pinning the
-  // resolver call here is what keeps the two from drifting apart again.
-  // It took a `provider_override` until the fork and asked
-  // `admitted_asr_pack_with_preference`; neither exists. Granite's provider is a
-  // build feature rather than a preference, so no setting can conjure a
-  // CUDA-capable worker and there is nothing to override. What has to survive is
-  // the shape: readiness resolves the pack **dictation will actually load** and
-  // reverifies that one.
+  // Startup readiness must resolve *the pack dictation will actually load*, not
+  // merely some pack. This used to be `.any()` over the whole manifest, which
+  // meant installing the CPU pack on a CUDA-capable machine reported "verified
+  // on disk" while the resolver went on picking the uninstalled CUDA pack — the
+  // app claimed ready and failed every dictation. Pinning the resolver call
+  // here is what keeps the two from drifting apart again.
   const readiness = rustFunctionBody(backend, "readiness");
   assert.ok(readiness, "fn readiness must be findable");
   assert.match(readiness, /granite_selection\(/);
-  assert.match(readiness, /\.reverify\(&selection\.install_spec\)/);
-  assert.match(readiness, /"verified_on_disk"/);
-  // …and it must be reachable more than once. The CUDA worker's availability
-  // changes which pack resolves without touching a pack, so a readiness answer
-  // computed only in `new` goes stale and the app says "Setup needed" until it is
-  // relaunched — the relaunch the "re-resolve per warm" decision rules out.
+  // …and it must do that **without hashing**. `readiness` runs twice on a
+  // configured launch — once synchronously inside `ModelCoordinator::new` on
+  // the `setup` path, once after the warm — so a `reverify` here was two full
+  // reads of the 2.30 GB pack, and with the warm's own `verify_pack_files` a
+  // launch took three, about 6.90 GB, before the app was usable. The warm's is
+  // the one worth keeping: it is taken immediately before the worker is handed
+  // the `model_root`, and it already runs on its own thread.
+  assert.doesNotMatch(readiness, /\.reverify\(/);
+  assert.match(readiness, /\.is_present\(&selection\.install_spec\)/);
+  assert.match(readiness, /"verifying"/);
+  // `verified_on_disk` is the warm's to award, because the warm holds the only
+  // hash. Presence alone must never claim it.
+  assert.doesNotMatch(readiness, /"verified_on_disk"/);
+  assert.match(
+    backend,
+    /fn settle_after_warm\([\s\S]{0,400}?\("verifying", "ready"\) => \("verified_on_disk", None\)/,
+  );
+  // A warm that failed for some *other* reason says nothing about the bytes, so
+  // only the verification code may condemn the pack.
+  assert.match(
+    backend,
+    /\("verifying", "granite_model_files_unverified"\) => \(\s*"failed"/,
+  );
+  // …and readiness must be reachable more than once. The CUDA worker's
+  // availability changes which pack resolves without touching a pack, so an
+  // answer computed only in `new` goes stale and the app says "Setup needed"
+  // until it is relaunched — the relaunch the "re-resolve per warm" decision
+  // rules out.
   assert.match(backend, /fn new\(root: PathBuf, cuda_worker_available: bool\)[\s\S]{0,200}?readiness\(&root, cuda_worker_available\)/);
   assert.match(
     backend,
-    /fn refresh_readiness\(&self, cuda_worker_available: bool\)[\s\S]{0,200}?readiness\(&self\.root, cuda_worker_available\)/,
+    /fn settle_after_warm\(&self, cuda_worker_available: bool, warm_state: &str\)[\s\S]{0,200}?readiness\(&self\.root, cuda_worker_available\)/,
   );
+  // A pack still being hashed is installed, and the dock must not call that
+  // "Setup needed" for the seconds a warm takes.
+  assert.match(backend, /"verified_on_disk" \| "verifying"/);
   assert.match(backend, /fn status_snapshot\(&self\)[\s\S]*PoisonError::into_inner/);
   assert.match(backend, /fn model_install_status\(\s*app:/);
   assert.match(backend, /try_state::<ModelCoordinator>[\s\S]*state: "verifying"/);

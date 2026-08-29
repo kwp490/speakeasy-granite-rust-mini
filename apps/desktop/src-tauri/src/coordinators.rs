@@ -611,9 +611,9 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
             GraniteEnvironment {
                 granite_worker_exe: granite_worker_exe.as_deref(),
                 install_root: &models.root.join("models"),
-                total_memory_bytes: SafeStandardHardwareProbe
-                    .probe(&models.root)
-                    .total_memory_bytes,
+                // As in `run_retained_transcription`: the memory-only query
+                // rather than the full hardware inventory.
+                total_memory_bytes: Some(speakeasy_models::total_physical_memory_bytes()),
                 diagnostic_log: diagnostic_log_path(&app),
                 // What setup *proved*, read from disk. The warm compares it
                 // against what the worker turns out to be, which is the only
@@ -632,16 +632,15 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
             Ok(()) => "ok",
             Err(error) => domain_error_code(error),
         };
-        // Readiness verifies the pack a dictation would actually load, and
-        // which pack that is depends on whether this worker turned out to be
-        // CUDA-capable — a fact only the worker can report, and only after it
-        // has spoken. Startup had to guess conservatively; this is the first
-        // moment the guess can be corrected.
-        //
-        // Its previous caller was the on-demand CUDA runtime install, which
-        // left with ONNX Runtime. Dropping the call rather than re-pointing it
-        // would have left readiness permanently describing the startup guess.
-        models.refresh_readiness(coordinator.cuda_worker_available());
+        // Startup had to guess which pack resolves, because only a worker can
+        // say whether it is CUDA-capable; this is the first moment the guess can
+        // be corrected. It is also the moment the pack stops being `verifying`:
+        // the warm above holds the single hash a launch takes, so its verdict is
+        // what promotes the pack to `verified_on_disk` or condemns it.
+        models.settle_after_warm(
+            coordinator.cuda_worker_available(),
+            coordinator.warm_state(),
+        );
         // `engine` carries which Granite pack this machine resolved and why,
         // the way the deleted `streaming_warm` event carried the streaming
         // engine's. A stable code and nothing else -- a fallback to CPU must be

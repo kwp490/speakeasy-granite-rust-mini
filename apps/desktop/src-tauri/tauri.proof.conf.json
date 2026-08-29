@@ -12,10 +12,6 @@
       "nsis": {
         "installMode": "currentUser",
         "languages": ["English"]
-      },
-      "webviewInstallMode": {
-        "type": "downloadBootstrapper",
-        "silent": true
       }
     }
   }

@@ -48,6 +48,14 @@ sha2.workspace = true
 # lint table below.
 winsafe = { workspace = true, features = ["gui", "shell"] }
 
+# Tests only. Two of them used to touch the developer's real machine -- the
+# provider record under `%APPDATA%` and a key under `HKCU` -- and every other one
+# named a fixed path under the shared temp directory, so two `cargo test`
+# processes collided. A unique directory per test is what makes the suite
+# something a developer can run without thinking about it.
+[dev-dependencies]
+tempfile.workspace = true
+
 # Spelled out rather than `[lints] workspace = true`, and the only crate in the
 # workspace that does not inherit. The one difference is `unsafe_code`, which is
 # `forbid` at the workspace root and stays there.

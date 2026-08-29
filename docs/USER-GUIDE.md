@@ -15,8 +15,9 @@ the two never fight over one.
    run it as your normal Windows user. Do not elevate it. Windows SmartScreen
    will warn about it, because the build is not signed; the release page carries
    a SHA-256 you can check the download against.
-2. It checks your hardware, downloads the transcription model (about 2.2 GB) and
-   verifies every file against a checksum fixed in advance.
+2. It checks your hardware, downloads the transcription model (2.30 GB, or
+   about 2.74 GB if you pick the graphics card) and verifies every file against
+   a checksum fixed in advance.
 3. It asks four things: which configuration to run, your dictation shortcut, any
    words you want protected from being respelled, and whether to keep your
    transcripts after you close the app. The last one defaults to **no** —
@@ -28,13 +29,14 @@ the two never fight over one.
    error, it writes fluent text about nothing.
 5. When it finishes, the app opens. There is no second setup to walk through,
    and the answers you gave are already applied.
-4. Allow Windows microphone access if prompted, and pick your microphone from
+6. Allow Windows microphone access if prompted, and pick your microphone from
    **Settings → Audio** if the default is not the one you want.
-5. Click into a text field somewhere, press `Ctrl+Alt+P`, say a sentence, and
+7. Click into a text field somewhere, press `Ctrl+Alt+P`, say a sentence, and
    press it again. The text appears where your cursor was.
 
-Nothing appears on screen while you speak, and that is expected: transcription
-happens after you stop, and takes a few seconds.
+No transcript text appears while you speak, and that is expected: transcription
+happens after you stop, and takes a few seconds. The dock does show that it is
+recording, with an input-level meter and the elapsed time.
 
 ## Dictating
 
@@ -57,10 +59,12 @@ There are two ways to dictate:
   to start recording, press again to stop; SpeakEasy Mini transcribes locally and
   pastes the final text into that field. You can change the binding or turn the
   hotkey off in Settings → Activation.
-- **Capture and Transcribe** (in the SpeakEasy Mini window) — select **Start
-  capture**, speak, select **Stop**, then **Transcribe locally**. The result
-  appears in SpeakEasy Mini's own result view; use **Copy** to place it on the
-  clipboard.
+- **The dock** — the narrow strip SpeakEasy Mini keeps on screen. Its record
+  button starts and stops a dictation exactly as the hotkey does, and delivery
+  is the same: the transcript goes to whatever had focus. Use **Copy** to place
+  it on the clipboard instead. The dock never takes keyboard focus, so it is
+  deliberately not keyboard-operable — every action it offers has a keyboard
+  path through the hotkey or the settings window. Right-click it for settings.
 
 Automatic paste is refused — leaving the text in the result view instead —
 whenever the focused target is a password field, read-only, an elevated or

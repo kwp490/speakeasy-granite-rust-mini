@@ -827,7 +827,10 @@ mod tests {
         //
         // So: everything goes, and what was not ours is *named* rather than
         // silently deleted, which is what lets the confirmation ask about it.
-        let root = std::env::temp_dir().join("speakeasy-uninstall-proof-split");
+        let root = std::env::temp_dir().join(format!(
+            "speakeasy-uninstall-proof-split-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         let proof = root.join("proof");
         std::fs::create_dir_all(&proof).expect("proof");
@@ -892,7 +895,10 @@ mod tests {
         // The ordinary case: only our own files, so `removed_unrecognised` has to
         // be empty. A list that named something here would put a line in front of
         // every user asking about files that were always the installer's own.
-        let root = std::env::temp_dir().join("speakeasy-uninstall-proof-only-ours");
+        let root = std::env::temp_dir().join(format!(
+            "speakeasy-uninstall-proof-only-ours-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         let proof = root.join("proof");
         std::fs::create_dir_all(&proof).expect("proof");
@@ -929,8 +935,25 @@ mod tests {
         use winreg::RegKey;
         use winreg::enums::HKEY_CURRENT_USER;
 
+        // Removed even if an assertion below panics. The previous version
+        // cleaned up on the success path only, so a failing run left a key
+        // behind under the product's own name in the developer's registry.
+        struct RemoveOnDrop<'a>(&'a str);
+        impl Drop for RemoveOnDrop<'_> {
+            fn drop(&mut self) {
+                let _ = RegKey::predef(HKEY_CURRENT_USER).delete_subkey_all(self.0);
+            }
+        }
+
         let user = RegKey::predef(HKEY_CURRENT_USER);
-        let path = r"Software\SpeakEasy Mini Uninstall Test";
+        // Unique per process, because `HKCU` is shared by every `cargo test`
+        // running as this user and a fixed name made two of them fight.
+        let path = format!(
+            r"Software\SpeakEasy Mini Uninstall Test {}",
+            std::process::id()
+        );
+        let path = path.as_str();
+        let _cleanup = RemoveOnDrop(path);
 
         user.create_subkey(path).expect("create the empty key");
         remove_key_if_empty(&user, path);
@@ -957,7 +980,10 @@ mod tests {
         // cosmetic: `CLAUDE.md` records that "uninstall, install" has to be a
         // real clean-machine test, and a folder that outlives its uninstall is
         // where the next install's orphans come from.
-        let root = std::env::temp_dir().join("speakeasy-uninstall-directory");
+        let root = std::env::temp_dir().join(format!(
+            "speakeasy-uninstall-directory-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("proof")).expect("proof");
         std::fs::write(root.join("proof").join("worker.exe"), b"worker").expect("worker");
@@ -978,7 +1004,10 @@ mod tests {
         // leftover must not land in `failed`: `main::remove` turns a non-empty
         // `failed` into a non-zero exit, and a product that is genuinely removed
         // apart from two megabytes of its own uninstaller has not failed.
-        let root = std::env::temp_dir().join("speakeasy-uninstall-retained-image");
+        let root = std::env::temp_dir().join(format!(
+            "speakeasy-uninstall-retained-image-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("root");
         let image = root.join("speakeasy-bootstrapper.exe");
@@ -1021,7 +1050,10 @@ mod tests {
         // spared any more, so an **empty** root is what is left -- and it is
         // still the realistic case, since it is exactly what pointing an
         // uninstall at the wrong directory produces.
-        let root = std::env::temp_dir().join("speakeasy-uninstall-nothing-to-do");
+        let root = std::env::temp_dir().join(format!(
+            "speakeasy-uninstall-nothing-to-do-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("install root");
 
@@ -1051,7 +1083,10 @@ mod tests {
         // directories that held it reports a clean machine and leaves a tree, and
         // a `--keep-user-data` run that removed anything would delete the weights
         // it exists to preserve.
-        let root = std::env::temp_dir().join("speakeasy-uninstall-profile");
+        let root = std::env::temp_dir().join(format!(
+            "speakeasy-uninstall-profile-{}",
+            std::process::id()
+        ));
         let stage = || {
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(root.join("config")).expect("config");
@@ -1102,7 +1137,8 @@ mod tests {
         // Uninstalling something already gone is the ordinary result of running
         // it twice, and reporting failure there teaches users to ignore output
         // that matters the one time it does not.
-        let absent = std::env::temp_dir().join("speakeasy-uninstall-absent");
+        let absent =
+            std::env::temp_dir().join(format!("speakeasy-uninstall-absent-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&absent);
 
         let mut outcome = Outcome::default();

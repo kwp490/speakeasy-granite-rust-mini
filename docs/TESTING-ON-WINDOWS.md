@@ -5,22 +5,38 @@ It is not a release-certified build. Do not run the installer as Administrator.
 
 Installers are **built locally** — no GitHub runner ever produces one, and
 `scripts/Test-LocalOnlyPolicy.ps1` fails if CI configuration reappears. A build
-may afterwards be *attached* to a GitHub release by hand as an archive of what
-was shipped; the repository is private, so downloading that asset needs a
-credential and it is not the intended transfer route.
+is afterwards *attached* to a GitHub release by hand. The repository is
+**public** and so are the releases: the asset downloads anonymously, and that is
+the intended transfer route.
 
-An earlier revision of this file claimed the project "does not publish
-installers … on GitHub". That was wrong once `v1.1.0-test.1` existed, and it is
-the sentence a reader lands on first, so it sent people to build from source
-when they did not need to.
+Two earlier revisions of this paragraph were wrong in opposite directions. One
+claimed the project "does not publish installers … on GitHub", which stopped
+being true at `v1.1.0-test.1`. The next said the repository was private and the
+download needed a credential, which sent readers to build from source for a file
+they could have clicked.
 
 ## Fastest path: copy the installer to the target machine
 
 The target machine needs **no build toolchain at all** — no Rust, Node, CMake,
 LLVM or Visual Studio Build Tools. Those are only for building. It needs
-Windows 11 x64, the WebView2 runtime (already present on an up-to-date Windows
-11; the installer fetches it otherwise), and roughly 8 GB free for the model
-packs it downloads on first launch.
+Windows 11 x64, the WebView2 runtime, and disk space for the model.
+
+**WebView2 is detected, never fetched.** Setup checks for it and stops with an
+instruction if it is missing; it will not download a Microsoft installer on your
+behalf. An up-to-date Windows 11 already has it.
+
+**Sizes, and which kind of byte each one is.** The model is **2,298,601,952
+bytes** — 2.30 GB decimal, 2.14 GiB — and that is both the download and what it
+occupies once installed. Choosing the graphics card adds **438.5 MB** of
+transfer (the CUDA worker plus two NVIDIA redistributables), which unpacks to
+**585.3 MB**. So the transfer is ~2.30 GB on the processor path and ~2.74 GB on
+the graphics-card path. Allow **6 GB free** to be comfortable: the installed
+files plus staging headroom, since each archive is written before it is
+unpacked.
+
+**Setup downloads the model, not the first launch.** The app does not fetch
+anything at startup; by the time it opens, everything it needs is on disk and
+verified.
 
 On the machine that has this repository:
 

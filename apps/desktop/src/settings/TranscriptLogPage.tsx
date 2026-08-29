@@ -5,6 +5,7 @@ import { messages } from "../catalog";
 import { formatError } from "./format";
 import { TranscriptLog } from "./TranscriptLog";
 import type { ProfileController } from "./useProfile";
+import { useMutation } from "./useMutation";
 
 /**
  * The transcript log page: every delivered transcript with Copy, plus the two
@@ -40,7 +41,8 @@ export function TranscriptLogPage({ profile }: { profile: ProfileController }) {
   const [historyEnabled, setHistoryEnabled] = useState(false);
   const [historyDisclosure, setHistoryDisclosure] = useState(false);
   const [retentionDays, setRetentionDays] = useState(30);
-  const [historyAction, setHistoryAction] = useState("");
+  const exportHistory = useMutation<string>();
+  const deleteHistory = useMutation<void>();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pinAction, setPinAction] = useState("");
 
@@ -140,14 +142,16 @@ export function TranscriptLogPage({ profile }: { profile: ProfileController }) {
           {profile.profile?.history_enabled === true && (
             <div className="actions">
               <button
+                disabled={exportHistory.pending}
                 onClick={() => {
-                  void invoke<string>("history_export", { disclosureAccepted: true }).then(
-                    setHistoryAction,
+                  void exportHistory.run(
+                    () => invoke<string>("history_export", { disclosureAccepted: true }),
+                    (path) => path,
                   );
                 }}
                 type="button"
               >
-                {messages.exportHistory}
+                {exportHistory.pending ? messages.working : messages.exportHistory}
               </button>
               <label className="confirmation">
                 <input
@@ -159,18 +163,32 @@ export function TranscriptLogPage({ profile }: { profile: ProfileController }) {
               </label>
               <button
                 className="destructive"
-                disabled={!confirmDelete}
+                disabled={!confirmDelete || deleteHistory.pending}
                 onClick={() => {
-                  void invoke("history_delete_all", { confirmed: true }).then(() => {
-                    setHistoryAction(messages.deleted);
-                    setConfirmDelete(false);
-                  });
+                  void deleteHistory
+                    .run(
+                      () => invoke("history_delete_all", { confirmed: true }),
+                      () => messages.deleted,
+                    )
+                    .then((deleted) => {
+                      // The confirmation is cleared only if the deletion
+                      // actually happened. It used to clear either way, so a
+                      // refused delete looked exactly like a completed one --
+                      // the box unticked itself and the user had no reason to
+                      // think their transcripts were still on disk.
+                      if (deleted !== null) setConfirmDelete(false);
+                    });
                 }}
                 type="button"
               >
-                {messages.deleteHistory}
+                {deleteHistory.pending ? messages.working : messages.deleteHistory}
               </button>
-              <output aria-live="polite">{historyAction}</output>
+              <output aria-live="polite">
+                {exportHistory.error ??
+                  deleteHistory.error ??
+                  exportHistory.message ??
+                  deleteHistory.message}
+              </output>
             </div>
           )}
         </fieldset>

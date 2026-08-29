@@ -171,7 +171,9 @@ impl<'a> Mode<'a> {
     /// install root through `Start-Process -ArgumentList`, which joins an array
     /// with spaces and quotes nothing, so
     ///
-    ///     --install --install-root C:\Coding Projects\...\installer-lifecycle
+    /// ```text
+    /// --install --install-root C:\Coding Projects\...\installer-lifecycle
+    /// ```
     ///
     /// arrived as four arguments. A scan for the `--install-root` *pair* found
     /// one, took `C:\Coding` as the root, dropped the remainder on the floor and

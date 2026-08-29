@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use sysinfo::{Disks, System};
+use sysinfo::{Disks, MemoryRefreshKind, RefreshKind, System};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DetectedAdapter {
@@ -25,6 +25,25 @@ pub struct HardwareSnapshot {
 
 pub trait HardwareProbe {
     fn probe(&self, install_root: &Path) -> HardwareSnapshot;
+}
+
+/// Total physical memory, and nothing else.
+///
+/// [`SafeStandardHardwareProbe::probe`] answers this too, but it costs a
+/// `System::new_all`, a refreshed disk list, a registry walk for display
+/// adapters, an OS/build lookup, a core count, an AVX2 check and two allocated
+/// strings to do it. Two callers want only this number and both are on a hot
+/// path: the runtime floor check that runs **before every dictation**, and the
+/// engine warm.
+///
+/// The full inventory stays where it is genuinely wanted -- `model_hardware`,
+/// which renders every field of it on the Advanced page.
+#[must_use]
+pub fn total_physical_memory_bytes() -> u64 {
+    System::new_with_specifics(
+        RefreshKind::nothing().with_memory(MemoryRefreshKind::nothing().with_ram()),
+    )
+    .total_memory()
 }
 
 #[derive(Clone, Copy, Debug, Default)]

@@ -4,9 +4,10 @@
 
 The base application works offline after you provision a local model.
 Network access happens only for model and runtime downloads that you start.
-Dictation audio and transcript text stay local. Optional session history and
-explicitly enabled diagnostic logging are the only ways transcript content is
-persisted, and history is off by default.
+Dictation audio and transcript text stay local. **Optional history is the only
+thing that writes transcript text to disk**, and it is off by default; the
+diagnostic log never contains transcript text at all. Exports you ask for are
+the other way text reaches a file.
 
 "Local" describes inference and data handling, not model or runtime download
 calls. Like any Windows app, SpeakEasy Mini can't prevent a
@@ -18,10 +19,10 @@ app-owned files.
 
 | Data | Default location / lifetime | Leaves the machine? | Your controls |
 |---|---|---|---|
-| Live microphone audio | Memory only, for the active capture | Never (local ASR) | Explicit activation, visible recording state, cancel |
-| Transcript (draft/final) | Memory, for the active session | Never (local ASR) | Result view, explicit copy, session clear |
-| Persisted history (optional) | Off by default; per-user SQLite when enabled | Never | Separate consent, retention period, export, delete-all |
-| Clipboard text (explicit copy or auto-paste) | Windows clipboard until overwritten | Visible to other clipboard readers on your machine | Separate auto-copy/auto-paste settings |
+| Live microphone audio | Memory only, discarded when the recording ends | Never (local ASR) | Explicit activation, visible recording state, cancel |
+| Transcript log | Memory, for as long as the app is running, newest 50 | Never (local ASR) | Read it in Settings → Transcript log, or the pinned log window; copy one entry; it dies with the process |
+| Persisted history (optional) | Off by default; per-user SQLite when enabled, plaintext | Never | Separate consent, retention period, export, delete-all. Transcripts delivered to a password field, the secure desktop, an elevated window, or a target the app could not classify are excluded |
+| Clipboard text | Windows clipboard until overwritten | Visible to other clipboard readers on your machine | The Copy button, and the auto-paste setting — which also copies, because pasting is a clipboard operation |
 | Settings, dictionary, snippets | Per-user app data (plaintext) | Never | Export/reset |
 | Installed model files | Per-user app-owned model folder | Downloaded once, verified against a trusted manifest | Install/remove |
 | Diagnostic log | Per-user app data when enabled; reason codes, timings, and coarse state | Never | The existing `disk_logging_enabled` setting |
@@ -39,8 +40,11 @@ app-owned files.
 - Persisted history (if you enable it) supports configurable retention
   (1–365 days) and an explicit delete-all that removes the database and its
   sidecar files.
-- Secure targets (password fields, etc.) are excluded from history even
-  when history is enabled.
+- Secure targets are excluded from history even when history is enabled. The
+  classification is made by the same guard that refuses to paste into them, and
+  the exclusion is applied *after* delivery has decided — so a transcript is
+  never written on the assumption that its target was safe. A target the app
+  could not inspect at all is treated as unsafe for this purpose.
 - Model removal only ever deletes the app-owned, verified copy — never a
   path you pointed it at manually.
 - Uninstall gives you separate choices for settings/personalization,

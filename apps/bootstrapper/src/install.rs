@@ -375,8 +375,14 @@ mod tests {
         // that is not there must not leave a version stamp behind, because the
         // next run would read it and refuse to install over a machine that has
         // nothing on it.
-        let absent = std::env::temp_dir().join("speakeasy-payload-that-does-not-exist");
-        let destination = std::env::temp_dir().join("speakeasy-install-target-unused");
+        let absent = std::env::temp_dir().join(format!(
+            "speakeasy-payload-that-does-not-exist-{}",
+            std::process::id()
+        ));
+        let destination = std::env::temp_dir().join(format!(
+            "speakeasy-install-target-unused-{}",
+            std::process::id()
+        ));
 
         let outcome = perform(&absent, &destination);
 
@@ -386,7 +392,7 @@ mod tests {
 
     #[test]
     fn a_payload_tree_is_copied_whole() {
-        let root = std::env::temp_dir().join("speakeasy-copy-tree");
+        let root = std::env::temp_dir().join(format!("speakeasy-copy-tree-{}", std::process::id()));
         let source = root.join("from");
         let destination = root.join("to");
         std::fs::create_dir_all(source.join("proof")).expect("source tree");

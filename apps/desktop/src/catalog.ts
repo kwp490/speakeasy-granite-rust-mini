@@ -412,11 +412,29 @@ export const messages = {
    * usable the *next* time the user starts dictating, which is the whole point
    * of telling them at all. The last clause says what to do, because "you hit a
    * limit" with no next step is a complaint rather than an instruction.
+   *
+   * **It does not say the transcript was delivered, because it cannot know.**
+   * `show_capture_limit_notice` runs *before* `transcribe_and_deliver` is even
+   * called, and the pass that follows can find no speech, fail the plausibility
+   * gate, time out, or be refused by a password field. Claiming delivery here
+   * was a guess dressed as a receipt, and on a CPU install the user reads it up
+   * to 44 s before the transcript actually lands. What happens to the text is
+   * the dock's to report, through the delivery outcome it already publishes.
    */
   captureLimitNoticeTitle: "Recording reached the 2-minute maximum",
   captureLimitNoticeBody:
-    "Recording stopped automatically and your transcript was delivered. Anything said after the 2-minute mark was not recorded — start another dictation to continue.",
+    "Recording stopped automatically and is being transcribed now. Anything said after the 2-minute mark was not recorded — start another dictation to continue.",
   captureLimitNoticeDismiss: "Got it",
+  /**
+   * What a settings action says while it is running and when it finished
+   * without a value of its own to report.
+   *
+   * `working` is shown on the button itself rather than beside it, because a
+   * control that looks pressable while a request is outstanding is a control
+   * people press twice -- and two of the actions using it are destructive.
+   */
+  working: "Working…",
+  done: "Done",
   engineDisclosure: "Dictation runs on:",
   /**
    * Whether what setup recorded still describes what is running.

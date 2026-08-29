@@ -4,27 +4,37 @@
 /// asks the same resolver dictation asks. It used to ask whether *any* pack in
 /// the manifest verified — `.any()`, unfiltered — which is a different question
 /// and, once a second pack existed, a wrong one: installing the CPU pack on a
-/// CUDA-capable machine flipped the app to `verified_on_disk`, and so past
-/// `setup_requirement`'s `model_missing` gate, while the resolver went on
-/// resolving the *uninstalled* CUDA pack. The app reported itself ready and
-/// could not transcribe. That trap is not gone just because there is one
-/// engine now — Granite still publishes CPU and CUDA packs — so this still
-/// asks the resolver rather than the catalog.
+/// CUDA-capable machine flipped the app past `setup_requirement`'s
+/// `model_missing` gate while the resolver went on resolving the *uninstalled*
+/// CUDA pack. The app reported itself ready and could not transcribe. That trap
+/// is not gone just because there is one engine now — Granite still publishes
+/// CPU and CUDA packs — so this still asks the resolver rather than the catalog.
 ///
-/// `reverify` runs here, so the trust boundary is where it was. That is also
-/// why this is called on events rather than on reads: it hashes the resolved
-/// pack, and `setup_requirement` is polled at 10 Hz by the HUD.
+/// # This is a presence check, and it stops short of `verified_on_disk`
+///
+/// It used to call `reverify`, which hashes the resolved pack. That put a
+/// 2.30 GB read here, and this function runs **twice** on a configured launch —
+/// once inside `ModelCoordinator::new` on the `setup` path, and again from
+/// [`ModelCoordinator::settle_after_warm`]. With the engine warm's own
+/// `verify_pack_files` that was **three** full hashes, about 6.90 GB of reading,
+/// before the app was usable.
+///
+/// One of the three is enough, and the right one is the warm's: it is the hash
+/// taken immediately before the worker is handed the `model_root`, so it is the
+/// only one with any claim to describing the bytes that get loaded. It also
+/// already runs on its own thread. So presence decides *which* pack is here and
+/// whether setup is needed, exactly as `InstallManager::is_present` is
+/// documented for, and `verifying` is the honest name for a pack whose bytes
+/// nobody has read yet this launch.
 fn readiness(root: &Path, cuda_worker_available: bool) -> (&'static str, Option<String>) {
     if bundled_manifest().is_err() {
         ("failed", Some("catalog_unavailable".to_owned()))
     } else if granite_engine::granite_selection(&root.join("models"), cuda_worker_available)
         .is_some_and(|selection| {
-            InstallManager::new(root.join("models"))
-                .reverify(&selection.install_spec)
-                .is_ok()
+            InstallManager::new(root.join("models")).is_present(&selection.install_spec)
         })
     {
-        ("verified_on_disk", None)
+        ("verifying", None)
     } else {
         ("absent", None)
     }
@@ -64,17 +74,32 @@ impl ModelCoordinator {
             .clone()
     }
 
-    /// Recomputes readiness after something *other than* a pack install changed
-    /// which pack a dictation resolves to.
+    /// Recomputes readiness once the engine warm has spoken, and promotes the
+    /// pack out of `verifying` using what the warm actually found.
     ///
-    /// Installing the CUDA runtime does exactly that without touching a pack: on
-    /// a machine carrying the CUDA pack and no CPU pack, readiness was `absent`
-    /// only because the runtime was missing, and the moment the runtime lands the
-    /// same disk resolves to a loadable pack. Left alone, the app would go on
-    /// reporting "Setup needed" until it was relaunched — which is precisely the
-    /// relaunch the "re-resolve per warm" decision exists to avoid.
-    fn refresh_readiness(&self, cuda_worker_available: bool) {
+    /// Two things happen here, and they used to be one. **Re-resolving** matters
+    /// because which pack a dictation loads depends on whether this worker turned
+    /// out to be CUDA-capable — a fact only the worker can report. Installing the
+    /// CUDA runtime changes the same answer without touching a pack, and left
+    /// alone the app would go on reporting "Setup needed" until relaunched.
+    ///
+    /// **Promotion** matters because `readiness` no longer hashes anything. The
+    /// warm's `verify_pack_files` is the one hash a launch takes, so its verdict
+    /// is the only thing entitled to say `verified_on_disk` — and, when it says
+    /// the bytes are wrong, the only thing entitled to say so. A warm that failed
+    /// for some other reason (no worker, memory below the floor, quarantine)
+    /// leaves the pack at `verifying`: it says nothing about the bytes, and
+    /// claiming a corrupt model on that evidence would be a manufactured fault.
+    fn settle_after_warm(&self, cuda_worker_available: bool, warm_state: &str) {
         let (state, error) = readiness(&self.root, cuda_worker_available);
+        let (state, error) = match (state, warm_state) {
+            ("verifying", "ready") => ("verified_on_disk", None),
+            ("verifying", "granite_model_files_unverified") => (
+                "failed",
+                Some("granite_model_files_unverified".to_owned()),
+            ),
+            _ => (state, error),
+        };
         Self::set_status(&self.status, state, error);
     }
 }

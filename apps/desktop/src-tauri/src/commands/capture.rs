@@ -144,7 +144,17 @@ fn setup_requirement(
     let Some(models) = app.try_state::<ModelCoordinator>() else {
         return Err("capture_status_unavailable");
     };
-    if models.status_snapshot().state != "verified_on_disk" {
+    // `verifying` counts as installed. It means the pack's files are present at
+    // their pinned lengths and the launch warm has not finished hashing them,
+    // which is a window of seconds on every launch -- gating the dock on it
+    // would flash "Setup needed" at a user whose model is fine. A pack whose
+    // bytes are genuinely wrong lands on `failed` with
+    // `granite_model_files_unverified`, which is a named, actionable error the
+    // engine chip shows, rather than the generic "Setup needed" this returns.
+    if !matches!(
+        models.status_snapshot().state.as_str(),
+        "verified_on_disk" | "verifying"
+    ) {
         return Ok(Some("model_missing"));
     }
     // Through the coordinator's cache rather than `CaptureWizardCoordinator::
@@ -684,9 +694,11 @@ async fn run_retained_transcription(
     let profile = app.state::<ProfileCoordinator>();
     let personalization = app.state::<PersonalizationCoordinator>();
     let operations = app.state::<OperationCoordinator>();
-    let memory = SafeStandardHardwareProbe
-        .probe(&models.root)
-        .total_memory_bytes;
+    // The memory-only query, not the full inventory. This runs before every
+    // dictation and the whole probe walks the registry for display adapters,
+    // refreshes the disk list and reads the OS build to produce one number that
+    // cannot change without a reboot.
+    let memory = Some(speakeasy_models::total_physical_memory_bytes());
     let cancel = match runtime.begin(memory) {
         Ok(cancel) => cancel,
         Err(code) => {

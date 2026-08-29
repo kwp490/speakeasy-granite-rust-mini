@@ -95,7 +95,10 @@ mod tests {
         // only reading the target back distinguishes them. This is the same
         // class of mistake as an upgrade leaving a shortcut on the old layout,
         // which is what this module exists to stop.
-        let directory = std::env::temp_dir().join("speakeasy-shortcut-roundtrip");
+        let directory = std::env::temp_dir().join(format!(
+            "speakeasy-shortcut-roundtrip-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&directory).expect("temp directory");
         let link = directory.join("SpeakEasy Mini Setup and Repair.lnk");
         // A real file, so the target is something the shell can store rather
