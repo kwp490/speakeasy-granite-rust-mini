@@ -369,17 +369,50 @@ impl InstallManager {
 
     /// Rehashes every required installed file before runtime activation.
     ///
+    /// **Streams, one file at a time.** It used to `fs::read` every required
+    /// file and collect the buffers before verifying any of them, which for the
+    /// shipped Granite pack is a single 2.30 GB allocation, taken synchronously
+    /// inside `ModelCoordinator::new` on a product whose advertised floor is
+    /// 8 GB. The checks are unchanged; only the buffering is gone.
+    ///
+    /// # A launch hashes the pack twice, and that is an open question
+    ///
+    /// [`verify_pack_files`](crate::verify_pack_files) hashes it again at the
+    /// engine warm. **Neither hash is an execution-time integrity check.** Both
+    /// run in the desktop process; the worker is then handed a `model_root` and
+    /// reopens the files by path, and `granite-worker`'s own docs say it checks
+    /// presence rather than digests, deliberately, because the caller verified.
+    /// So the second hash narrows the modification window -- it does not prove
+    /// the worker loaded those bytes.
+    ///
+    /// The one thing it is *not* redundant about: readiness verifies the pack
+    /// resolved at coordinator construction, and the warm re-resolves, so on a
+    /// machine where CUDA-worker availability changes the two can name different
+    /// file sets.
+    ///
+    /// Whether to keep both therefore needs a threat-model decision nobody has
+    /// made: against accidental corruption the second read is close to
+    /// redundant, and against a live tamperer neither read is sufficient --
+    /// that wants verification in the worker, or loading from already-verified
+    /// handles. See `CURRENT.md` item 21.
+    ///
     /// # Errors
     ///
     /// Returns an error when a required file is absent, changed, or unreadable.
     pub fn reverify(&self, spec: &InstallSpec) -> Result<(), InstallError> {
-        let path = self.install_path(spec);
-        let files = spec
+        let root = self.install_path(spec);
+        let lengths = spec
             .required_files
             .iter()
-            .map(|file| fs::read(path.join(&file.path)).map(|bytes| (file.path.clone(), bytes)))
+            .map(|file| {
+                fs::metadata(root.join(&file.path)).map(|data| (file.path.clone(), data.len()))
+            })
             .collect::<Result<Vec<_>, _>>()?;
-        verify_files(spec, &files)
+        validate_file_plan(spec, &lengths)?;
+        for required in &spec.required_files {
+            verify_installed_file(&root.join(&required.path), required)?;
+        }
+        Ok(())
     }
 
     /// Whether every required file is on disk at its recorded length.
@@ -392,9 +425,11 @@ impl InstallManager {
     ///
     /// It exists because "is this pack installed?" is a question the *selection*
     /// path has to ask, and `reverify` cannot answer it at that price: it reads
-    /// every required file into memory and SHA-256s it, which is 2.5 GB for the
-    /// CUDA streaming pack. Selection asking that question by hashing would put
-    /// a multi-second read on the path to every dictation.
+    /// and SHA-256s every required file, which is 2.30 GB for the shipped
+    /// Granite pack. Selection asking that question by hashing would put a
+    /// multi-second read on the path to every dictation. (`reverify` streams
+    /// rather than buffering since 2026-08-28, so the *allocation* is gone; the
+    /// read is not, and the read is what makes it too expensive here.)
     ///
     /// So the division is: this decides *which* pack to reach for, `reverify`
     /// decides whether its bytes may be trusted.
@@ -641,17 +676,24 @@ fn verify_archive_file(spec: &InstallSpec, path: &Path) -> Result<(), InstallErr
     Ok(())
 }
 
-fn verify_files(spec: &InstallSpec, files: &[(PathBuf, Vec<u8>)]) -> Result<(), InstallError> {
+/// The path-safety, file-set and total-size checks every verification shares,
+/// stated once and driven by lengths alone.
+///
+/// Factored out of `verify_files` so `reverify` could stop reading 2.30 GB of
+/// model into memory just to learn how long each file is. Two copies of these
+/// checks would be two answers to "is this file set the one the manifest
+/// describes", which is the question the whole install path exists to settle.
+fn validate_file_plan(spec: &InstallSpec, lengths: &[(PathBuf, u64)]) -> Result<(), InstallError> {
     let allowed_files: HashSet<_> = spec
         .required_files
         .iter()
         .map(|file| file.path.clone())
         .collect();
-    let entries = files.iter().map(|(path, bytes)| ArchiveEntry {
+    let entries = lengths.iter().map(|(path, bytes)| ArchiveEntry {
         path: path.clone(),
         kind: ArchiveEntryKind::File,
-        compressed_bytes: bytes.len() as u64,
-        extracted_bytes: bytes.len() as u64,
+        compressed_bytes: *bytes,
+        extracted_bytes: *bytes,
     });
     validate_archive_plan(
         entries,
@@ -669,16 +711,36 @@ fn verify_files(spec: &InstallSpec, files: &[(PathBuf, Vec<u8>)]) -> Result<(), 
         .iter()
         .map(|file| file.path.as_path())
         .collect();
-    let actual: HashSet<_> = files.iter().map(|(path, _)| path.as_path()).collect();
+    let actual: HashSet<_> = lengths.iter().map(|(path, _)| path.as_path()).collect();
     if expected != actual
-        || files
-            .iter()
-            .map(|(_, bytes)| bytes.len() as u64)
-            .sum::<u64>()
-            > spec.installed_bytes
+        || lengths.iter().map(|(_, bytes)| *bytes).sum::<u64>() > spec.installed_bytes
     {
         return Err(InstallError::MissingOrUnexpectedFiles);
     }
+    Ok(())
+}
+
+/// Rehashes one installed file against its pinned length and digest, without
+/// holding it in memory.
+fn verify_installed_file(path: &Path, required: &InstallFile) -> Result<(), InstallError> {
+    let mut file = fs::File::open(path)?;
+    if file.metadata()?.len() != required.bytes {
+        return Err(InstallError::FileMismatch(required.path.clone()));
+    }
+    let mut hasher = Sha256::new();
+    io::copy(&mut file, &mut hasher)?;
+    if !format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(&required.sha256) {
+        return Err(InstallError::FileMismatch(required.path.clone()));
+    }
+    Ok(())
+}
+
+fn verify_files(spec: &InstallSpec, files: &[(PathBuf, Vec<u8>)]) -> Result<(), InstallError> {
+    let lengths: Vec<_> = files
+        .iter()
+        .map(|(path, bytes)| (path.clone(), bytes.len() as u64))
+        .collect();
+    validate_file_plan(spec, &lengths)?;
     for required in &spec.required_files {
         let bytes = files
             .iter()

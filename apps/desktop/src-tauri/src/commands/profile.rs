@@ -404,11 +404,6 @@ fn history_delete_all(
         .delete_all()
         .map_err(|_| "history_delete_failed")?;
     *slot = HistoryRepository::open(&history.database_path, policy).ok();
-    history
-        .session
-        .lock()
-        .map_err(|_| "history_state_unavailable")?
-        .clear();
     Ok(())
 }
 
@@ -647,11 +642,6 @@ fn reset_commit(
             .initialization_error
             .lock()
             .map_err(|_| "history_state_unavailable")? = None;
-        history
-            .session
-            .lock()
-            .map_err(|_| "history_state_unavailable")?
-            .clear();
         state.view()
     })();
     if let Ok(mut arbiter) = operations.arbiter.lock() {

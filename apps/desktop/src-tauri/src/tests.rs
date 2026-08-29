@@ -1434,4 +1434,288 @@ mod tests {
         );
         speakeasy_transforms::DictionarySet::new(entries).expect("must validate");
     }
+
+    /// Every refusal that means "this target must never receive the text" also
+    /// means "history must never keep it", and nothing else does.
+    ///
+    /// The two lists were one list from the day this shipped -- the clipboard
+    /// fallback's -- and history had no list at all: it was written with
+    /// `secure_target: false` unconditionally, before any window was inspected.
+    #[test]
+    fn a_sensitive_target_can_never_permit_history() {
+        for refusal in [
+            DeliveryRefusal::Password,
+            DeliveryRefusal::SecureDesktop,
+            DeliveryRefusal::ElevatedTarget,
+            DeliveryRefusal::UnknownSensitive,
+        ] {
+            assert!(refusal_is_sensitive(refusal), "{refusal:?}");
+            assert_eq!(
+                classify_committed_refusal(refusal),
+                DeliveryTarget::Sensitive,
+                "{refusal:?}"
+            );
+            assert!(
+                !classify_committed_refusal(refusal).permits_history(),
+                "{refusal:?} must never reach the plaintext history database"
+            );
+        }
+
+        // `Unsupported` is what `classify_guard` returns when it could not tell
+        // whether the target was the secure desktop, so it is unknown rather
+        // than cleared -- and unknown is excluded too.
+        assert_eq!(
+            classify_committed_refusal(DeliveryRefusal::Unsupported),
+            DeliveryTarget::Unknown
+        );
+        assert!(!DeliveryTarget::Unknown.permits_history());
+
+        // A refusal that is not about sensitivity says nothing about it:
+        // `validate_focused_preflight` runs `classify_guard` first, so reaching
+        // one of these means the target was inspected and cleared.
+        for refusal in [
+            DeliveryRefusal::ModifierHeld,
+            DeliveryRefusal::CaretChanged,
+            DeliveryRefusal::ReadOnly,
+        ] {
+            assert!(!refusal_is_sensitive(refusal), "{refusal:?}");
+            assert_eq!(
+                classify_committed_refusal(refusal),
+                DeliveryTarget::Cleared,
+                "{refusal:?}"
+            );
+        }
+
+        assert!(DeliveryTarget::Cleared.permits_history());
+        assert!(DeliveryTarget::NotAttempted.permits_history());
+
+        // And the list is stated once. The clipboard fallback spelled out the
+        // same four variants until 2026-08-28, which would have made this test
+        // green while the two rules drifted apart.
+        assert_eq!(
+            include_str!("views.rs")
+                .matches("DeliveryRefusal::UnknownSensitive")
+                .count(),
+            1,
+            "`refusal_is_sensitive` must be the only statement of which targets \
+             may never receive the text"
+        );
+    }
+
+    /// A sensitive target puts no row in `SQLite`, and a cleared one does.
+    ///
+    /// Behavioural, through a real repository in a temporary directory, because
+    /// the defect this replaces was invisible to every unit test that existed:
+    /// `HistoryRepository::record`'s own guard test passed throughout, since the
+    /// only production caller handed it a literal `false`. What has to be
+    /// exercised is the value production actually derives.
+    #[test]
+    fn a_sensitive_target_writes_no_row_and_a_cleared_one_does() {
+        let root = tempfile::tempdir().expect("history root");
+        let history = history_with_persistence(root.path());
+        let base = transcript_row("session-a");
+
+        for target in [DeliveryTarget::Sensitive, DeliveryTarget::Unknown] {
+            assert_eq!(
+                history.persist(&history_row_for(&base, target)),
+                Ok(false),
+                "{target:?} must not be stored"
+            );
+        }
+        assert!(
+            stored_rows(&history).is_empty(),
+            "a transcript aimed at a password field must not reach the database"
+        );
+
+        for target in [DeliveryTarget::Cleared, DeliveryTarget::NotAttempted] {
+            let row = transcript_row(&format!("session-{target:?}"));
+            assert_eq!(history.persist(&history_row_for(&row, target)), Ok(true));
+        }
+        let stored = stored_rows(&history);
+        assert_eq!(stored.len(), 2, "ordinary dictations must still be kept");
+        assert!(
+            stored.iter().all(|row| row.session_id != "session-a"),
+            "neither the raw nor the polished text of a sensitive target may appear"
+        );
+    }
+
+    /// A history write that fails on a healthy database changes nothing a
+    /// dictation depends on.
+    ///
+    /// The real failure mode, and the one an earlier version of this test
+    /// missed: it broke the database at *open* time, which left the old
+    /// `record` returning `Ok` (the repository was simply absent) and so would
+    /// have passed against the very bug it was written for. What has to fail is
+    /// a write on a repository that opened perfectly well --
+    /// `a_write_can_fail_after_the_repository_opened_successfully` in
+    /// `speakeasy-storage` proves that shape is reachable; here it is driven
+    /// through an oversized transcript, which is the one way to make `record`
+    /// return `Err` from this crate without a `rusqlite` dependency.
+    ///
+    /// The state asserted is the state production actually reads: the session
+    /// transcript log the pinned window renders, the recoverable result, and
+    /// the capture state the dock polls.
+    #[test]
+    fn a_failed_history_write_changes_nothing_the_dictation_depends_on() {
+        let root = tempfile::tempdir().expect("history root");
+        let history = history_with_persistence(root.path());
+        assert!(
+            history
+                .initialization_error
+                .lock()
+                .expect("initialization error")
+                .is_none(),
+            "the database must be healthy, or this tests the wrong failure"
+        );
+
+        // Publish exactly as a successful pass does, through the same function.
+        let session_log = SessionTranscriptCoordinator::default();
+        let results = ResultCoordinator::default();
+        let capture = CaptureWizardCoordinator::default();
+        let published = publish_successful_transcript(
+            &session_log,
+            &results,
+            &capture,
+            FinalTranscript {
+                session_id: SessionId::from_bytes([3; 16]),
+                text: "Ever tried? Ever failed?".to_owned(),
+                raw_text: "ever tried ever failed".to_owned(),
+                provenance: TranscriptProvenance::FinalizedStream,
+                metrics: speakeasy_domain::FinalAsrMetrics::default(),
+            },
+            HistoryRow {
+                session_id: "session-c".to_owned(),
+                polished_text: Some("Ever tried? Ever failed?".to_owned()),
+                provenance: ResultProvenance::FinalizedStream,
+            },
+        )
+        .expect("publish the final");
+        assert_eq!(published.text, "Ever tried? Ever failed?");
+        let before = session_log.log().expect("session transcript log");
+        assert_eq!(before.len(), 1);
+        assert_eq!(before[0].text, "Ever tried? Ever failed?");
+        let capture_before = capture.view().expect("capture view");
+
+        // Now fail the write, on the healthy database, exactly where a full
+        // disk or a locked file would.
+        let mut doomed = transcript_row("session-c");
+        doomed.raw_text = "x".repeat(1_000_001);
+        assert_eq!(
+            history.persist(&history_row_for(&doomed, DeliveryTarget::Cleared)),
+            Err("history_write_failed"),
+            "the write must genuinely fail, or this proves nothing"
+        );
+
+        // Everything the dictation depends on is exactly where it was.
+        let after = session_log.log().expect("session transcript log");
+        assert_eq!(after.len(), 1, "the transcript must survive the failure");
+        assert_eq!(after[0].text, "Ever tried? Ever failed?");
+        assert_eq!(
+            results
+                .view()
+                .expect("result view")
+                .text
+                .as_deref()
+                .unwrap_or_default(),
+            "Ever tried? Ever failed?",
+            "the recoverable result must survive the failure"
+        );
+        assert_eq!(
+            capture.view().expect("capture view").state,
+            capture_before.state,
+            "the capture must not be left mid-finalization"
+        );
+        assert!(
+            capture_before.error_code.is_none(),
+            "a history failure is not a dictation failure"
+        );
+    }
+
+    /// The database write happens after delivery, and only from the one function
+    /// that has a `DeliveryTarget`.
+    ///
+    /// **A temporary architecture guard, not a proof of the ordering.** It reads
+    /// source text, so it is brittle in the usual way -- a rename or a
+    /// refactor breaks it without the invariant changing, and it can only
+    /// count call sites, never observe a sequence. What actually proves the
+    /// behaviour is
+    /// `a_failed_history_write_changes_nothing_the_dictation_depends_on` and
+    /// `a_sensitive_target_writes_no_row_and_a_cleared_one_does`, which run the
+    /// real coordinators and the real repository.
+    ///
+    /// It earns its place only until the persistence call is structurally
+    /// unable to move -- for instance behind a type that a caller can obtain
+    /// only from `deliver_final_text`'s return value. Delete it then; do not
+    /// grow it.
+    #[test]
+    fn history_is_persisted_only_after_delivery_classifies_the_target() {
+        let sources = [
+            ("views.rs", include_str!("views.rs")),
+            ("commands/capture.rs", include_str!("commands/capture.rs")),
+            ("commands/profile.rs", include_str!("commands/profile.rs")),
+            ("coordinators.rs", include_str!("coordinators.rs")),
+        ];
+        let mut callers = Vec::new();
+        for (name, source) in sources {
+            for (number, line) in source.lines().enumerate() {
+                if line.contains(".persist(") && !line.trim_start().starts_with("///") {
+                    callers.push(format!("{name}:{}", number + 1));
+                }
+            }
+        }
+        assert_eq!(
+            callers.len(),
+            1,
+            "exactly one caller may write the history database, and it must be              `persist_delivered_history`, which takes a `DeliveryTarget`. Found: {callers:?}"
+        );
+
+        let capture = include_str!("commands/capture.rs");
+        let start = capture
+            .find("async fn run_retained_transcription")
+            .expect("run_retained_transcription must exist");
+        let end = capture[start..]
+            .find("
+/// Applies the dictionary")
+            .map_or(capture.len(), |offset| start + offset);
+        let finalization = &capture[start..end];
+        assert!(
+            !finalization.contains(".persist("),
+            "run_retained_transcription runs before the target is inspected"
+        );
+        assert!(
+            finalization.contains("publish_successful_transcript("),
+            "the session log, the result and the capture state are still              published here, ahead of delivery"
+        );
+    }
+
+    /// A history coordinator with persistence switched on and the plaintext
+    /// disclosure accepted, over a temporary root.
+    fn history_with_persistence(root: &Path) -> HistoryCoordinator {
+        let mut settings = Settings::default();
+        settings.privacy.persisted_history_enabled = true;
+        settings.privacy.history_plaintext_disclosure_accepted = true;
+        HistoryCoordinator::new(root, &settings)
+    }
+
+    fn transcript_row(session_id: &str) -> TranscriptResult {
+        TranscriptResult {
+            session_id: session_id.to_owned(),
+            created_unix_ms: 1_700_000_000_000,
+            raw_text: format!("raw text for {session_id}"),
+            polished_text: Some(format!("polished text for {session_id}")),
+            provenance: ResultProvenance::FinalizedStream,
+            secure_target: false,
+        }
+    }
+
+    fn stored_rows(history: &HistoryCoordinator) -> Vec<TranscriptResult> {
+        history
+            .repository
+            .lock()
+            .expect("repository")
+            .as_ref()
+            .map_or_else(Vec::new, |repository| {
+                repository.list(100).expect("list history")
+            })
+    }
 }

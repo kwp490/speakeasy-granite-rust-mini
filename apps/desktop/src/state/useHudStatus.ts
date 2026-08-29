@@ -34,8 +34,10 @@ export type TranscriberController = {
 
 export function useHudStatus(): TranscriberController {
   const [model, dispatch] = useReducer(transcriberReducer, initialTranscriberModel);
-  // Read by the poll callback only, so a stale closure cannot resurrect a
-  // request that has already been answered.
+  // Guards the start/stop actions only. The poll has its own guard, in the
+  // effect below, because the two protect different things: this one stops a
+  // second dictation being requested while the first is still being answered,
+  // and that one stops status requests piling up behind a slow round trip.
   const inFlight = useRef(false);
   const [copied, setCopied] = useState(false);
 
@@ -57,8 +59,21 @@ export function useHudStatus(): TranscriberController {
     setCopied(false);
   }, [model.sessionId]);
 
+  // Self-scheduling rather than `setInterval`, so the interval is the gap
+  // *between* requests rather than the gap between their starts. An interval
+  // keeps firing while a request is outstanding: a round trip slower than
+  // 100 ms — which the backend's own status call can be, since it reaches the
+  // model coordinator and the profile lock — accumulates concurrent IPC and the
+  // answers can come back out of order. The reducer's sequence guard survives
+  // that, but the work is done either way, and it is done on the one window
+  // that polls for the entire life of the process.
   useEffect(() => {
     let stopped = false;
+    let timer = 0;
+    const schedule = () => {
+      if (stopped) return;
+      timer = window.setTimeout(refresh, POLL_INTERVAL_MS);
+    };
     const refresh = () => {
       invoke<HudStatus>("capture_hud_status")
         .then((status) => {
@@ -70,13 +85,13 @@ export function useHudStatus(): TranscriberController {
           // display-only and infallible by contract, so the transcriber going
           // quiet must never cost the user their recording — keep the last
           // known state and try again on the next tick.
-        });
+        })
+        .finally(schedule);
     };
     refresh();
-    const timer = window.setInterval(refresh, POLL_INTERVAL_MS);
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
     };
   }, []);
 

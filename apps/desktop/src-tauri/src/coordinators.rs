@@ -1264,7 +1264,6 @@ pub struct HistoryCoordinator {
     export_root: PathBuf,
     repository: Mutex<Option<HistoryRepository>>,
     initialization_error: Mutex<Option<&'static str>>,
-    session: Mutex<SessionResultList>,
 }
 
 impl HistoryCoordinator {
@@ -1315,27 +1314,28 @@ impl HistoryCoordinator {
             export_root: root.join("exports"),
             repository: Mutex::new(repository),
             initialization_error: Mutex::new(initialization_error),
-            session: Mutex::new(SessionResultList::default()),
         }
     }
 
-    fn record(&self, result: &TranscriptResult) -> Result<(), &'static str> {
-        self.session
-            .lock()
-            .map_err(|_| "history_state_unavailable")?
-            .push(result.clone())
-            .map_err(|_| "history_result_invalid")?;
-        if let Some(repository) = self
+    /// Writes a finished transcript to the plaintext history database, and says
+    /// whether a row was actually written.
+    ///
+    /// Called after delivery has classified the target, never before: the
+    /// `secure_target` flag the repository refuses on is a fact about where the
+    /// transcript went, and is not known until then. The bool is returned rather
+    /// than dropped because "refused by policy" and "stored" are different
+    /// outcomes the diagnostic log has to tell apart.
+    fn persist(&self, result: &TranscriptResult) -> Result<bool, &'static str> {
+        let mut slot = self
             .repository
             .lock()
-            .map_err(|_| "history_state_unavailable")?
-            .as_mut()
-        {
-            repository
-                .record(result)
-                .map_err(|_| "history_write_failed")?;
-        }
-        Ok(())
+            .map_err(|_| "history_state_unavailable")?;
+        let Some(repository) = slot.as_mut() else {
+            return Ok(false);
+        };
+        repository
+            .record(result)
+            .map_err(|_| "history_write_failed")
     }
 }
 

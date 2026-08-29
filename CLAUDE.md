@@ -629,6 +629,35 @@ Every one of these produced a plausible, wrong result rather than an error.
   `Ctrl+S`, because `SetForegroundWindow` fails silently from a background
   process and the keystroke then lands in whatever the user is actually using.
 
+- **A guard whose input is a literal is not a guard.**
+  `HistoryRepository::record` refuses a transcript whose `secure_target` is true
+  and a test proves it, but the only production caller passed `false` — before
+  any window had been inspected — so a dictation into a password field was
+  refused delivery and stored in plaintext, against both `historyDisclosure` and
+  `PRIVACY.md`. **When a test proves a guard works, check what production hands
+  it.** The same line was also `history.record(...)?` ahead of delivery, so a
+  `SQLite` error discarded the transcript: **optional persistence goes last.**
+  Fixed 2026-08-28; see `CURRENT.md` item 19. Two things that nearly shipped as
+  fixes and were not: a regression test that broke the database at *open* time,
+  which the buggy code survived by returning `Ok`, so it could never have caught
+  the defect — **control against the real bug, not a plausible one** — and that
+  same test asserting on `HistoryCoordinator.session`, a list production wrote
+  and never read, which would have kept dead state alive to satisfy a test.
+- **A comment stating a performance constraint is not enforcement, and the
+  violation can be four lines away.** `capture_hud_status` says device
+  enumeration is "far too expensive to do at 10 Hz" — correctly, about
+  `preferred_device_id` — while `setup_requirement`, called from the line above,
+  enumerated on every tick. Cached since 2026-08-28, and the test **counts**
+  enumerations and **advances an injected clock**: a burst-only test passes
+  against a cache that never expires, and a timing assertion on a
+  one-microphone machine passes with the enumeration still in place.
+- **`fs::read` over a required-file list is a whole-pack allocation.**
+  `InstallManager::reverify` collected every buffer before verifying any — 2.30 GB
+  for the Granite pack, inside `ModelCoordinator::new`, on a product whose floor
+  is 8 GB. It streams since 2026-08-28. **A launch still hashes the pack twice
+  and that is an open question, not a settled design** — both hashes are
+  desktop-side and the worker reopens by path, so neither is an execution-time
+  check. `CURRENT.md` item 21.
 - **A safety rule can outlive the danger it was written for, and then it only
   does harm.** `proof/` was emptied *selectively* — this installer's own files by
   name, everything else spared — on the recorded argument that an unrecognised

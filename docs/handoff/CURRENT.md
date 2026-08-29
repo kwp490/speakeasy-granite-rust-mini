@@ -3159,6 +3159,88 @@ that it arrived. Verify the outcome on disk, which is what exposed this: the
 uninstall printed `Removed: … configuration, transcript history, installed
 models, …` and the profile directory was gone one command later.
 
+### 19. History was written before the target was classified — fixed 2026-08-28
+
+`run_retained_transcription` ended a successful pass with
+`history.record(&TranscriptResult { .. secure_target: false })?` — before the
+session log, `results.accept`, `mark_transcription_finished`, and before
+`deliver_final_text` had inspected any window.
+
+Two defects from one statement. **Privacy:** the flag is the only thing
+`HistoryRepository::record` refuses on, and the only production caller passed a
+literal, so a dictation into a password field was refused delivery and stored in
+plaintext — against `historyDisclosure` and `PRIVACY.md`. A guard whose input is
+a constant is not a guard, and its unit test proves nothing about the shipped
+build. **Reliability:** the `?` meant any `SQLite` error discarded a good
+transcript and skipped `mark_transcription_finished`, latching the dock on
+`finalizing`.
+
+**Fix:** `deliver_final_text` returns a `DeliveryTarget`; only
+`persist_delivered_history` writes the database, and only after delivery. The
+sensitive-refusal list is stated once in `refusal_is_sensitive`.
+
+**The ordering is a data dependency, not a convention.** `FinalizedDictation`
+carries the pending history row and is produced *only* by
+`publish_successful_transcript`, which records the session transcript, accepts
+the result and finishes the capture before returning it. A history row therefore
+cannot exist until everything a dictation depends on has been published.
+`history_is_persisted_only_after_delivery_classifies_the_target` is a source
+scan and is labelled in its own doc comment as a temporary architecture guard —
+delete it if the persistence call becomes structurally immovable, do not grow it.
+
+**Two test lessons, both from getting this wrong first.** The original
+regression test broke the database at *open* time, which the old code handled by
+skipping the write and returning `Ok` — so it would have passed against the very
+bug it was written for. **A control has to restore the real defect, not a
+plausible-looking one**: restoring a fallible pre-publication write makes the
+current test fail with `publish the final: "history_write_failed"`, which is the
+original symptom exactly. And that test asserted on `HistoryCoordinator.session`,
+an in-memory list production writes and never reads — the test was its only
+reader, which would have preserved dead state to satisfy a test. `session` and
+`retain` are deleted; the state that matters is `SessionTranscriptCoordinator`,
+which the pinned log window actually renders, and that is what the test asserts
+now. `a_write_can_fail_after_the_repository_opened_successfully` in
+`speakeasy-storage` proves the post-open failure shape is reachable at all.
+
+**Open:** with auto-paste off nothing is inspected, so dictate-then-paste-by-hand
+into a password field still leaves a history row. Closing it means inspecting the
+foreground on a path that does not deliver.
+
+### 20. The 10 Hz dock poll walked the audio devices — fixed 2026-08-28
+
+`setup_requirement` called `CaptureWizardCoordinator::devices` — a full WASAPI
+walk — on every tick, four lines below a comment saying enumeration is far too
+expensive at 10 Hz. A comment stating a constraint is not enforcement. Cached for
+two seconds; nothing is gated on it, so a stale answer only delays "Setup needed"
+clearing. `useHudStatus.ts`'s `inFlight` ref was documented as guarding the poll
+and did not; the poll self-schedules now.
+
+### 21. Startup buffered the whole 2.30 GB model — partly fixed 2026-08-28
+
+`InstallManager::reverify` collected every file's bytes before verifying any, a
+single 2.30 GB allocation inside `ModelCoordinator::new`. It streams now.
+
+**Two halves remain open, and both need a decision rather than code.**
+
+**The double read.** A launch also hashes the pack at the engine warm. An earlier
+draft of this entry called the two "different trust boundaries"; that overstates
+it. Both run in the desktop process, and the worker then reopens the files by
+path — `granite-worker`'s own docs say it checks presence, not digests,
+deliberately, because the caller verified. So the second hash narrows the
+modification window and does not prove the worker loaded those bytes. It is not
+*entirely* redundant — readiness verifies the pack resolved at construction and
+the warm re-resolves, so the two can name different file sets — but against
+accidental corruption it is close to redundant, and against a live tamperer
+neither read suffices. That wants verification inside the worker, or loading from
+already-verified handles. **Needs a threat-model decision and a measurement of
+what the second read costs.**
+
+**Asynchronous verification.** Moving verification off the setup path behind a
+`verifying` state was deferred, not refused: `setup_requirement` gates on
+`state != "verified_on_disk"`, so today it would render "Setup needed" for the
+first seconds of every launch. The change is a distinct state plus the gate and
+copy that go with it.
+
 ## Mistakes made this session, so they are not repeated
 
 - **A whole crate went red unnoticed.** The manifest trim broke

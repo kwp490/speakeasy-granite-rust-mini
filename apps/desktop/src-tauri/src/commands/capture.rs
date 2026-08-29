@@ -47,7 +47,7 @@ fn capture_hud_status(app: tauri::AppHandle) -> Result<CaptureHudView, &'static 
     };
     let capture_view = capture.view()?;
     let hotkey = hotkey_state.view()?;
-    let setup = setup_requirement(&app)?;
+    let setup = setup_requirement(&app, &capture)?;
     let delivery_pending = hud
         .live
         .lock()
@@ -137,16 +137,20 @@ fn capture_hud_status(app: tauri::AppHandle) -> Result<CaptureHudView, &'static 
 /// Returns `capture_status_unavailable` when the model coordinator is not
 /// managed yet — see `capture_hud_status`, its only caller, for why that is a
 /// reachable state and why it must not be a panic.
-fn setup_requirement(app: &tauri::AppHandle) -> Result<Option<&'static str>, &'static str> {
+fn setup_requirement(
+    app: &tauri::AppHandle,
+    capture: &CaptureWizardCoordinator,
+) -> Result<Option<&'static str>, &'static str> {
     let Some(models) = app.try_state::<ModelCoordinator>() else {
         return Err("capture_status_unavailable");
     };
     if models.status_snapshot().state != "verified_on_disk" {
         return Ok(Some("model_missing"));
     }
-    let has_microphone = CaptureWizardCoordinator::devices()
-        .is_ok_and(|devices| devices.iter().any(|device| device.supported));
-    if !has_microphone {
+    // Through the coordinator's cache rather than `CaptureWizardCoordinator::
+    // devices` directly. This is on the 10 Hz path and that call is a full
+    // WASAPI enumeration; see `has_supported_microphone`.
+    if !capture.has_supported_microphone() {
         return Ok(Some("microphone_missing"));
     }
     Ok(None)
@@ -593,7 +597,17 @@ async fn dictation_retry(
     // it as `empty` rather than `failed`, and the settings UI should not
     // report an error the backend itself does not consider one.
     match outcome {
-        Ok(_) => Ok(()),
+        Ok(finalized) => {
+            // `NotAttempted`, because this path deliberately does not deliver
+            // -- see the doc comment above. No application received the text,
+            // so there is no target classification for history to honour.
+            persist_delivered_history(
+                &app,
+                &finalized.pending_history,
+                DeliveryTarget::NotAttempted,
+            );
+            Ok(())
+        }
         Err(code) if is_no_speech(code) => Ok(()),
         Err(code) => Err(code),
     }
@@ -621,6 +635,33 @@ fn is_no_speech(code: &str) -> bool {
     matches!(code, "runtime_no_speech_detected" | "no_speech")
 }
 
+/// A transcription that succeeded, and the history row it has not earned yet.
+///
+/// Carried rather than written because `secure_target` is a fact about the
+/// application that received the text, and nothing here has looked at the
+/// foreground window. See `DeliveryTarget`.
+///
+/// **This type is what keeps the ordering honest.** It is produced only by
+/// `publish_successful_transcript`, and `persist_delivered_history` is the only
+/// consumer of its `pending_history`, so a history row cannot exist until the
+/// session log, the recoverable result and the capture state have all been
+/// updated. The defect it replaces was a write that ran before any of them.
+struct FinalizedDictation {
+    /// The text to deliver.
+    text: String,
+    /// The history row, pending a target classification.
+    pending_history: TranscriptResult,
+}
+
+/// The parts of a history row that come from personalization rather than from
+/// the transcript, handed to `publish_successful_transcript` so that it -- and
+/// nothing earlier -- can assemble one.
+struct HistoryRow {
+    session_id: String,
+    polished_text: Option<String>,
+    provenance: ResultProvenance,
+}
+
 fn request_for_audio(audio: &UtteranceAudio) -> AsrRequest {
     AsrRequest {
         correlation_id: CorrelationId::from_bytes(audio.session_id.into_bytes()),
@@ -635,12 +676,11 @@ async fn run_retained_transcription(
     app: &tauri::AppHandle,
     audio: UtteranceAudio,
     request: AsrRequest,
-) -> Result<String, &'static str> {
+) -> Result<FinalizedDictation, &'static str> {
     let models = app.state::<ModelCoordinator>();
     let capture = app.state::<CaptureWizardCoordinator>();
     let runtime = app.state::<RuntimeWizardCoordinator>();
     let results = app.state::<ResultCoordinator>();
-    let history = app.state::<HistoryCoordinator>();
     let profile = app.state::<ProfileCoordinator>();
     let personalization = app.state::<PersonalizationCoordinator>();
     let operations = app.state::<OperationCoordinator>();
@@ -759,39 +799,22 @@ async fn run_retained_transcription(
                     output
                 },
             );
-            history.record(&TranscriptResult {
-                session_id,
-                created_unix_ms: i64::try_from(
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis(),
-                )
-                .unwrap_or(i64::MAX),
-                raw_text: transcript.raw_text.clone(),
-                polished_text,
-                provenance,
-                secure_target: false,
-            })?;
-            let final_text = transcript.text.clone();
-            // The session log records the authoritative final *before* delivery
-            // is attempted, deliberately: a refused paste must still leave the
-            // text somewhere the user can reach it.
-            app.state::<SessionTranscriptCoordinator>().record(
-                transcript.session_id,
-                &final_text,
-                match transcript.provenance {
-                    TranscriptProvenance::FinalizedStream => "finalized_stream",
-                    TranscriptProvenance::LastValidDraft => "last_valid_draft",
+            // The final is deliberately not published to the HUD here. The
+            // transcriber must not say what happened to the text before
+            // delivery has resolved, so `deliver_final_text` publishes it
+            // together with the outcome; until then the HUD keeps reporting
+            // `finalizing`.
+            publish_successful_transcript(
+                &app.state::<SessionTranscriptCoordinator>(),
+                &results,
+                &capture,
+                transcript,
+                HistoryRow {
+                    session_id,
+                    polished_text,
+                    provenance,
                 },
-            );
-            results.accept(transcript)?;
-            capture.mark_transcription_finished(None);
-            // The final is deliberately not published here. The transcriber
-            // must not say what happened to the text before delivery has
-            // resolved, so `deliver_final_text` publishes it together with the
-            // outcome; until then the HUD keeps reporting `finalizing`.
-            Ok(final_text)
+            )
         }
         // Silence is not a malfunction, so it must not read as one: no
         // quarantine strike (the string is absent from the quarantine list
@@ -809,6 +832,64 @@ async fn run_retained_transcription(
             Err(code)
         }
     }
+}
+
+/// Puts a finished transcript everywhere it has to be before delivery is tried.
+///
+/// Its own function so a test can drive the real coordinators without a
+/// `tauri::AppHandle`, and so the ordering is one statement rather than a
+/// stretch of a 200-line match arm. The order is the point: **nothing fallible
+/// and optional may run before this**. Until 2026-08-28 a history-database write
+/// did, with `?`, so a `SQLite` error discarded the transcript before the
+/// session log ever saw it and skipped `mark_transcription_finished`, latching
+/// the dock on `finalizing` for the life of the process.
+///
+/// The session log records the authoritative final before delivery deliberately:
+/// a refused paste must still leave the text somewhere the user can reach it.
+///
+/// # Errors
+///
+/// Returns `empty_result_rejected` or a coordinator-state code from
+/// `ResultCoordinator::accept`. Both are genuine failures to publish, unlike a
+/// history write, which is why they are still allowed to propagate.
+fn publish_successful_transcript(
+    session_log: &SessionTranscriptCoordinator,
+    results: &ResultCoordinator,
+    capture: &CaptureWizardCoordinator,
+    transcript: FinalTranscript,
+    row: HistoryRow,
+) -> Result<FinalizedDictation, &'static str> {
+    let final_text = transcript.text.clone();
+    let pending_history = TranscriptResult {
+        session_id: row.session_id,
+        created_unix_ms: i64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis(),
+        )
+        .unwrap_or(i64::MAX),
+        raw_text: transcript.raw_text.clone(),
+        polished_text: row.polished_text,
+        provenance: row.provenance,
+        // A placeholder. `persist_delivered_history` fills it from what
+        // delivery observed, and it is the only thing that may.
+        secure_target: false,
+    };
+    session_log.record(
+        transcript.session_id,
+        &final_text,
+        match transcript.provenance {
+            TranscriptProvenance::FinalizedStream => "finalized_stream",
+            TranscriptProvenance::LastValidDraft => "last_valid_draft",
+        },
+    );
+    results.accept(transcript)?;
+    capture.mark_transcription_finished(None);
+    Ok(FinalizedDictation {
+        text: final_text,
+        pending_history,
+    })
 }
 
 /// Applies the dictionary, snippets and writing rules to an accepted final.

@@ -159,6 +159,9 @@ pub struct CaptureWizardCoordinator {
     /// that thread is the only place that knows when there is anything to throw
     /// away — the user presses Cancel while samples are still being written.
     cancelled: Arc<AtomicBool>,
+    /// The last answer to "is there a supported microphone", and when it was
+    /// taken. See [`Self::has_supported_microphone`].
+    microphone_presence: Arc<Mutex<Option<(Instant, bool)>>>,
 }
 
 impl Default for CaptureWizardCoordinator {
@@ -173,15 +176,72 @@ impl Default for CaptureWizardCoordinator {
             audio_overflow_count: Arc::new(AtomicU64::new(0)),
             stop_requested: Arc::new(AtomicBool::new(false)),
             cancelled: Arc::new(AtomicBool::new(false)),
+            microphone_presence: Arc::new(Mutex::new(None)),
         }
     }
 }
+
+/// How long an enumerated microphone-presence answer is reused for.
+///
+/// The HUD asks the question ten times a second and a microphone does not
+/// appear or vanish ten times a second, so this is what stands between a
+/// permanent dock and ten WASAPI device walks per second. Two seconds is short
+/// enough that plugging a headset in is noticed about as fast as a person can
+/// look at the dock, and long enough that an idle dock enumerates once every
+/// twenty ticks instead of on all of them.
+const MICROPHONE_PRESENCE_TTL: Duration = Duration::from_secs(2);
 
 impl CaptureWizardCoordinator {
     pub fn devices() -> Result<Vec<CaptureDeviceView>, &'static str> {
         enumerate_input_devices()
             .map_err(|_| "capture_device_enumeration_failed")
             .map(|devices| devices.iter().map(CaptureDeviceView::from).collect())
+    }
+
+    /// Whether this machine has a capture device the app can actually use.
+    ///
+    /// Answered from a short-lived cache, because its one caller is
+    /// `setup_requirement` and `setup_requirement`'s one caller is the HUD poll
+    /// at 10 Hz. `enumerate_input_devices` is a full WASAPI walk that asks every
+    /// device for its identifier, its description *and* its default input
+    /// config, and `capture_hud_status` a few lines above the call carries a
+    /// comment saying device enumeration is "far too expensive to do at 10 Hz"
+    /// -- about a different field, while this one did exactly that on every
+    /// tick from the fork until 2026-08-28.
+    ///
+    /// A stale answer is bounded by [`MICROPHONE_PRESENCE_TTL`] and is only ever
+    /// used to decide whether the dock says "Setup needed". Starting a capture
+    /// enumerates for real and fails on its own terms, so nothing is *gated* on
+    /// this cache -- a microphone that appeared one second ago still records.
+    pub fn has_supported_microphone(&self) -> bool {
+        self.cached_microphone_presence(Instant::now(), || {
+            Self::devices().is_ok_and(|devices| devices.iter().any(|device| device.supported))
+        })
+    }
+
+    /// The cache itself, with `now` and the enumeration both passed in.
+    ///
+    /// The clock is a parameter rather than an `Instant::now()` inside so a test
+    /// can advance it: a test that calls this thirty times in a row proves only
+    /// that a burst is coalesced, which is the easy half. Expiry is the half
+    /// that decides whether a plugged-in headset is ever noticed, and it cannot
+    /// be observed without moving time or sleeping for the whole TTL.
+    ///
+    /// A poisoned lock answers by probing rather than by refusing: this decides
+    /// whether the dock offers to start a dictation, and a mutex that failed
+    /// somewhere else must not be able to say "you have no microphone".
+    fn cached_microphone_presence(&self, now: Instant, probe: impl FnOnce() -> bool) -> bool {
+        let Ok(mut cached) = self.microphone_presence.lock() else {
+            return probe();
+        };
+        if let Some((taken, present)) = *cached
+            && now.saturating_duration_since(taken) < MICROPHONE_PRESENCE_TTL
+        {
+            return present;
+        }
+        let present = probe();
+        *cached = Some((now, present));
+        present
     }
 
     pub fn start_for_session(
@@ -1089,5 +1149,64 @@ mod tests {
         assert!(retained.lock().unwrap().is_none());
         assert_eq!(status.lock().unwrap().state, "idle");
         assert_eq!(elapsed_ms.load(Ordering::Acquire), 0);
+    }
+
+    /// The HUD poll does not enumerate audio hardware, and does notice a
+    /// microphone that appears.
+    ///
+    /// `setup_requirement` runs on every one of the dock's ten ticks a second
+    /// and used to call `CaptureWizardCoordinator::devices` -- a full WASAPI
+    /// walk asking each device for its identifier, description and default
+    /// input config -- directly, four lines below a comment saying enumeration
+    /// is far too expensive at 10 Hz.
+    ///
+    /// Counted rather than timed: a timing assertion on a machine with one
+    /// microphone passes with the enumeration still in place. Both halves are
+    /// asserted, because a cache that never expires would satisfy the first.
+    #[test]
+    fn the_hud_poll_coalesces_device_enumeration_but_still_expires_it() {
+        let capture = CaptureWizardCoordinator::default();
+        let probes = std::cell::Cell::new(0_u32);
+        let mut answer = true;
+        let probe = |present: bool| {
+            probes.set(probes.get() + 1);
+            present
+        };
+        let start = Instant::now();
+        // The last instant that must still be a cache hit.
+        let just_inside = MICROPHONE_PRESENCE_TTL
+            .checked_sub(Duration::from_millis(1))
+            .expect("the TTL is longer than a millisecond");
+
+        // A burst inside the window enumerates once.
+        for tick in 0..30 {
+            let now = start + Duration::from_millis(tick * 10);
+            assert!(capture.cached_microphone_presence(now, || probe(answer)));
+        }
+        assert_eq!(
+            probes.get(),
+            1,
+            "a burst inside the TTL must enumerate once"
+        );
+
+        // The last tick before expiry still reuses it.
+        assert!(capture.cached_microphone_presence(start + just_inside, || probe(answer)));
+        assert_eq!(probes.get(), 1, "the TTL must not expire early");
+
+        // At expiry it asks again -- and takes the new answer, which is the
+        // whole point: a cache that never refreshed would leave the dock
+        // saying "Setup needed" forever after a microphone was unplugged once.
+        answer = false;
+        assert!(
+            !capture.cached_microphone_presence(start + MICROPHONE_PRESENCE_TTL, || probe(answer))
+        );
+        assert_eq!(probes.get(), 2, "the TTL must expire");
+
+        // And the new answer is what the next burst reuses.
+        assert!(!capture.cached_microphone_presence(
+            start + MICROPHONE_PRESENCE_TTL + Duration::from_millis(10),
+            || probe(true)
+        ));
+        assert_eq!(probes.get(), 2);
     }
 }

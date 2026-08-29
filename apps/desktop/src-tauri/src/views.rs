@@ -50,7 +50,7 @@ use speakeasy_storage::{
     ActivationHotkeyMode, DEFAULT_ACTIVATION_HOTKEY, HistoryPolicy, HistoryRepository,
     HudDockEdge, HudDockPlacement, ImportChoices, ImportPreview,
     ImportReport, PersonalizationRepository, ProductionImportPlan,
-    ProductionImportRoot, ResultProvenance, SafeDeliveryPreference, SessionResultList, Settings,
+    ProductionImportRoot, ResultProvenance, SafeDeliveryPreference, Settings,
     SettingsStore, TranscriptResult, WritingRulePreferences,
     clear_pending_update_after_health_checks, extract_v1_protected_terms,
 };
@@ -1152,8 +1152,15 @@ fn process_finalization_job(app: &tauri::AppHandle, job: FinalAudioJob) {
         job.request,
     ));
     match outcome {
-        Ok(text) => deliver_final_text(app, &text),
-        Err(code) if is_no_speech(code) => deliver_final_text(app, ""),
+        Ok(finalized) => {
+            let target = deliver_final_text(app, &finalized.text);
+            // After delivery, never before, and never able to affect it.
+            // Both halves are repairs -- `CURRENT.md` item 19.
+            persist_delivered_history(app, &finalized.pending_history, target);
+        }
+        Err(code) if is_no_speech(code) => {
+            deliver_final_text(app, "");
+        }
         Err(code) => log_event(app, "dictation_transcription", &[("result", code)]),
     }
     log_event(
@@ -1286,12 +1293,12 @@ fn wait_for_captured_audio(app: &tauri::AppHandle) -> Result<(), &'static str> {
 /// there is nothing left to disclose here. A rejected pass never gets this
 /// far -- its reason is the dictation's error, reported on the failure path
 /// in `run_retained_transcription`.
-fn deliver_final_text(app: &tauri::AppHandle, text: &str) {
+fn deliver_final_text(app: &tauri::AppHandle, text: &str) -> DeliveryTarget {
     let hud = app.state::<CaptureHudCoordinator>();
     if text.trim().is_empty() {
         log_event(app, "hotkey_delivery", &[("result", "empty_text")]);
         hud.finish(text, "held", None);
-        return;
+        return DeliveryTarget::NotAttempted;
     }
     let auto_paste = app
         .state::<ProfileCoordinator>()
@@ -1301,7 +1308,7 @@ fn deliver_final_text(app: &tauri::AppHandle, text: &str) {
     if !auto_paste {
         log_event(app, "hotkey_delivery", &[("result", "auto_paste_disabled")]);
         hud.finish(text, "held", None);
-        return;
+        return DeliveryTarget::NotAttempted;
     }
     let session_id = new_session_id();
     let observer = app.state::<TargetObserver>();
@@ -1313,7 +1320,14 @@ fn deliver_final_text(app: &tauri::AppHandle, text: &str) {
             log_target_inspect_refusal(app, &reason, os_error);
             let outcome = deliver_via_clipboard_fallback(app, session_id, text, refusal);
             hud.finish(text, outcome, None);
-            return;
+            // Inspection is the only thing that can classify a target, so a
+            // refusal here leaves the question unanswered even when the refusal
+            // itself is not one of the sensitive ones.
+            return if refusal_is_sensitive(refusal) {
+                DeliveryTarget::Sensitive
+            } else {
+                DeliveryTarget::Unknown
+            };
         }
     };
     // Sanitized: the focused executable's own path and integrity relationship
@@ -1340,6 +1354,7 @@ fn deliver_final_text(app: &tauri::AppHandle, text: &str) {
         Ok(_) => {
             log_event(app, "hotkey_delivery", &[("result", "committed")]);
             hud.finish(text, "inserted", None);
+            DeliveryTarget::Cleared
         }
         Err(refusal) => {
             let reason = format!("{refusal:?}");
@@ -1350,8 +1365,119 @@ fn deliver_final_text(app: &tauri::AppHandle, text: &str) {
             );
             let outcome = deliver_via_clipboard_fallback(app, session_id, text, refusal);
             hud.finish(text, outcome, None);
+            classify_committed_refusal(refusal)
         }
     }
+}
+
+/// What delivery learned about the application that received a transcript.
+///
+/// It exists for one decision -- whether the transcript may be written to
+/// plaintext history, which `historyDisclosure` and `PRIVACY.md` promise
+/// excludes secure targets. Every variant is a fact about what was observed;
+/// the policy is [`Self::permits_history`], in one place. `CURRENT.md` item 19
+/// has the defect this replaced.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DeliveryTarget {
+    /// No application received the transcript: nothing to deliver, or auto-paste
+    /// is off and the text waits to be copied by hand. No target existed to have
+    /// been secure, and refusing here would silently switch history off for
+    /// everyone who pastes manually.
+    NotAttempted,
+    /// The target was inspected and `classify_guard` passed it.
+    Cleared,
+    /// A password field, a secure desktop, a higher-integrity target, or one
+    /// classified unknown-sensitive.
+    Sensitive,
+    /// The app tried to look and could not -- `TargetInaccessible` is the common
+    /// case. The clipboard fallback still writes here, because losing a
+    /// transcript silently is worse than the residual chance the field was
+    /// sensitive; that trade does not carry over, since excluding one history
+    /// row costs nothing the user cannot still read on screen.
+    Unknown,
+}
+
+impl DeliveryTarget {
+    /// Whether the plaintext history database may keep this transcript.
+    const fn permits_history(self) -> bool {
+        matches!(self, Self::NotAttempted | Self::Cleared)
+    }
+}
+
+/// The one statement of which refusals mean "this target must never receive the
+/// text at all", shared by the clipboard fallback and the history
+/// classification. A second copy is not wrong on the day it is written, it is
+/// wrong on the day the first one changes.
+const fn refusal_is_sensitive(refusal: DeliveryRefusal) -> bool {
+    matches!(
+        refusal,
+        DeliveryRefusal::Password
+            | DeliveryRefusal::SecureDesktop
+            | DeliveryRefusal::ElevatedTarget
+            | DeliveryRefusal::UnknownSensitive
+    )
+}
+
+/// Classifies a refusal that came back from `write_focused`.
+///
+/// `validate_focused_preflight` runs `classify_guard` first, so any refusal but
+/// the sensitive four means the target was inspected and cleared. `Unsupported`
+/// is the exception: `classify_guard` returns it when `is_secure_desktop` is
+/// `None`, and it also covers an unwritable capability and an absent writer, so
+/// a code with three meanings must not be read as the reassuring one.
+const fn classify_committed_refusal(refusal: DeliveryRefusal) -> DeliveryTarget {
+    if refusal_is_sensitive(refusal) {
+        DeliveryTarget::Sensitive
+    } else if matches!(refusal, DeliveryRefusal::Unsupported) {
+        DeliveryTarget::Unknown
+    } else {
+        DeliveryTarget::Cleared
+    }
+}
+
+/// Stamps a finished transcript with what delivery observed about its target.
+///
+/// The refusal is left to `HistoryRepository::record`'s existing guard, which
+/// production now hands a value it did not manufacture. Separate from
+/// `persist_delivered_history` so a test can drive the real repository without a
+/// `tauri::AppHandle`.
+fn history_row_for(record: &TranscriptResult, target: DeliveryTarget) -> TranscriptResult {
+    TranscriptResult {
+        secure_target: !target.permits_history(),
+        ..record.clone()
+    }
+}
+
+/// Writes a delivered transcript to plaintext history, if its target allows it.
+///
+/// Failure is reported and then dropped. Persisted history is optional, and the
+/// transcript has already reached the session log, the recoverable result and
+/// (unless refused) the target application by the time this runs, so a `SQLite`
+/// error here costs the user a history row rather than a dictation.
+fn persist_delivered_history(
+    app: &tauri::AppHandle,
+    record: &TranscriptResult,
+    target: DeliveryTarget,
+) {
+    let stored = app
+        .state::<HistoryCoordinator>()
+        .persist(&history_row_for(record, target));
+    let outcome = match stored {
+        Ok(true) => "stored",
+        Ok(false) => "not_stored",
+        Err(code) => code,
+    };
+    let classification = match target {
+        DeliveryTarget::NotAttempted => "not_attempted",
+        DeliveryTarget::Cleared => "cleared",
+        DeliveryTarget::Sensitive => "sensitive",
+        DeliveryTarget::Unknown => "unknown",
+    };
+    log_event(
+        app,
+        "history_persist",
+        &[("result", outcome), ("target", classification)],
+    );
 }
 
 /// Logs why the target couldn't even be inspected, including the sanitized
@@ -1401,13 +1527,9 @@ fn deliver_via_clipboard_fallback(
     text: &str,
     original_refusal: DeliveryRefusal,
 ) -> &'static str {
-    if matches!(
-        original_refusal,
-        DeliveryRefusal::Password
-            | DeliveryRefusal::SecureDesktop
-            | DeliveryRefusal::ElevatedTarget
-            | DeliveryRefusal::UnknownSensitive
-    ) {
+    // Through `refusal_is_sensitive`, the same list the history classification
+    // reads. It was spelled out here as well until 2026-08-28.
+    if refusal_is_sensitive(original_refusal) {
         log_event(
             app,
             "hotkey_delivery",

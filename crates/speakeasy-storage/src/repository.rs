@@ -391,6 +391,43 @@ mod tests {
         assert!(list.list().is_empty());
     }
 
+    /// A write can fail on a repository that opened perfectly well, and the
+    /// error is a `Sql` one rather than a validation refusal.
+    ///
+    /// This is the failure mode the desktop's ordering exists for, and it was
+    /// not covered: every other test here either refuses by policy (`Ok(false)`)
+    /// or fails to open at all. Neither shape reaches the `?` that used to
+    /// discard a delivered transcript, because both leave `record` returning
+    /// `Ok`. Injected by dropping the table from a second connection, which is
+    /// the only way to make a healthy handle fail deterministically.
+    #[test]
+    fn a_write_can_fail_after_the_repository_opened_successfully() {
+        let root = tempdir().unwrap();
+        let path = root.path().join("history.sqlite3");
+        let policy = HistoryPolicy {
+            enabled: true,
+            retention_days: 30,
+            plaintext_disclosure_accepted: true,
+        };
+        let mut repository = HistoryRepository::open(&path, policy).unwrap();
+        assert!(
+            repository.record(&result("healthy", 1, false)).unwrap(),
+            "the repository must be genuinely working before it is broken"
+        );
+
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch("DROP TABLE transcript_history;")
+            .unwrap();
+
+        let failure = repository.record(&result("after-drop", 2, false));
+        assert!(
+            matches!(failure, Err(RepositoryError::Sql(_))),
+            "a write against a missing table must surface as a SQL error, not \
+             as a silent no-op: {failure:?}"
+        );
+    }
+
     #[test]
     fn history_is_off_by_default_and_secure_results_are_always_excluded() {
         let root = tempdir().unwrap();
