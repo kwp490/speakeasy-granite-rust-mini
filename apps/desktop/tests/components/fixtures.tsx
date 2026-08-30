@@ -94,6 +94,23 @@ export type InvokeDouble = {
   reject: (command: string, code: string) => void;
 };
 
+/**
+ * A promise a test resolves by hand.
+ *
+ * How a request is held outstanding: a poll that reschedules from `.finally`
+ * cannot be observed making a second call unless the first one is still in
+ * flight, and only the test can decide when it stops being.
+ */
+export function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  let reject: (reason: unknown) => void = () => {};
+  const promise = new Promise<T>((settle, fail) => {
+    resolve = settle;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
 export function invokeDouble(initial: Record<string, unknown> = {}): InvokeDouble {
   const answers = new Map<string, { value: unknown } | { rejection: string }>();
   for (const [command, value] of Object.entries(initial)) answers.set(command, { value });

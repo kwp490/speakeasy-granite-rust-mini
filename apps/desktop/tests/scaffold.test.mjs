@@ -523,7 +523,9 @@ test("startup model verification is explicit and failure-visible", async () => {
   assert.match(backend, /fn model_install_status\(/, "the desktop backend did not load");
 
   assert.match(app, /state: "verifying"/);
-  assert.match(app, /invoke<ModelInstallStatus>\("model_install_status"\)\.then/);
+  // `[\s\S]{0,8}` rather than nothing between them: prettier puts the `.then`
+  // on its own line whenever the call is inside a self-scheduling poll.
+  assert.match(app, /invoke<ModelInstallStatus>\("model_install_status"\)[\s\S]{0,8}\.then/u);
   assert.match(app, /model_status_unavailable/);
   assert.doesNotMatch(app, /invoke<string\[\]>\("model_verified"\)/);
   assert.match(catalog, /verifying: "Verifying installed model"/);
@@ -1472,7 +1474,7 @@ test("the session transcript log copies text and writes nothing to disk", async 
     await readFile(new URL("../src/ipc/phase9.schema.json", import.meta.url), "utf8"),
   );
 
-  assert.match(app, /invoke<SessionTranscriptEntry\[\]>\("session_transcript_log"\)/);
+  assert.match(app, /readWithRetry<SessionTranscriptEntry\[\]>\("session_transcript_log"\)/);
   assert.match(app, /invoke<number>\("session_transcript_copy", \{ id \}\)/);
 
   // Clipboard authority is still refused to the dock, which is
@@ -1997,10 +1999,17 @@ test("no effect can read a race-prone command without retrying or polling", asyn
   //
   // - **retried**, through `readWithRetry`, which bounds the attempts and still
   //   rejects so the caller has to say something; or
-  // - **polled**, because an effect that re-reads on an interval heals itself on
-  //   the next tick and the first refusal costs nothing.
+  // - **repeated**, because an effect that installs a timer reads again and the
+  //   first refusal costs nothing. Both timer forms count: `setInterval`, and the
+  //   self-scheduling `setTimeout` that replaced it where at most one request may
+  //   be outstanding.
   //
-  // A read that is neither is the defect, whichever file it is in.
+  // An event-driven read is neither and must be retried. It has no next tick:
+  // `session_transcript_log` is read once on mount and then only when the backend
+  // says the list moved, so a refusal on mount would stand for the life of the
+  // window.
+  //
+  // A read that is none of these is the defect, whichever file it is in.
   const racy = await raceProneCommands();
   const sources = await readFrontendSources();
 
@@ -2020,14 +2029,15 @@ test("no effect can read a race-prone command without retrying or polling", asyn
   }
 
   const findings = [];
-  const polled = [];
+  const repeated = [];
   const retried = new Set();
   for (const [path, source] of sources) {
     for (const command of commandsIn(source, "readWithRetry")) retried.add(command);
     for (const effect of effectBodies(source)) {
-      // An effect that installs an interval re-reads until it succeeds. That is
-      // the same guarantee the retry gives, arrived at from the other direction.
-      const selfHealing = /setInterval\(/.test(effect);
+      // A timer in the effect means it reads again. `setTimeout` counts because
+      // the self-scheduling polls reschedule from `.finally`, which is the same
+      // guarantee an interval gives without letting requests overlap.
+      const repeats = /setInterval\(|setTimeout\(/.test(effect);
       const reachable = [effect];
       for (const callee of calleesIn(effect)) {
         const body = localFunctionBody(source, callee);
@@ -2036,22 +2046,28 @@ test("no effect can read a race-prone command without retrying or polling", asyn
       for (const snippet of reachable) {
         for (const command of commandsIn(snippet, "invoke")) {
           if (!racy.has(command)) continue;
-          if (selfHealing) polled.push(`${path}:${command}`);
+          if (repeats) repeated.push(`${path}:${command}`);
           else findings.push(`${path} reads ${command} on mount without a retry`);
         }
       }
     }
   }
 
-  // The scanner has to be shown reaching through a helper and reaching the poll
-  // exemption, or the two branches above are decoration.
+  // The scanner has to be shown reaching through a helper, or the branch above
+  // is decoration: `refreshCatalog` is called *from* an effect rather than
+  // written in one.
   assert.ok(
     retried.has("model_catalog"),
     "the one-level call resolution must reach refreshCatalog's reads",
   );
+  // And both exemptions shown reachable, or the branches above are decoration.
   assert.ok(
-    polled.includes("settings/TranscriptLog.tsx:session_transcript_log"),
-    "the poll exemption must be reached by the page that polls",
+    repeated.includes("settings/Audio.tsx:capture_audio_snapshot"),
+    "the repeat exemption must be reached by the page that samples on a timer",
+  );
+  assert.ok(
+    retried.has("session_transcript_log"),
+    "the event-driven log read must be retried; it has no next tick",
   );
   assert.deepEqual(findings, []);
 
@@ -2229,7 +2245,7 @@ test("desktop exposes connected activation settings and friendly catalog errors"
   // Every backend error code reaches the user through the catalog. A raw code
   // rendered directly is the failure this guards: it names a symbol the user
   // cannot act on and tells them nothing about recovery.
-  assert.match(app, /formatError\(capture\.error_code\)/);
+  assert.match(app, /formatError\(audio\.error_code\)/);
   assert.match(app, /formatError\(result\.error_code\)/);
   assert.doesNotMatch(app, /\{capture\.error_code\}|\{result\.error_code\}|\{modelStatus\.error\}/);
 });

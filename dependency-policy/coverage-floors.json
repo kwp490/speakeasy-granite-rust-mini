@@ -43,7 +43,9 @@
       "apps/desktop/src/settings/TranscriptLogPage.tsx": 62,
       "apps/desktop/src/settings/OutputPrivacy.tsx": 44,
       "apps/desktop/src/settings/Advanced.tsx": 66,
-      "apps/desktop/src/settings/Transcription.tsx": 43
+      "apps/desktop/src/settings/Audio.tsx": 59,
+      "apps/desktop/src/settings/TranscriptLog.tsx": 68,
+      "apps/desktop/src/settings/Transcription.tsx": 47
     }
   }
 }

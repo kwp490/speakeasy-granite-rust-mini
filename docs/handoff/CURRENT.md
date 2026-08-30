@@ -3503,6 +3503,36 @@ reopens the model by path, so it is not an execution-time integrity check. Item
   environment that cannot write `HKCU` fails rather than skipping.
 
 
+### 28. Polling — as of 2026-08-30
+
+Three periodic reads, and what each is now.
+
+- **The transcript list does not poll.** One retried read on mount, then one read
+  per `transcript-log-changed` — a content-free event emitted to `main` and `log`
+  by `notify_transcript_log_changed` when a transcript is published and when the
+  saved history is deleted. **The payload must stay `()`**: an event reaches every
+  listener in the window with no per-command guard, so text in a payload would
+  bypass `session_transcript_log`'s `require_main_or_log_window`. The read is
+  through `readWithRetry` because an event-driven read has no next tick, and both
+  windows mount before `setup` manages the coordinator — the `log` window runs its
+  React tree whether or not it is shown.
+- **Audio makes one call, not two.** `capture_audio_snapshot` returns the meter
+  and the device-health fields together, so the two halves cannot describe
+  different moments, and the poll is self-scheduling: at most one request
+  outstanding, the 100 ms gap measured from when the last one settled.
+- **The install poll is self-scheduling too**, same shape, 750 ms gap. It reaches
+  the model coordinator's lock, which an in-progress install holds.
+
+Measured by counting `invoke` calls under fake timers
+(`tests/components/polling.test.tsx`): the transcript list goes from 40 calls a
+minute while idle to 0, and Audio from 20 IPC calls a second to at most 10.
+
+**The rule that enforces it** is `no effect can read a race-prone command
+without retrying or polling`. Two exemptions, both shown reachable by the test's
+own self-checks: retried through `readWithRetry`, or repeated by a timer in the
+effect (`setInterval` or the self-scheduling `setTimeout`). Anything else is a
+finding.
+
 ## Mistakes made this session, so they are not repeated
 
 - **A whole crate went red unnoticed.** The manifest trim broke

@@ -219,6 +219,7 @@ pub fn run() {
         capture_wizard_status,
         capture_device_configure,
         capture_level,
+        capture_audio_snapshot,
         app_quit,
         dictation_start,
         dictation_stop,

@@ -246,3 +246,17 @@ export type CaptureLevel = {
   active: boolean;
   device_diagnostic: string;
 };
+
+/**
+ * Everything the Audio page samples on its timer, in one answer.
+ *
+ * `CaptureLevel` plus the three `CaptureWizardStatus` fields the device-health
+ * panel renders. Both of those types are still used elsewhere; this exists so
+ * the 10 Hz page makes one call instead of two, and so its two halves cannot
+ * describe different moments.
+ */
+export type CaptureAudioSnapshot = CaptureLevel & {
+  state: string;
+  device_name: string | null;
+  error_code: string | null;
+};

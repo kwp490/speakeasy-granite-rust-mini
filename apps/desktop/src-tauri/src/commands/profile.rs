@@ -386,6 +386,7 @@ fn history_export(
 
 #[tauri::command]
 fn history_delete_all(
+    app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     history: tauri::State<'_, HistoryCoordinator>,
     session_log: tauri::State<'_, SessionTranscriptCoordinator>,
@@ -413,6 +414,7 @@ fn history_delete_all(
     // After the deletion, so a failed delete leaves the list describing what is
     // still on disk.
     session_log.clear();
+    notify_transcript_log_changed(&app);
     Ok(())
 }
 

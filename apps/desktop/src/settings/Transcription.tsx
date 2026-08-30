@@ -49,6 +49,14 @@ import type {
 const ENGINE_WARM_READS = 30;
 const ENGINE_WARM_READ_INTERVAL_MS = 1_000;
 
+/**
+ * The gap between the end of one install-status read and the start of the next.
+ *
+ * A gap rather than a period: the poll is self-scheduling, so at most one
+ * request is ever outstanding.
+ */
+const MODEL_POLL_GAP_MS = 750;
+
 export function Transcription() {
   const [models, setModels] = useState<ModelCatalogItem[]>([]);
   const [hardware, setHardware] = useState<ModelHardware | null>(null);
@@ -162,30 +170,42 @@ export function Transcription() {
       }
       return;
     }
-    const timer = window.setInterval(() => {
-      // With a rejection handler, and a *separate* one. This poll had none: a
-      // refused read was an unhandled promise rejection and the page kept
-      // rendering the last status it got, so an install whose status stopped
-      // being readable sat on "Downloading" with a progress bar and disabled
-      // buttons for the life of the window.
-      //
-      // Deliberately not `setModelStatus({ state: "failed" })`. A poll that
-      // could not be read says nothing about the model, and condemning the pack
-      // on that evidence is the manufactured claim this repository keeps
-      // finding. It says the *status* is unreadable, and clears itself the
-      // moment one arrives.
-      void invoke<ModelInstallStatus>("model_install_status").then(
-        (status) => {
-          setModelStatus(status);
-          setPollUnavailable(false);
-        },
-        () => {
-          setPollUnavailable(true);
-        },
-      );
-    }, 750);
+    // Self-scheduling, so 750 ms is the gap between the end of one read and the
+    // start of the next. An interval keeps firing while a request is
+    // outstanding, and this one reaches the model coordinator's lock, which an
+    // in-progress install holds.
+    //
+    // The rejection handler is separate and does **not** set
+    // `state: "failed"`: a poll that could not be read says nothing about the
+    // model, so it reports that the *status* is unreadable and clears itself as
+    // soon as one arrives. Without any handler the refusal was unhandled and the
+    // page sat on "Downloading" with disabled buttons for the life of the
+    // window.
+    let stopped = false;
+    let timer = 0;
+    const schedule = () => {
+      if (stopped) return;
+      timer = window.setTimeout(poll, MODEL_POLL_GAP_MS);
+    };
+    const poll = () => {
+      invoke<ModelInstallStatus>("model_install_status")
+        .then(
+          (status) => {
+            if (stopped) return;
+            setModelStatus(status);
+            setPollUnavailable(false);
+          },
+          () => {
+            if (stopped) return;
+            setPollUnavailable(true);
+          },
+        )
+        .finally(schedule);
+    };
+    schedule();
     return () => {
-      window.clearInterval(timer);
+      stopped = true;
+      window.clearTimeout(timer);
     };
   }, [modelStatus.state]);
 

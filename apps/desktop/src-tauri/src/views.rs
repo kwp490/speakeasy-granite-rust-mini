@@ -1025,6 +1025,32 @@ fn stop_dictation(app: &tauri::AppHandle) -> Result<(), &'static str> {
 /// delivered and a notice is the smaller half of that; turning "the window
 /// would not open" into a second error would make the delivery look like the
 /// thing that failed.
+/// The event that tells the two windows rendering the transcript list to
+/// re-read it.
+///
+/// **Content-free by contract.** The payload is `()` and must stay `()`: an
+/// event is delivered to every listener in the window it is emitted to, with no
+/// per-command guard, so transcript text in a payload would bypass
+/// `session_transcript_log`'s `require_main_or_log_window`. The event says
+/// *that* the list changed; reading it stays an authorized command.
+const TRANSCRIPT_LOG_CHANGED: &str = "transcript-log-changed";
+
+/// Emits [`TRANSCRIPT_LOG_CHANGED`] to `main` and `log`, the only two windows
+/// that render the list.
+///
+/// Emitted per window rather than broadcast, so the dock and the notice — which
+/// never show a transcript — are not listeners for an event about one.
+///
+/// Silent on failure: a window that is not built yet re-reads on mount anyway,
+/// and a failed notification must not turn a delivered transcript into an error.
+fn notify_transcript_log_changed(app: &tauri::AppHandle) {
+    for label in ["main", "log"] {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.emit(TRANSCRIPT_LOG_CHANGED, ());
+        }
+    }
+}
+
 fn show_capture_limit_notice(app: &tauri::AppHandle) {
     let Some(notice) = app.get_webview_window("notice") else {
         return;
@@ -1623,6 +1649,31 @@ pub struct CaptureLevelView {
     /// Whether a dictation is running. The level only moves when one is.
     active: bool,
     device_diagnostic: String,
+}
+
+/// Everything the Audio page samples on its timer, in one answer.
+///
+/// The page needs the meter *and* the device-health facts on the same cadence,
+/// and it used to fetch them as two `invoke`s per tick — twenty IPC round trips a
+/// second, on a page whose whole purpose is to be watched while nothing is
+/// happening. One command halves that, and it also removes a real inconsistency:
+/// two calls can straddle a state change, so the meter could describe a running
+/// dictation while the health panel described the idle one before it.
+///
+/// Deliberately only the fields the page renders. A snapshot that returned both
+/// full views would be the two calls again with extra steps, and the wider
+/// `CaptureWizardView` carries sample counts and peak magnitudes that no
+/// 10 Hz consumer looks at.
+#[derive(Clone, Debug, Serialize)]
+pub struct CaptureAudioSnapshotView {
+    level: f32,
+    /// Whether a dictation is running. The level only moves when one is.
+    active: bool,
+    device_diagnostic: String,
+    /// `CaptureWizardView::state`, for the device-health panel.
+    state: String,
+    device_name: Option<String>,
+    error_code: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

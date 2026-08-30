@@ -22,6 +22,14 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (command: string, args?: Record<string, unknown>) => backend.invoke(command, args),
 }));
 
+// `TranscriptLogPage` renders `TranscriptLog`, which subscribes to
+// `transcript-log-changed`. The real `listen` reaches for Tauri's IPC bridge and
+// rejects with a `transformCallback` `TypeError` outside a webview. Nothing here
+// emits; `polling.test.tsx` is where the subscription itself is asserted.
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: () => Promise.resolve(() => {}),
+}));
+
 function install(double: InvokeDouble) {
   backend.invoke = double.invoke;
   return double;

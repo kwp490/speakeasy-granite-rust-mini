@@ -114,11 +114,15 @@ fn result_copy(
         .ok_or("clipboard_sequence_unavailable")
 }
 
-/// This session's finals, newest first.
+/// The listed transcripts, newest first.
 ///
-/// Main-only, like every other command that can see transcript text. Nothing
-/// here is on disk, so there is no disclosure to make and nothing to delete —
-/// the log ends when the app does.
+/// Window-guarded, like every command that can see transcript text: `main` and
+/// the pinned `log`, and nothing else. This is the **only** way a window obtains
+/// transcript text — `transcript-log-changed` says the list moved and carries
+/// nothing, so an event listener still has to come through here.
+///
+/// Not "this session's": the list is seeded at launch from the optional on-disk
+/// history. See `SessionTranscriptCoordinator`.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn session_transcript_log(

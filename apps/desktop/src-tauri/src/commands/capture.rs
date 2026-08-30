@@ -260,6 +260,36 @@ fn capture_level(
     })
 }
 
+/// The Audio page's whole periodic read: the meter and the device-health facts,
+/// from one lock acquisition.
+///
+/// Non-mutating, like the two calls it replaces, and it opens no device: `level`
+/// is written by the capture loop, so it moves only while a dictation is running.
+///
+/// One command rather than two because the page samples at 10 Hz and was making
+/// twenty round trips a second, and because two calls can straddle a state
+/// change — the meter describing a dictation the health panel had not seen start.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn capture_audio_snapshot(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, CaptureWizardCoordinator>,
+) -> Result<CaptureAudioSnapshotView, &'static str> {
+    require_main_window(&window)?;
+    let view = state.view()?;
+    Ok(CaptureAudioSnapshotView {
+        level: state.level(),
+        active: view.can_stop,
+        device_diagnostic: view
+            .device_name
+            .as_ref()
+            .map_or_else(|| "not_opened".to_owned(), |_| "opened".to_owned()),
+        state: view.state,
+        device_name: view.device_name,
+        error_code: view.error_code,
+    })
+}
+
 /// Quits the app from settings, through the same graceful path the transcriber's
 /// close and the tray's Quit take — including the mid-dictation confirmation.
 ///
@@ -864,6 +894,8 @@ async fn run_retained_transcription(
             // delivery has resolved, so `deliver_final_text` publishes it
             // together with the outcome; until then the HUD keeps reporting
             // `finalizing`.
+            // The one place a transcript joins the list, so the one place the
+            // windows rendering it are told. They no longer poll.
             publish_successful_transcript(
                 &app.state::<SessionTranscriptCoordinator>(),
                 &results,
@@ -875,6 +907,7 @@ async fn run_retained_transcription(
                     provenance,
                 },
             )
+            .inspect(|_| notify_transcript_log_changed(app))
         }
         // Silence is not a malfunction, so it must not read as one: no
         // quarantine strike (the string is absent from the quarantine list
