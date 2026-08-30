@@ -484,8 +484,9 @@ Four structural decisions, recorded with their costs:
 
 The GPU worker is fetched rather than bundled: a CUDA `granite-worker.exe` plus
 `cudart` and `cuBLAS`, hosted on Hugging Face and pinned by digest like the
-model weights. Hosting it there rather than in this repository's releases keeps
-the code repository private while leaving the download anonymous.
+model weights. Hosting it there rather than in this repository's releases keeps a
+57 MB binary out of the git history and out of every clone; the download is
+anonymous either way.
 
 This project is **never signed** (owner decision, 2026-08-14) — a decision, not
 a deferral, so setup must not imply otherwise.

@@ -1993,32 +1993,29 @@ mod tests {
         );
     }
 
-    /// A resident adapter for pack A cannot promote pack B.
+    /// A resident adapter for pack A can neither run nor promote pack B.
     ///
-    /// The whole chain, from what `ensure_ready` reports when it finds an
-    /// adapter already loaded to what the settle does with it. `ensure_ready`'s
-    /// early return used to build `AlreadyLoaded` from the *requested* choice
-    /// while handing back the *resident* adapter, so: adapter A loaded, pack B
-    /// resolved, adapter A returned, `AlreadyLoaded { B }` recorded, and
-    /// `settled_model_state` stamped B `verified_on_disk` on evidence nobody
-    /// ever gathered for B. That is the pack-mismatch defect
-    /// [`granite_engine::WarmVerification`] was added to prevent, arriving
-    /// through the variant that was added to prevent it.
-    ///
-    /// Restore the defect by building the outcome from `requested` in
-    /// `resident_outcome` and this goes red on the first assertion: B is
-    /// promoted on A's digests.
+    /// The whole chain: what `ensure_ready` answers when it finds an adapter
+    /// loaded for a pack the resolver no longer points at, and what the settle
+    /// then does with that answer. Requesting B while A is resident refuses --
+    /// carrying no adapter, so A cannot execute -- and the refusal certifies
+    /// neither pack, so B is not promoted on digests nobody took for it.
     #[test]
-    fn a_resident_pack_cannot_promote_the_one_that_replaced_it() {
+    fn a_resident_pack_can_neither_run_nor_promote_the_one_that_replaced_it() {
         let a = ("granite-speech-4.1-2b-q4_k_m-cpu", "1");
         let b = ("granite-speech-4.1-2b-q4_k_m-cuda", "1");
         let present = ("installed_unverified", None);
-        let resolved_b = (b.0.to_owned(), b.1.to_owned());
+        let adapter_a = "adapter-for-pack-A";
 
         // Adapter A is resident; the resolver now points at B, which is what a
-        // worker answering "compiled with CUDA" does to `granite_selection`.
-        let outcome = granite_engine::resident_outcome(a, b);
-        let (state, error) = settled_model_state(present.clone(), Some(&resolved_b), &outcome);
+        // worker reporting a CUDA build does to `granite_selection`.
+        let answer = granite_engine::resident_answer(Some((a.0, a.1, &adapter_a)), b);
+        let granite_engine::ResidentAnswer::Refuse(verification) = answer else {
+            panic!("requesting B with A resident must refuse, carrying no adapter");
+        };
+
+        let resolved_b = (b.0.to_owned(), b.1.to_owned());
+        let (state, error) = settled_model_state(present.clone(), Some(&resolved_b), &verification);
         assert_eq!(
             state, "installed_unverified",
             "B's bytes were never read, so nothing may say they were"
@@ -2026,11 +2023,19 @@ mod tests {
         assert_eq!(error, None, "and nothing may say they are wrong either");
 
         // The honest half of the same rule: when the resolver still points at
-        // the pack that is loaded, the earlier pass in this process does count.
+        // the pack that is loaded, the earlier pass in this process does count,
+        // and the adapter is reused rather than reloaded.
         let resolved_a = (a.0.to_owned(), a.1.to_owned());
+        let granite_engine::ResidentAnswer::Reuse {
+            adapter,
+            verification,
+        } = granite_engine::resident_answer(Some((a.0, a.1, &adapter_a)), a)
+        else {
+            panic!("the requested pack is the resident pack");
+        };
+        assert_eq!(adapter, adapter_a);
         assert_eq!(
-            settled_model_state(present, Some(&resolved_a), &granite_engine::resident_outcome(a, a))
-                .0,
+            settled_model_state(present, Some(&resolved_a), &verification).0,
             "verified_on_disk",
         );
     }
@@ -2268,6 +2273,79 @@ mod tests {
                 "{code} is stated again in views.rs; start_dictation must consume the shared rule"
             );
         }
+    }
+
+    /// The listed transcripts span earlier runs while retention is on, and a
+    /// delete-all leaves nothing listed.
+    ///
+    /// Both halves of the disclosure `sessionLogDetail` makes. The list used to
+    /// be described as "this session only" while `seed_from_history` filled it
+    /// from disk at every launch, and a delete-all emptied the database while
+    /// leaving those entries readable and copyable in the window the user had
+    /// just deleted them from.
+    ///
+    /// A restart is modelled by a fresh coordinator seeded from the same
+    /// database, which is exactly what the composition root does at launch.
+    #[test]
+    fn the_listed_transcripts_survive_a_restart_and_go_with_a_delete_all() {
+        let root = tempfile::tempdir().expect("history root");
+        let history = history_with_persistence(root.path());
+
+        // Two delivered transcripts, written through the same call production
+        // uses.
+        for session in ["session-a", "session-b"] {
+            let mut row = transcript_row(session);
+            row.polished_text = Some(format!("polished {session}"));
+            assert_eq!(
+                history.persist(&history_row_for(&row, DeliveryTarget::Cleared)),
+                Ok(true),
+                "the row must be stored, or this proves nothing"
+            );
+        }
+
+        // Relaunch: a fresh in-memory list, seeded from what is on disk.
+        let session_log = SessionTranscriptCoordinator::default();
+        assert!(
+            session_log.log().expect("log").is_empty(),
+            "a fresh list starts empty"
+        );
+        session_log.seed_from_history(&history.stored(SESSION_TRANSCRIPT_LIMIT));
+        let listed = session_log.log().expect("log");
+        assert_eq!(
+            listed.len(),
+            2,
+            "with retention on, the list spans the previous run"
+        );
+        // And every listed entry is copyable, which is what makes leaving them
+        // after a deletion a disclosure failure rather than a cosmetic one.
+        for entry in &listed {
+            assert!(
+                session_log.copy_payload(&entry.id).is_ok(),
+                "a listed entry must be copyable"
+            );
+        }
+
+        // Deleting the stored transcripts empties the list too.
+        session_log.clear();
+        assert!(
+            session_log.log().expect("log").is_empty(),
+            "nothing may remain listed after the saved transcripts are deleted"
+        );
+
+        // Retention off: nothing was written, so a relaunch seeds nothing.
+        let quiet_root = tempfile::tempdir().expect("history root");
+        let quiet = HistoryCoordinator::new(quiet_root.path(), &Settings::default());
+        assert_eq!(
+            quiet.persist(&history_row_for(&transcript_row("session-c"), DeliveryTarget::Cleared)),
+            Ok(false),
+            "with retention off nothing is stored"
+        );
+        let quiet_log = SessionTranscriptCoordinator::default();
+        quiet_log.seed_from_history(&quiet.stored(SESSION_TRANSCRIPT_LIMIT));
+        assert!(
+            quiet_log.log().expect("log").is_empty(),
+            "with retention off the list covers this run only"
+        );
     }
 
     /// A history coordinator with persistence switched on and the plaintext

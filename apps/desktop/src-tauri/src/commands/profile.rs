@@ -388,6 +388,7 @@ fn history_export(
 fn history_delete_all(
     window: tauri::WebviewWindow,
     history: tauri::State<'_, HistoryCoordinator>,
+    session_log: tauri::State<'_, SessionTranscriptCoordinator>,
     confirmed: bool,
 ) -> Result<(), &'static str> {
     require_main_window(&window)?;
@@ -404,6 +405,14 @@ fn history_delete_all(
         .delete_all()
         .map_err(|_| "history_delete_failed")?;
     *slot = HistoryRepository::open(&history.database_path, policy).ok();
+    // The listed transcripts go with the stored ones. The list is seeded at
+    // launch from this database, so deleting the rows and leaving the list alone
+    // told the user their transcripts were gone while they were still readable
+    // and copyable in the window they deleted them from.
+    //
+    // After the deletion, so a failed delete leaves the list describing what is
+    // still on disk.
+    session_log.clear();
     Ok(())
 }
 

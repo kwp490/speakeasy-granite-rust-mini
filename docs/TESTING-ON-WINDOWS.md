@@ -9,11 +9,8 @@ is afterwards *attached* to a GitHub release by hand. The repository is
 **public** and so are the releases: the asset downloads anonymously, and that is
 the intended transfer route.
 
-Two earlier revisions of this paragraph were wrong in opposite directions. One
-claimed the project "does not publish installers … on GitHub", which stopped
-being true at `v1.1.0-test.1`. The next said the repository was private and the
-download needed a credential, which sent readers to build from source for a file
-they could have clicked.
+The repository and its releases are public and the download needs no
+credential.
 
 ## Fastest path: copy the installer to the target machine
 

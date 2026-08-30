@@ -160,11 +160,11 @@ impl ModelCoordinator {
     /// verified on the strength of pack A's digests. [`WarmVerification`]
     /// carries the identity, and a mismatch promotes nothing.
     ///
-    /// **And the verdict is the caller's, not the coordinator's.** `verification`
-    /// is what the warm this settle belongs to returned. It used to be read back
-    /// off a shared field on `GraniteEngineCoordinator`, which any other pass in
-    /// the process could overwrite between the warm ending and this running --
-    /// including a dictation's own warm, which calls the same `ensure_ready`.
+    /// **The verdict is the caller's, not the coordinator's.** `verification` is
+    /// what the warm this settle belongs to returned. There is no field to read
+    /// it back from, because any other pass in the process -- including a
+    /// dictation's own warm, which calls the same `ensure_ready` -- could
+    /// overwrite one between the warm ending and this running.
     ///
     /// **It must never leave `verifying` behind.** The warm thread has ended by
     /// the time this runs, so nothing is verifying, whatever happened. A warm

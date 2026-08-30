@@ -1200,8 +1200,28 @@ Every one of these produced a plausible, wrong result rather than an error.
 - **UI copy is honest about what happened.** Delivery is never claimed unless
   insertion succeeded; colour is never the only signal. New error codes get
   their own catalog entry with a real instruction.
-- **Comments explain why, not what**, and record the failure that motivated
-  the code. The existing comments are dense and load-bearing; match them.
+- **Comments state the current invariant, concisely.** What must hold, and the
+  constraint that makes the obvious alternative wrong. That is what a reader
+  changing the code needs, and it is what stays true.
+
+  **No dated defect narratives and no session diaries**, in production source or
+  in `docs/handoff/CURRENT.md`. The old rule was "record the failure that
+  motivated the code", and followed literally it produced comments that are
+  mostly history: a date, a symptom, what was measured, what the first fix got
+  wrong. Three costs, all of them paid. The invariant gets buried in the
+  narrative, so the sentence a reader needs is the hardest one to find. The
+  narrative rots independently of the code — every stale claim corrected on
+  2026-08-30 was a *story* about a function, not a statement of what it
+  guarantees. And it grows without bound, because each fix appends.
+
+  Where a past failure genuinely changes what a reader should do, compress it to
+  the rule it produced: "a bare string, not an `Error`: Tauri rejects with the
+  code itself" rather than a paragraph about the day that was discovered.
+  `CLAUDE.md`'s own trap list is the exception and the right home for the long
+  form — it is read as a list of hazards, not as documentation of a function.
+
+  Existing long-form comments are not being swept; they are corrected as they are
+  touched. The rule is about what gets written from here.
 - **Assert invariants against source.** The scaffold suite reads config and
   source files to pin things review would otherwise have to catch — the window
   allowlist, the IPC schema, and the non-focusable rule among them.

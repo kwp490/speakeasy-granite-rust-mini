@@ -36,12 +36,9 @@ export function Advanced({ profile }: { profile: ProfileController }) {
   const [statusUnavailable, setStatusUnavailable] = useState(false);
   const exportDiagnostics = useMutation<DiagnosticsExport>();
   const previewReset = useMutation<ResetPreview>();
-  // The preview got a mutation on 2026-08-29 and the commit did not, which is
-  // the wrong way round: `reset_commit` is the destructive half. It was
-  // `profile.replace(await invoke(...))` with no rejection handler, on a button
-  // in a warning panel -- so a refused reset was an unhandled promise rejection
-  // and a panel that stayed open with nothing said, which reads as a button
-  // that does nothing rather than as a reset that did not happen.
+  // `reset_commit` is the destructive half of the pair and needs the visible
+  // failure state more than the preview does: a refusal that says nothing reads
+  // as a button that does nothing rather than as a reset that did not happen.
   const resetCommit = useMutation<ProfileStatus>();
   const [resetPreview, setResetPreview] = useState<ResetPreview | null>(null);
   const [engineAction, setEngineAction] = useState("");

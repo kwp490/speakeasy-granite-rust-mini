@@ -96,14 +96,10 @@ export function Transcription() {
   /** The install poll stopped answering. See the poll's own comment. */
   const [pollUnavailable, setPollUnavailable] = useState(false);
   const cancelInstall = useMutation<void>();
-  // Three personalization actions had no rejection handler at all, and these are
-  // the three: an export whose file name went straight into the status line, and
-  // two destructive commands that announced what they had done without waiting
-  // to find out. `resetPersonalization` printed "Deleted" whether or not the
-  // dictionary had been touched -- the same shape as the history delete that was
-  // fixed on 2026-08-29, in the fieldset directly below it. The other four
-  // (`correction_record`, `snippet_save`, and the two import halves) already
-  // caught, and keep their own copy.
+  // The export and the two destructive personalization commands. Each reports
+  // its own refusal, and neither destructive one announces a deletion it has not
+  // been told happened. The other four (`correction_record`, `snippet_save` and
+  // the two import halves) catch for themselves and keep their own copy.
   const exportPersonalization = useMutation<string>();
   const personalizationWrite = useMutation<PersonalizationStatus>();
 

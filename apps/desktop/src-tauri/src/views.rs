@@ -929,18 +929,12 @@ fn start_dictation(app: &tauri::AppHandle, session_id: SessionId) -> Result<(), 
         return Err("dictation_still_finishing");
     }
     // Everything standing between this machine and a dictation, asked once,
-    // through the function the dock's `setup_requirement` also calls. This
-    // refusal used to be a local copy that knew only about `model_verifying`,
-    // so the dock refused a machine below the 8 GiB memory floor -- or with no
-    // worker binary, or a quarantined engine -- and the shortcut accepted the
-    // press, recorded up to two minutes and reported the failure afterwards.
-    // Two statements of one rule is exactly how `can_start` came to refuse a
-    // press the shortcut accepted.
+    // through the same `dictation_blocker` the dock's `setup_requirement` calls.
+    // No code is restated here; a second copy of this rule is how `can_start`
+    // came to refuse a press the shortcut accepted.
     //
-    // Before capture begins, which is the whole point: "Refusing at `begin`,
-    // before a sample is captured, is the same answer at the only useful
-    // moment." Bounded, not latching -- `settle_after_warm` runs unconditionally
-    // when the warm thread's work is done.
+    // Before capture begins, which is the point. Bounded rather than latching:
+    // `settle_after_warm` runs unconditionally once the warm thread is done.
     let model_state = app
         .try_state::<ModelCoordinator>()
         .map(|models| models.status_snapshot().state);

@@ -2329,6 +2329,11 @@ test("setup's user-facing strings live in its catalog", async () => {
       // under 60 characters and put the reasoning in the test's doc comment,
       // which is where this codebase keeps it anyway.
       if (/\.expect\(|panic!|unreachable!|assert/.test(line)) continue;
+      // Same reasoning for attribute strings. An `#[ignore = "..."]` reason is
+      // printed by `cargo test` beside the test's name and is never rendered to
+      // a user, so it belongs next to the test it describes rather than in a
+      // catalog of product copy.
+      if (line.trim().startsWith("#[")) continue;
       assert.ok(
         !sentence.test(line),
         `${file}:${index + 1} holds a user-facing sentence; it belongs in catalog.rs`,

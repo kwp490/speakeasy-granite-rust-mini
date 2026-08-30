@@ -1,10 +1,15 @@
-/// This session's finals, for recall and copying.
+/// The transcripts this window lists, for recall and copying.
 ///
-/// Memory only. Nothing here is written to disk and the whole log dies with the
-/// process — that is the entire privacy claim, so there is deliberately no
-/// persistence seam for one to be added to later by accident. The separate,
-/// off-by-default on-disk history feature is `HistoryCoordinator` and is
-/// untouched by this.
+/// **Not "this session only", and the name is the last trace of when it was.**
+/// The list is in memory, but it is seeded at launch from the optional on-disk
+/// history (`seed_from_history`, called once from the composition root), so with
+/// retention on it spans previous runs. With retention off nothing was ever
+/// written, the seed adds nothing, and it really is this run alone.
+///
+/// Two consequences the copy has to carry, because a user cannot infer either:
+/// what is listed may predate this launch, and deleting the persisted history
+/// clears this list too. `clear` is what makes the second one true -- without it
+/// a delete-all emptied the database and left the seeded entries on screen.
 #[derive(Debug, Default)]
 pub struct SessionTranscriptCoordinator {
     entries: Mutex<Vec<SessionTranscriptEntry>>,
@@ -41,28 +46,20 @@ impl SessionTranscriptCoordinator {
     }
 
     /// Adopts persisted transcripts at launch, newest last, so a retained log
-    /// is a log rather than a list of what happened since the app started.
+    /// spans previous runs rather than starting empty.
     ///
-    /// This is the whole of the retention feature on the read side, and it is
-    /// deliberately the *only* place the two stores meet. `persisted_history_enabled`
-    /// (off by default) already decides whether a delivered transcript is
-    /// written to disk at all, so with retention off nothing was ever stored,
-    /// this seeds nothing, and the log is empty at every launch.
+    /// The only place the in-memory list and the on-disk history meet on the
+    /// read side. With retention off nothing was ever written, so this seeds
+    /// nothing.
     ///
-    /// That is worth stating plainly, because it is a stronger guarantee than
-    /// the setting's own wording suggests: "cleared when the app closes" is
-    /// achieved by never writing, not by deleting on the way out. A
-    /// delete-on-exit implementation would be a promise the process cannot
-    /// keep -- a crash, a kill, or a power cut all skip it, and the transcripts
-    /// the user was told were discarded would still be on disk. Nothing to
-    /// delete is the only version of this that survives being killed.
+    /// Retention off is enforced by never writing, not by deleting on the way
+    /// out: a crash, a kill or a power cut all skip a delete-on-exit, and
+    /// nothing-to-delete is the only form of the promise that survives them.
     ///
-    /// Entries seeded here carry no `SessionId` of their own: the id in a
-    /// stored record is hex text from a previous process, and the live one is
-    /// used only for delivery correlation within *this* run. Copy does not
-    /// need it (see `copy_payload`'s caller), so a seeded entry gets a fresh
-    /// one rather than a parsed-back impostor that could collide with a
-    /// running dictation.
+    /// Seeded entries get a fresh `SessionId`. The stored id is hex text from a
+    /// previous process and the live one is used only for delivery correlation
+    /// within this run, so a parsed-back one could collide with a running
+    /// dictation. Copy does not need it.
     fn seed_from_history(&self, stored: &[TranscriptResult]) {
         let Ok(mut entries) = self.entries.lock() else {
             return;
@@ -96,7 +93,24 @@ impl SessionTranscriptCoordinator {
         }
     }
 
-    /// This session's finals, newest first.
+    /// Empties the list.
+    ///
+    /// Called when the persisted history is deleted, because most of what is
+    /// listed may have come from it: emptying the database and leaving the
+    /// entries on screen told a user their transcripts were gone while they were
+    /// still readable, and copyable, in the window they had just used to delete
+    /// them.
+    ///
+    /// Best-effort on a poisoned lock, like `record`. A deletion that could not
+    /// clear the view is still a deletion, and the command reports its own
+    /// failures; refusing here would turn a completed delete into an error.
+    fn clear(&self) {
+        if let Ok(mut entries) = self.entries.lock() {
+            entries.clear();
+        }
+    }
+
+    /// The listed transcripts, newest first.
     fn log(&self) -> Result<Vec<SessionTranscriptEntryView>, &'static str> {
         let entries = self
             .entries

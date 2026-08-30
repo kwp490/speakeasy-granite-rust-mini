@@ -1029,8 +1029,7 @@ On this machine the GGUFs are under the **parent** product's data directory
 
 SpeakEasy Mini was forked from SpeakEasy in one session and reduced to two
 changes that cascade through everything: **Granite is the only engine**, and
-**the dock is the only HUD**. Five commits, on a fresh history, pushed to a
-private repository.
+**the dock is the only HUD**. Five commits, on a fresh history.
 
 Verified state, and the exact commands that produce it:
 
@@ -3437,133 +3436,72 @@ hazard it recorded kept — a transient state written to the model coordinator
 makes a ready app announce "Setup needed", which is exactly what a `verifying`
 leak did.
 
-### 26. The fix for item 25 shipped four more, and two of them were the same defect — 2026-08-29
+### 26. Engine warm and dictation-refusal invariants — as of 2026-08-30
 
-Item 25's own fixes, reviewed rather than tested, and four of them did not hold.
-Two are the *same* defect item 25 named, arriving through the mechanism it added.
+State, not history. Four things hold and each has a test that fails without it.
 
-**The warm outcome was still read from shared state.**
-`warm_granite_if_configured` returned `Result<(), DomainError>` and recorded its
-verdict into `GraniteEngineCoordinator.verification`; `warm_granite_engine` read
-it back with `coordinator.warm_verification()`. Its own doc comment said the
-opposite in as many words — "The outcome is returned rather than left for the
-caller to read back off the coordinator" — which is the shape this repository
-keeps finding: a comment describing the fix somebody meant to write.
-`run_granite_final_pass` writes that same field, so a dictation's own warm could
-replace the verdict between the launch warm ending and the settle reading it.
-Both entry points return the outcome now, in a `WarmOutcome` / `EnsureReadyOutcome`
-that carries the verification alongside the error — because a warm that hashed a
-pack and *then* failed to spawn a worker is the one thing entitled to condemn
-those bytes, and returning `Err` alone would drop that on the floor. **The field
-is deleted**, so there is nowhere left to read it back from.
+- **A warm's verdict is returned, never stored.** `warm_granite_if_configured`
+  and `GraniteEngineCoordinator::ensure_ready` answer with a `WarmOutcome` /
+  `EnsureReadyOutcome` carrying the verification *and* the error, so a warm that
+  hashed a pack and then failed to spawn a worker can still condemn those bytes.
+  There is no "last warm" field on the coordinator: a dictation's own warm calls
+  the same `ensure_ready`, and a field would let it overwrite a verdict the
+  launch warm's settle was about to act on.
+- **A resident adapter answers only for the pack it holds.** The loaded identity
+  lives with the adapter (`ResidentPack`). `resident_answer` returns `Reuse` on
+  an exact id-and-revision match, carrying an `AlreadyLoaded` built from the
+  *resident* identity; anything else is `Refuse`, which carries no adapter at
+  all. `ensure_ready` turns `Refuse` into an `Err`, clears the slot so the next
+  call warms the requested pack, and reports
+  `granite_resident_pack_mismatch`. Latent while one Granite pack is admitted;
+  `granite_selection` re-resolves per warm with `cuda_worker_available()`.
+- **One rule refuses a dictation.** `dictation_blocker` is pure and is consumed
+  by both `setup_requirement` (the dock) and `start_dictation` (the shortcut and
+  the dock's button). It answers `model_missing`, `model_verifying`,
+  `granite_worker_missing`, `memory_below_granite_floor`, `granite_quarantined`
+  or `microphone_missing`, all before any audio is captured, and every code has
+  catalog copy. An unmanaged coordinator refuses nothing.
+- **A digest pass is counted, not asserted.** `PackVerifier` is injected through
+  `GraniteEnvironment`; `one_warm_takes_exactly_one_digest_pass` counts what the
+  warm asked. The shipped binary names `TrustedDigestVerifier` at both
+  composition roots.
 
-**`AlreadyLoaded` certified the requested pack while returning the resident
-one.** This is the serious one. `ensure_ready`'s early return built
-`AlreadyLoaded { pack_id, revision }` from `choice.pack` — the pack this
-invocation *resolved* — and returned the adapter that was already loaded. Adapter
-A resident, pack B requested: adapter A handed back, `AlreadyLoaded { B }`
-recorded, and `settled_model_state` stamped B `verified_on_disk` on digests
-nobody ever took for B. **The pack-mismatch defect the variant was added to
-prevent, reintroduced through it.** Latent only because one Granite pack is
-admitted today; `granite_selection` re-resolves on every warm with
-`cuda_worker_available()`, which changes the first time a worker answers `Hello`,
-so the code is written for the two-pack case. The loaded pack's identity is
-stored with the adapter now (`ResidentPack`), and `resident_outcome` — a pure
-function, because the branch with the bug is unreachable through this machine's
-resolver — returns `AlreadyLoaded` only on an exact match and
-`WarmVerification::ResidentMismatch` otherwise. A mismatch has **no**
-`identity()`, so it can certify neither pack. `granite_warm` logs it as `bytes=`.
+**Open:** the surviving digest pass runs in the desktop process and the worker
+reopens the model by path, so it is not an execution-time integrity check. Item
+21. Needs a threat-model decision.
 
-**The dock and the shortcut disagreed about starting a dictation, again.** Item
-25 added the three terminal engine states to `setup_requirement` and not to
-`start_dictation`, which refused only on `dictation_still_finishing` and
-`model_verifying` — so on a machine below the 8 GiB floor the dock disabled its
-Start button and the global shortcut accepted the press, recorded up to two
-minutes and reported afterwards that the engine could not start. That is the
-exact failure the previous batch was closing, half-fixed. `dictation_blocker` is
-now the single statement of the rule and both callers consume it; it is pure, so
-every combination is exercised, and a source scan asserts neither caller restates
-a code it owns — a behavioural test cannot see a second copy that happens to
-agree. Two of its six codes had no catalog copy and would have rendered as "The
-operation stopped safely" over a dictation that never started.
+### 27. Settings mutations, the component harness, and coverage floors — as of 2026-08-30
 
-**Two tests reported success they had not earned.** The `HKCU` test in
-`uninstall.rs` early-returned when it could not create the key, printing that the
-behaviour was not exercised — and its own doc comment claimed that showed up as
-`ignored`. Nothing marks a test ignored from inside its body: `cargo test`
-counted it among the passes and captured the two `eprintln!`s. It fails now. And
-`verification_reads_each_required_file_once_and_refuses_tampered_bytes` wrapped
-`verify_pack_files` in a closure, called that closure twice, and asserted the
-closure had been called twice — a count of the test, not of production, which
-would not have moved if a second digest pass were inserted anywhere in the
-engine. The count claim moved to where the pass happens: `PackVerifier` is
-injected through `GraniteEnvironment` and
-`one_warm_takes_exactly_one_digest_pass` counts what the **warm** asked. The
-tamper half was sound and stays, as `a_single_flipped_byte_is_refused_by_name`.
+- **Every settings action reports its own refusal.** All of them go through
+  `useMutation`, which resolves to `null` on rejection so callers update state
+  only on success, and refuses a second submission while one is in flight. The
+  five profile writers share one mutation, because they write one `ProfileView`;
+  `SettingsApp` renders its error once for the whole workspace. The install
+  status poll is the one exception and is not a mutation: it reports that the
+  *progress* is stale, because a read that did not arrive says nothing about the
+  bytes on disk. Every code any of them can return has catalog copy.
+- **`tests/components/` is vitest over jsdom.** The only suite that can press a
+  button; `tests/*.test.mjs` stays with `node --test` for reducers and source
+  scans. Two things to know before writing one: the `invoke` double rejects with
+  a **bare string**, because that is what Tauri hands back for a
+  `Result<_, &'static str>` and an `Error` maps to no catalog entry; and an
+  unanswered read resolves to `undefined`, which a component stores and then
+  dereferences, so a missing stub surfaces as a `TypeError` inside a render.
+- **Coverage is a floor per file**, in `dependency-policy/coverage-floors.json`,
+  over the privacy, delivery and mutation modules, checked by
+  `scripts/Test-CoverageFloors.ps1`. A file named there and **absent from the
+  report fails** — that is how a coverage check silently stops guarding anything.
+  Floors only go up; the script prints the headroom rather than failing on it,
+  because a self-tightening ratchet goes red on unrelated work and then gets
+  disabled.
+- **The recent-transcripts list is not "this session only".** It is seeded at
+  launch from the optional on-disk history, so with retention on it spans earlier
+  runs, and `history_delete_all` clears it. Both facts are in
+  `sessionLogDetail`, because a user can infer neither.
+- **The `HKCU` uninstall proof is `#[ignore]`d.** It writes to the real registry,
+  so it is out of the default gate and explicitly invoked; once invoked, an
+  environment that cannot write `HKCU` fails rather than skipping.
 
-**Every new test was controlled by restoring the real defect**, files copied
-aside and copied back rather than `git checkout --`. Seven controls, all red, and
-two reproduced the shipped symptom exactly: pack B promoted to `verified_on_disk`
-on adapter A's evidence, and an installed, verified model settling to `failed`
-because the settle read a shared field an unrelated pass had overwritten.
-
-**Still open, and unchanged by any of this:** the one surviving digest pass runs
-in the desktop process and the worker reopens the model by path, so it is not an
-execution-time integrity check. Item 21. Needs a threat-model decision.
-
-### 27. Item 8 — the rest of `useMutation`, a component harness, and coverage floors — 2026-08-30
-
-**Ten more actions had no rejection handler**, and the sweep that gave four
-settings actions a visible failure state on 2026-08-29 stopped at four. The
-remaining ones, in the order they matter: the **five profile writers** in
-`useProfile`, each `setProfile(await invoke(...))`, so a refused toggle snapped
-back to its stored value with nothing on screen — honest about the *state* and
-silent about the *event*; **`reset_commit`**, the most destructive command in the
-product, whose preview beside it had had a mutation since that same day; the
-**install cancel**, a bare `void invoke(...)` over a 2.30 GB download the user
-was trying to stop; the **750 ms install poll**, which dropped its rejection and
-left the page frozen mid-download; and **three personalization actions**, one of
-which printed "Deleted" without waiting to find out.
-
-All ten go through `useMutation` now, except the poll — a poll is not a
-user-initiated mutation, and it reports that the *progress* is stale rather than
-that the model failed, because a read that did not arrive is not evidence about
-the bytes on disk.
-
-**Eighteen error codes had no catalog copy**, including `history_delete_failed`
-and `history_export_failed`, which had been reachable since the day those two
-buttons got a visible error state. Every one of them rendered "The operation
-stopped safely" over a control that had just refused. A failure reported without
-being named is half a fix.
-
-**There was no way to observe any of this.** The frontend suite is Node's runner
-over `.ts` modules and source text: it can assert a reducer and it cannot press a
-button, and every rule in this repository about a control not claiming what it
-did not do is a rule about what a *rendered* control does when a command rejects.
-`tests/components/` is vitest over jsdom — 15 tests, all of them proved able to
-fail by restoring the real defect. Two details worth knowing: the `invoke` double
-rejects with a **bare string**, because that is what Tauri hands back for a
-`Result<_, &'static str>` and an `Error` there maps to no catalog entry, so every
-assertion would silently become `errorUnknown`; and an *unanswered* read resolves
-to `undefined`, which a component stores and then dereferences, so a missing stub
-surfaces as a `TypeError` inside a render and reads like a component defect.
-
-**Coverage is now a floor per file**, in `dependency-policy/coverage-floors.json`,
-over the modules that carry privacy, delivery and mutation behaviour. The gate
-reported a workspace percentage and enforced nothing — "no threshold" — which is
-a measurement rather than a guarantee. A single number over ninety-odd files can
-only be set low enough to mean nothing or high enough to fail on unrelated work;
-these twelve files are the ones where a regression is a broken promise. **A file
-named there and absent from the report fails**, and that is the assertion that
-matters most: rename a file or narrow a runner's include list and every floor
-over it silently stops applying while the check goes on printing a pass. Both
-failure modes were proved.
-
-**Open, deliberately:** the floors are a floor, not a self-tightening ratchet.
-One that raises itself goes red on work that had nothing to do with it, and a
-check that fails for reasons the author cannot act on is a check that gets
-commented out. The headroom is printed on every run so raising one is a
-deliberate act with a number in front of it.
 
 ## Mistakes made this session, so they are not repeated
 
@@ -3695,7 +3633,7 @@ deliberate act with a number in front of it.
 
 ## Repository facts worth knowing
 
-- 21 commits on `main`, private, `kwp490/speakeasy-granite-rust-mini`.
+- `kwp490/speakeasy-granite-rust-mini` on GitHub, public, releases included.
   Six of them are 2026-08-19's, `e03eb78`..`da612fa`.
 - The tree is ~300 files, down from 2,611 — `vendor/transcribe.cpp` alone was
   2,265 of them.

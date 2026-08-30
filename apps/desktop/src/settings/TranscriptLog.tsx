@@ -9,21 +9,21 @@ import type { SessionTranscriptEntry } from "./types";
 const LOG_INTERVAL_MS = 1_500;
 
 /**
- * The session transcript log.
+ * The recent-transcripts list, newest first, each with Copy.
  *
- * This is where the recoverable result went when it left the transcriber. Every
- * finished transcript from this run of the app, newest first, each with Copy.
+ * Rendered in two places: the settings Log page and the pinned always-on-top
+ * window. One component deliberately, so two lists of the same transcripts
+ * cannot disagree about what was said.
  *
- * Three things about it are load-bearing rather than incidental:
+ * Three invariants:
  *
- * 1. **Nothing is written to disk.** The list lives in the app's memory and dies
- *    with the process, which is why it needs no plaintext-at-rest disclosure, no
- *    retention setting and no delete action — there is nothing stored to disclose,
- *    retain or delete. It sits next to the on-disk history feature and is labelled
- *    so the difference is unmistakable.
+ * 1. **This is not "this session only".** The backing list is in memory but is
+ *    seeded at launch from the optional on-disk history, so with retention on it
+ *    spans earlier runs. `sessionLogDetail` states that, and states that deleting
+ *    the saved transcripts empties this list too — which the backend enforces by
+ *    clearing the list inside `history_delete_all`.
  * 2. **Copy is backend-owned.** The window sends an id, never text; Rust looks up
- *    the entry and writes it. Clipboard authority stays out of the transcriber
- *    entirely.
+ *    the entry and writes the clipboard.
  * 3. **Transcript text is untrusted inert content.** `<pre>` with a `<bdi>`, no
  *    HTML interpretation, no linkification, no normalization.
  */

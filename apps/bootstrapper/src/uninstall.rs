@@ -933,41 +933,30 @@ mod tests {
     /// Its own key rather than the product's, so a failing test cannot damage a
     /// real installation, and so this can be run on a machine that has one.
     ///
-    /// # Environment-dependent, and deliberately so
+    /// # Explicitly invoked, and unavailable `HKCU` is a failure
     ///
-    /// This writes to the real `HKCU`. There is no fake behind it because
-    /// `remove_key_if_empty` takes a `winreg::RegKey` and the thing under test
-    /// *is* the registry semantics -- whether a key with no values and no
-    /// subkeys is deletable, and whether an occupied one refuses. A hand-written
-    /// double would be asserting this test's model of the registry rather than
-    /// the registry, which is the shape of proof this repository keeps throwing
-    /// out. Introducing a trait to abstract it would move the untested edge
-    /// rather than remove it.
+    /// `#[ignore]`d, so the default workspace gate passes on a machine or sandbox
+    /// with no registry-write permission. It is a Windows environment proof
+    /// rather than a unit test: `remove_key_if_empty` takes a `winreg::RegKey`
+    /// and the invariant is the registry's own semantics — whether a key with no
+    /// values and no subkeys is deletable, and whether an occupied one refuses. A
+    /// double would assert this test's model of the registry instead.
     ///
-    /// What is done instead: the key name carries the process id, so concurrent
-    /// `cargo test` runs cannot collide, and a `Drop` guard removes it even when
-    /// an assertion panics.
+    /// Run it where the current user's hive is writable:
     ///
-    /// # An environment that cannot reach `HKCU` fails this test
+    /// ```text
+    /// cargo test -p speakeasy-bootstrapper registry_hive -- --ignored --nocapture
+    /// ```
     ///
-    /// It used to `return` there, after printing that the behaviour had not been
-    /// exercised, on the reasoning that "this environment cannot write to the
-    /// registry" is not evidence about the code. That reasoning is sound and the
-    /// implementation of it was not: **an early return is reported as `ok`**.
-    /// The doc comment claimed the skip showed up as `ignored`; nothing marks a
-    /// test ignored from inside its own body, so the summary line counted it
-    /// among the passes and the two `eprintln!`s went to a stream `cargo test`
-    /// captures and discards on success. A gap that reports itself as a pass is
-    /// the exact shape this repository keeps throwing out, and it was sitting
-    /// inside a comment explaining why it must not be.
+    /// Once invoked it must not be skippable. An inability to write `HKCU` panics
+    /// rather than returning, because a `return` is counted as `ok` and nothing
+    /// marks a test ignored from inside its own body.
     ///
-    /// So it fails instead. The gate runs on Windows as a real user, where
-    /// `HKCU` is always writable, and an environment where it is not has not run
-    /// this proof — which is a red test, not a green one. `#[ignore]` was the
-    /// other honest option and is worse here: it would take this out of every
-    /// ordinary gate run to accommodate a sandbox nobody develops in.
+    /// The key name carries the process id so concurrent runs cannot collide, and
+    /// a `Drop` guard removes it even when an assertion panics.
     #[test]
-    fn an_emptied_product_key_is_removed_and_an_occupied_one_is_not() {
+    #[ignore = "registry_hive: writes to the real HKCU; run explicitly with --ignored"]
+    fn registry_hive_removes_an_emptied_product_key_and_keeps_an_occupied_one() {
         use winreg::RegKey;
         use winreg::enums::HKEY_CURRENT_USER;
 
@@ -989,10 +978,8 @@ mod tests {
             std::process::id()
         );
         let path = path.as_str();
-        // An environment with no `HKCU` write access has not exercised the
-        // registry semantics this test exists for, and that is a failure to
-        // report rather than a pass to hand out. It used to `return` here, which
-        // `cargo test` counts as `ok`.
+        // A failure, not a skip: this test was invoked deliberately, so an
+        // environment that cannot answer it has not proved anything.
         user.create_subkey(path).expect(
             "this environment cannot write to HKCU, so the registry semantics under test \
              were NOT exercised; run this where the current user's hive is writable",

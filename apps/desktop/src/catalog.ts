@@ -155,7 +155,7 @@ export const messages = {
   transcriptLogUnpin: "Close the pinned log",
   transcriptLogRetention: "Keep transcripts",
   transcriptLogRetentionDetail:
-    "Transcripts are held in memory while the app runs. Keeping them writes them to disk instead, so they are still here the next time you open the app.",
+    "Transcripts are held in memory while the app runs. Keeping them also writes them to disk, so the list above still shows them the next time you open the app. Clearing writes nothing to disk at all, rather than deleting on the way out.",
   transcriptLogClearOnClose: "Clear when I close the app",
   transcriptLogRetain: "Keep them between sessions",
   settingsHeading: "SpeakEasy Mini settings",
@@ -219,12 +219,16 @@ export const messages = {
   rawValuesHint: "The exact identifiers used in logs and diagnostics, before display names are applied.",
 
   // Output & Privacy
-  sessionLog: "This session's transcripts",
+  // Not "this session's transcripts". The list is seeded at launch from the
+  // optional saved history, so with Keep them between sessions on it spans
+  // previous runs -- and the two sentences below are the only place a user can
+  // learn that, or learn that deleting the saved transcripts empties this list
+  // too.
+  sessionLog: "Recent transcripts",
   sessionLogDetail:
-    "Every finished transcript from this run of SpeakEasy, newest first. This list is held in memory only: it is never written to disk, and it disappears when SpeakEasy closes.",
+    "Finished transcripts, newest first. While Keep them between sessions is on, this includes transcripts restored from the saved copy on disk, so it can span earlier runs; deleting the saved transcripts empties this list as well. While it is off, nothing is written to disk and the list covers this run only.",
   sessionLogEmpty: "Finished transcripts will appear here.",
-  sessionLogCount: (count: number) =>
-    count === 1 ? "1 transcript this session" : `${count} transcripts this session`,
+  sessionLogCount: (count: number) => (count === 1 ? "1 transcript" : `${count} transcripts`),
   copyEntry: "Copy",
   lastTranscriptSection: "Last transcript",
   // The recoverable result's own state, not the microphone's. Labelling it
@@ -722,6 +726,12 @@ export const messages = {
       "The transcription engine is missing from this installation. Reinstall the app.",
     granite_model_files_unverified:
       "The installed model failed verification, so it was not loaded. Reinstall the local model.",
+    // The loaded engine is not the one this machine now resolves, so the
+    // dictation was refused rather than run on the wrong model. Self-clearing:
+    // the refusal releases the loaded engine and the next attempt loads the
+    // right one, which is why the instruction is to try again.
+    granite_resident_pack_mismatch:
+      "The loaded speech model is not the one this computer now uses, so nothing was transcribed. Start the dictation again.",
     granite_quarantined:
       "Transcription is paused after repeated engine failures. Use Restart engine in Advanced settings.",
     granite_state_unavailable:

@@ -345,16 +345,13 @@ const fn granite_memory_is_sufficient(total_memory_bytes: Option<u64>) -> bool {
 /// bytes the manifest pins.
 ///
 /// A parameter rather than a direct call to [`verify_pack_files`], for the same
-/// reason `cuda_context_probe` is one: the claim the surviving digest pass makes
-/// is *"exactly one per warm"*, and a count is the only way to observe it. The
-/// test that was written to pin that count wrapped the production function in a
-/// closure the test itself called twice and then counted its own calls -- a
-/// measurement of the test rather than of the warm, which would have stayed
-/// green with a second pass inserted anywhere in this module.
+/// reason `cuda_context_probe` is one: the claim is *exactly one pass per warm*,
+/// and only a count can observe that. Counting the production function from
+/// outside counts the caller instead.
 ///
-/// **Not an environment variable and not a feature flag.** The shipped binary
-/// names [`TrustedDigestVerifier`] at both of its composition roots and has no
-/// way to name anything else, so nothing in production can weaken the check.
+/// **Not an environment variable and not a feature flag.** Both composition
+/// roots name [`TrustedDigestVerifier`] and the binary can name nothing else, so
+/// nothing in production can weaken the check.
 pub trait PackVerifier: Sync {
     /// `false` when a required file is missing, is the wrong length, or is not
     /// the pinned digest. Which of the three is [`verify_pack_files`]'s to
@@ -487,19 +484,14 @@ const fn domain_error(code: ErrorCode) -> DomainError {
 /// its own: warming is idempotent (a second `ensure_ready` while one is already
 /// loaded just clones the `Arc`) and retryable (a failed warm is not cached, so
 /// the next dictation tries again rather than latching a permanent failure).
-/// What a warm's digest pass actually hashed, and what it concluded.
+/// Which artifact a warm's digest pass hashed, and what it concluded.
 ///
-/// A `&'static str` warm state cannot answer this. `settle_after_warm` has to
-/// promote a *pack* to `verified_on_disk`, and it re-resolves which pack that is
-/// -- with the post-warm CUDA answer, which is precisely the thing the warm can
-/// change. So "the warm said ready" and "this pack's bytes were checked" are two
-/// claims, and until 2026-08-29 the first was being used as the second: on a
-/// machine where the worker's capability flipped the resolution, pack B was
-/// stamped verified on the strength of pack A's digests.
-///
-/// Carrying the identity makes that unrepresentable. `Verified` names the exact
-/// artifact whose bytes passed, and a promotion that cannot match id *and*
-/// revision does not happen.
+/// The identity is carried rather than derived. `settle_after_warm` promotes a
+/// *pack* to `verified_on_disk` and it re-resolves which pack that is, using the
+/// post-warm CUDA answer -- which is precisely what the warm can change. So "the
+/// warm said ready" and "this pack's bytes were checked" are two claims, and a
+/// promotion needs the second. Matching id *and* revision is required: the same
+/// pack at a new revision is different bytes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum WarmVerification {
     /// No digest pass ran this warm -- no worker, memory below the floor,
@@ -509,34 +501,24 @@ pub enum WarmVerification {
     /// These exact bytes matched the manifest, immediately before the worker
     /// was handed the model root, **during this invocation**.
     Verified { pack_id: String, revision: String },
-    /// A resident adapter was already loaded, so this invocation hashed
-    /// nothing; the identity is what an *earlier* pass in this process verified.
+    /// This invocation hashed nothing, because the adapter was already loaded;
+    /// the identity is what an *earlier* pass in this process verified.
     ///
-    /// Its own variant rather than being folded into `Verified`, because the
-    /// two are different claims and the difference is exactly what made a
-    /// shared "last warm" field unsafe to settle from. `ensure_ready` returns
-    /// the cached adapter before any digest pass, so a second warm recorded
-    /// nothing and the settle read the *previous* invocation's verdict as if it
-    /// were its own -- which is the pack-mismatch defect re-entering by another
-    /// door, since the resolution can change between two warms.
+    /// Its own variant rather than folded into `Verified`, because they are
+    /// different claims. Both still promote, and both are still compared against
+    /// the resolved pack.
     AlreadyLoaded { pack_id: String, revision: String },
-    /// A resident adapter was already loaded and it is **not** the artifact this
-    /// invocation resolved, so the adapter that gets returned is one pack's and
-    /// the resolution is another's.
+    /// A different pack is loaded than the one this invocation resolved.
     ///
-    /// This is what the early return used to report as `AlreadyLoaded` built
-    /// from the *requested* choice: adapter A resident, pack B requested,
-    /// adapter A returned and pack B certified. `settled_model_state` then
-    /// promoted B to `verified_on_disk` on evidence nobody ever gathered for B --
-    /// the pack-mismatch defect this enum was added to prevent, reintroduced
-    /// through it. Latent while only one Granite pack is admitted, and written
-    /// for the two-pack case because `granite_selection` re-resolves on every
-    /// warm with `cuda_worker_available()`, which changes the moment a worker
-    /// speaks.
-    ///
-    /// [`Self::identity`] is deliberately `None`: neither claim is safe to
-    /// settle from. The resident pack's digests are about a pack the resolver no
+    /// [`Self::identity`] is `None`, so neither pack can be promoted or
+    /// condemned: the resident pack's digests describe a pack the resolver no
     /// longer points at, and the requested pack has no digests at all.
+    /// `ensure_ready` refuses on this, hands back no adapter, and clears the
+    /// slot so the next call warms the requested pack.
+    ///
+    /// Latent while one Granite pack is admitted, and reachable in principle
+    /// because `granite_selection` re-resolves on every warm with
+    /// `cuda_worker_available()`.
     ResidentMismatch {
         resident_pack_id: String,
         resident_revision: String,
@@ -587,14 +569,12 @@ impl WarmVerification {
     }
 }
 
-/// The resident worker, and the artifact it was actually loaded for.
+/// The resident worker, and the artifact it was loaded for.
 ///
-/// The identity is stored *with* the adapter because
-/// [`GraniteEngineCoordinator::ensure_ready`]'s early return has to describe the
-/// pack that is loaded rather than the pack this invocation happened to resolve.
-/// It used to build its outcome from the requested choice, so a resident adapter
-/// for pack A returned while pack B was requested certified B. See
-/// [`WarmVerification::ResidentMismatch`].
+/// The identity lives *with* the adapter so
+/// [`GraniteEngineCoordinator::ensure_ready`] can answer about the pack that is
+/// loaded rather than the one this invocation resolved. See
+/// [`resident_answer`].
 struct ResidentPack {
     adapter: Arc<ResidentGraniteAdapter>,
     pack_id: String,
@@ -604,12 +584,10 @@ struct ResidentPack {
 /// What [`GraniteEngineCoordinator::ensure_ready`] did, as two facts rather than
 /// one.
 ///
-/// The adapter is a `Result` inside the struct rather than the struct being
-/// inside a `Result` because the verification survives a failure and matters
-/// there: a warm that ends on `granite_model_files_unverified` is the one
-/// outcome entitled to condemn a pack, and returning `Err` alone would have
-/// dropped the identity of the pack that failed on the floor -- which is how the
-/// caller came to read it back off a shared coordinator field instead.
+/// The adapter is a `Result` inside the struct rather than the struct inside a
+/// `Result`, because the verification matters on the failure path too: a warm
+/// that ends on `granite_model_files_unverified` is the one outcome entitled to
+/// condemn a pack, and an `Err` alone carries no identity.
 pub struct EnsureReadyOutcome {
     /// What this invocation did about the bytes.
     pub verification: WarmVerification,
@@ -632,11 +610,9 @@ pub struct WarmOutcome {
 pub struct GraniteEngineCoordinator {
     crashes: Mutex<CrashThrottle>,
     started_at: std::time::Instant,
-    /// The resident worker and the pack it holds. **No shared "last warm"
-    /// verdict lives beside it**, deliberately: a warm's outcome is returned to
-    /// the caller that asked for it, because a field is answered by whichever
-    /// invocation wrote last and `settle_after_warm` was reading a verdict from
-    /// a pass that had not run in its own invocation.
+    /// The resident worker and the pack it holds. **No "last warm" verdict lives
+    /// beside it**: a warm's outcome is returned to the caller that asked for
+    /// it. See [`warm_granite_if_configured`].
     adapter: Mutex<Option<ResidentPack>>,
     reason: Mutex<&'static str>,
     /// Which device the resident worker reported it can actually use, as
@@ -885,18 +861,38 @@ impl GraniteEngineCoordinator {
                 adapter: Err(domain_error(ErrorCode::AdapterFailed)),
             };
         };
-        if let Some(resident) = slot.as_ref() {
-            // Nothing was hashed here, and the outcome describes the pack that
-            // is *loaded* rather than the one this invocation resolved. Building
-            // it from `choice` returned adapter A while certifying pack B, which
-            // is the defect `ResidentMismatch` exists to make unrepresentable.
-            return EnsureReadyOutcome {
-                verification: resident_outcome(
-                    (resident.pack_id.as_str(), resident.revision.as_str()),
-                    requested,
-                ),
-                adapter: Ok(Arc::clone(&resident.adapter)),
-            };
+        match resident_answer(
+            slot.as_ref()
+                .map(|held| (held.pack_id.as_str(), held.revision.as_str(), &held.adapter)),
+            requested,
+        ) {
+            // Nothing loaded. Fall through and warm.
+            ResidentAnswer::Cold => {}
+            // The loaded adapter is this pack's. Nothing was hashed here, and the
+            // outcome says so.
+            ResidentAnswer::Reuse {
+                adapter,
+                verification,
+            } => {
+                return EnsureReadyOutcome {
+                    verification,
+                    adapter: Ok(adapter),
+                };
+            }
+            // A different pack is loaded, so this invocation refuses. It does
+            // **not** hand back the loaded adapter: returning it ran a dictation
+            // on pack A that had resolved pack B, and certified B on A's
+            // digests. The slot is cleared so the next call warms the pack that
+            // was actually requested -- a refusal now and the right pack next
+            // time, rather than a silent substitution either time.
+            ResidentAnswer::Refuse(verification) => {
+                *slot = None;
+                self.record_warm_state("granite_resident_pack_mismatch");
+                return EnsureReadyOutcome {
+                    verification,
+                    adapter: Err(domain_error(ErrorCode::AdapterFailed)),
+                };
+            }
         }
         self.record_engine_reason(choice.reason.code());
         // Every exit from here sets the warm state, including both failures.
@@ -970,32 +966,61 @@ impl GraniteEngineCoordinator {
     }
 }
 
-/// What an `ensure_ready` that found a resident adapter may claim about the
-/// bytes on disk.
+/// What `ensure_ready` does with a slot that may already hold an adapter.
 ///
-/// The whole of the pack-mismatch rule, pure and by itself so both halves can be
-/// exercised: on this machine only one Granite pack is admitted, so the
-/// mismatched branch is unreachable through the real resolver and a test that
-/// could only ask what *this* machine resolves would never see it. It is not
-/// unreachable in principle — `granite_selection` re-resolves on every warm with
-/// `cuda_worker_available()`, which changes the first time a worker answers
-/// `Hello`.
+/// `Refuse` carries **no adapter**, and that is the point: a mismatch cannot hand
+/// back the loaded pack's adapter because the type has nowhere to put one. An
+/// answer that both refused and carried an adapter is what let a resident pack A
+/// run a dictation that had resolved pack B.
+pub enum ResidentAnswer<T> {
+    /// Nothing is loaded. The caller warms the requested pack.
+    Cold,
+    /// What is loaded is the pack this invocation resolved.
+    ///
+    /// The verification is built from the **resident** identity, never from the
+    /// requested one. They are equal on this arm, and building it from the
+    /// request is what shipped as a defect: the same construction on the arm
+    /// below would have certified a pack nobody hashed.
+    Reuse {
+        adapter: T,
+        verification: WarmVerification,
+    },
+    /// What is loaded is a different pack, so the requested pack is not loaded
+    /// and this invocation may not run.
+    Refuse(WarmVerification),
+}
+
+/// Whether an already-loaded adapter answers the pack this invocation resolved.
 ///
-/// Never `Verified`: nothing was hashed in the invocation that calls this.
-pub fn resident_outcome(resident: (&str, &str), requested: (&str, &str)) -> WarmVerification {
-    if resident == requested {
-        WarmVerification::AlreadyLoaded {
-            pack_id: resident.0.to_owned(),
-            revision: resident.1.to_owned(),
-        }
-    } else {
-        WarmVerification::ResidentMismatch {
-            resident_pack_id: resident.0.to_owned(),
-            resident_revision: resident.1.to_owned(),
-            requested_pack_id: requested.0.to_owned(),
-            requested_revision: requested.1.to_owned(),
-        }
+/// Generic over the adapter so the rule is exercisable without a worker process.
+/// One Granite pack is admitted today, so the mismatched branch is unreachable
+/// through the real resolver; it is not unreachable in principle, because
+/// `granite_selection` re-resolves on every warm with `cuda_worker_available()`
+/// and that answer changes the first time a worker reports a CUDA build.
+///
+/// Never `Verified`: nothing is hashed in the invocation that calls this.
+pub fn resident_answer<T: Clone>(
+    resident: Option<(&str, &str, &T)>,
+    requested: (&str, &str),
+) -> ResidentAnswer<T> {
+    let Some((pack_id, revision, adapter)) = resident else {
+        return ResidentAnswer::Cold;
+    };
+    if (pack_id, revision) == requested {
+        return ResidentAnswer::Reuse {
+            adapter: adapter.clone(),
+            verification: WarmVerification::AlreadyLoaded {
+                pack_id: pack_id.to_owned(),
+                revision: revision.to_owned(),
+            },
+        };
     }
+    ResidentAnswer::Refuse(WarmVerification::ResidentMismatch {
+        resident_pack_id: pack_id.to_owned(),
+        resident_revision: revision.to_owned(),
+        requested_pack_id: requested.0.to_owned(),
+        requested_revision: requested.1.to_owned(),
+    })
 }
 
 /// Spawns an owned worker process, loads the model into it once, and wraps it
@@ -1122,13 +1147,11 @@ const fn granite_worker_is_unusable(code: ErrorCode) -> bool {
 /// [`WarmOutcome::error`] carries a recoverable [`DomainError`] under the same
 /// conditions [`GraniteEngineCoordinator::ensure_ready`] does.
 ///
-/// The outcome is returned rather than left for the caller to read back off the
-/// coordinator, and since 2026-08-29 that is true of the code as well as of this
-/// sentence. A shared "last warm" field cannot answer "what did *this* call
-/// find", and the two diverge in a way that matters: `ensure_ready` returns a
-/// resident adapter without hashing, so a second warm settled the model status
-/// from the first warm's verdict. There is no such field now — the outcome has
-/// nowhere to be read back from. See [`WarmVerification`].
+/// **Returned, never recorded.** No "last warm" field exists to read it back
+/// from, and that is load-bearing: `ensure_ready` can return a resident adapter
+/// without hashing, and `run_granite_final_pass` calls the same function, so a
+/// field would be answered by whichever invocation wrote last rather than by the
+/// one whose settle is about to act on it. See [`WarmVerification`].
 pub fn warm_granite_if_configured(
     environment: GraniteEnvironment<'_>,
     coordinator: &GraniteEngineCoordinator,
@@ -2252,57 +2275,85 @@ mod tests {
         );
     }
 
-    /// A resident adapter is only ever described as the pack it is holding.
+    /// A resident adapter answers only for the pack it holds, and a mismatch
+    /// hands back nothing.
     ///
-    /// `ensure_ready`'s early return used to build its outcome from the
-    /// *requested* choice while returning the *resident* adapter: pack A loaded,
-    /// pack B resolved, adapter A handed back and pack B certified. The settle
-    /// then promoted B to `verified_on_disk` on digests that were never taken
-    /// for B -- the pack-mismatch defect this outcome type was added to prevent,
-    /// reintroduced through it.
+    /// Requesting B while A is resident must not execute A and must not report
+    /// success. Both halves are asserted here: `Refuse` carries no adapter (the
+    /// type has nowhere to put one), and the verification it carries certifies
+    /// neither pack. `ensure_ready` turns that arm into an `Err` and clears the
+    /// slot, so the next call warms the pack that was requested.
     ///
-    /// Unreachable on this machine today, because one Granite pack is admitted.
-    /// Not unreachable in principle: `granite_selection` re-resolves on every
-    /// warm with `cuda_worker_available()`, and that answer changes the first
-    /// time a worker says it was compiled with CUDA. The rule is a pure function
-    /// for exactly that reason -- a test that could only ask what this machine
-    /// resolves would never see the branch that has the bug.
+    /// The rule is generic over the adapter so it is exercisable without a worker
+    /// process: one Granite pack is admitted today, so the mismatched branch is
+    /// unreachable through the real resolver, and a test that could only ask what
+    /// this machine resolves would never reach the branch that had the defect.
     #[test]
-    fn a_resident_adapter_is_certified_only_as_the_pack_it_holds() {
+    fn a_resident_adapter_answers_only_for_the_pack_it_holds() {
         let a = ("granite-speech-4.1-2b-q4_k_m-cpu", "1");
         let b = ("granite-speech-4.1-2b-q4_k_m-cuda", "1");
+        // Stands in for the adapter. A `&str` is enough: what matters is whether
+        // this value can escape, not what it is.
+        let adapter_a = "adapter-for-pack-A";
 
-        assert_eq!(
-            resident_outcome(a, a),
-            WarmVerification::AlreadyLoaded {
-                pack_id: a.0.to_owned(),
-                revision: a.1.to_owned(),
-            },
-            "the same artifact: a pass ran earlier in this process, on these bytes"
-        );
-
-        let mismatch = resident_outcome(a, b);
-        assert_eq!(
-            mismatch,
-            WarmVerification::ResidentMismatch {
-                resident_pack_id: a.0.to_owned(),
-                resident_revision: a.1.to_owned(),
-                requested_pack_id: b.0.to_owned(),
-                requested_revision: b.1.to_owned(),
+        match resident_answer(Some((a.0, a.1, &adapter_a)), a) {
+            ResidentAnswer::Reuse {
+                adapter,
+                verification,
+            } => {
+                assert_eq!(
+                    adapter, adapter_a,
+                    "the same pack reuses the loaded adapter"
+                );
+                assert_eq!(
+                    verification,
+                    WarmVerification::AlreadyLoaded {
+                        pack_id: a.0.to_owned(),
+                        revision: a.1.to_owned(),
+                    },
+                    "a pass ran earlier in this process, on these bytes"
+                );
             }
-        );
-        assert_eq!(
-            mismatch.identity(),
-            None,
-            "a mismatch is about two artifacts, so it may certify neither"
-        );
-        assert!(!mismatch.bytes_match());
+            _ => panic!("the requested pack is the resident pack"),
+        }
 
-        // The revision alone is enough, and matching on the id would miss it:
-        // that is the ordinary upgrade case, where the same pack gains new bytes.
-        let upgraded = resident_outcome(a, (a.0, "2"));
-        assert_eq!(upgraded.identity(), None);
-        assert!(!upgraded.bytes_match());
+        // Pack B requested, pack A resident.
+        match resident_answer(Some((a.0, a.1, &adapter_a)), b) {
+            ResidentAnswer::Refuse(verification) => {
+                assert_eq!(
+                    verification,
+                    WarmVerification::ResidentMismatch {
+                        resident_pack_id: a.0.to_owned(),
+                        resident_revision: a.1.to_owned(),
+                        requested_pack_id: b.0.to_owned(),
+                        requested_revision: b.1.to_owned(),
+                    }
+                );
+                assert_eq!(
+                    verification.identity(),
+                    None,
+                    "a mismatch is about two artifacts, so it may certify neither"
+                );
+                assert!(!verification.bytes_match());
+            }
+            ResidentAnswer::Reuse { adapter, .. } => {
+                panic!("pack B was requested and adapter {adapter} escaped");
+            }
+            ResidentAnswer::Cold => panic!("an adapter was resident"),
+        }
+
+        // The revision alone is enough. Matching on the id is the obvious
+        // half-fix and it passes a same-pack-different-revision upgrade.
+        assert!(matches!(
+            resident_answer(Some((a.0, a.1, &adapter_a)), (a.0, "2")),
+            ResidentAnswer::Refuse(_)
+        ));
+
+        // And an empty slot is neither.
+        assert!(matches!(
+            resident_answer::<&str>(None, a),
+            ResidentAnswer::Cold
+        ));
     }
 
     /// A minimal RIFF/WAVE reader for 16 kHz mono 16-bit PCM -- the same small,

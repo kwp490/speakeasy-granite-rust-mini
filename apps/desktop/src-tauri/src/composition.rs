@@ -73,12 +73,12 @@ pub fn run() {
         .map_err(|_| "finalization_queue_unavailable")?;
         app.manage(finalization_queue);
         let runtime = RuntimeWizardCoordinator::new(resource_root);
-        // Startup readiness has to verify the pack a dictation would actually
-        // resolve to, and on a CUDA-capable machine that depends on whether a
-        // CUDA-capable Granite worker exists. Nothing has asked a worker yet at
-        // this point in setup, so this is the same conservative assumption
-        // `warm_granite_if_configured`'s first selection makes; the warm
-        // corrects it through `refresh_readiness` once a worker has spoken.
+        // Startup readiness resolves the pack a dictation would load, and on a
+        // CUDA-capable machine that depends on whether a CUDA-capable Granite
+        // worker exists. No worker has been asked yet, so this takes the same
+        // conservative assumption `warm_granite_if_configured`'s first selection
+        // takes; `ModelCoordinator::settle_after_warm` re-resolves with the
+        // worker's own answer once the warm has spoken.
         let granite = GraniteEngineCoordinator::default();
         let models = ModelCoordinator::new(root, granite.cuda_worker_available());
         app.manage(models);

@@ -28,21 +28,17 @@ export type ProfileController = {
    * The last profile write, so a refused one is *said* rather than merely not
    * applied.
    *
-   * Every mutator below was `setProfile(await invoke(...))` with no rejection
-   * handler. Two things followed. The refusal was an unhandled promise
-   * rejection; and because each control is rendered from `profile`, a refused
-   * toggle simply snapped back to its stored value with nothing on screen — the
-   * user sees a switch that will not move and no reason why. That is honest
-   * about the *state* and silent about the *event*, which is the half of the
-   * disclosure rule that is easy to miss: not claiming a success is not the
-   * same as reporting a failure.
+   * Every control here renders the stored value, so a refused toggle snaps back
+   * on its own — honest about the *state* and silent about the *event*. Not
+   * claiming a success is not the same as reporting a failure, and a switch that
+   * will not move with nothing on screen is the second half missing.
    *
-   * One mutation for all five writers rather than one each, because they write
-   * one document and `useMutation` refuses a second submission while one is in
-   * flight — which is what stops two toggles racing to replace the same
-   * `ProfileView`. `SettingsApp` renders the error once for the whole
-   * workspace, beside the `unavailable` banner and for the same reason: the
-   * profile feeds three pages.
+   * One mutation for all five writers, not one each: they write one document, and
+   * `useMutation` refuses a second submission while one is in flight, which is
+   * what stops two toggles racing to replace the same `ProfileView`.
+   * `SettingsApp` renders the error once for the workspace, beside the
+   * `unavailable` banner and for the same reason — the profile feeds three
+   * pages.
    */
   write: Mutation<ProfileStatus>;
   reload: () => void;
