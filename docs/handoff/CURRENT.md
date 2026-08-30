@@ -36,7 +36,7 @@ Read `CLAUDE.md` first. This file assumes it.
 | **Unpushed commits** | `git log --oneline origin/main..HEAD`. `origin/main` was at `a34adc3` when this was written |
 | **Clean clone does not build** | `llama-cpp-sys-2` CMake configure. Leading explanation untested — see the entry below |
 | **Model integrity is not execution-time** | The one digest pass runs desktop-side and the worker reopens by path. Item 21. Needs a threat-model decision, not code |
-| **GPU qualification cannot be proved** | `GpuQualificationCoordinator::record` is gone and `qualified` is permanently false. Restoring it needs an `inference_sample_count` nothing at warm time has. Item 24 |
+| **GPU qualification cannot be proved** | Nothing promotes a card to proven, so the claim was removed from the UI and then from the payload. Restoring it needs an `inference_sample_count` nothing at warm time has. Item 24 |
 | **Auto-paste off leaves a history row** | Nothing inspects the foreground on a path that does not deliver, so dictate-then-paste-by-hand into a password field still records. Item 19 |
 
 
@@ -822,7 +822,7 @@ founded, because **Settings was telling them CPU in two places**:
 | --- | --- |
 | Advanced `PROVIDER: Processor (CPU)` on a CUDA machine | `diagnostics_status` filled it from the pack's provider capability; the 2026-08-21 rule was applied only to Transcription |
 | Advanced `WORKER: cpu_gpu_runtime_missing`, stale for the process | the page mounted eagerly and read before the worker's `Hello`; a reload returned `cpu_gpu_pack_not_installed` |
-| "The graphics-card engine … has not passed its local execution check yet" | `GpuQualificationCoordinator::record` was deleted on a premise that expired when the CUDA worker shipped |
+| "The graphics-card engine … has not passed its local execution check yet" | the promotion from admissible to proven was deleted on a premise that expired when the CUDA worker shipped |
 
 All three are fixed and pinned by tests, and `CLAUDE.md` carries both lessons.
 The stale read is the interesting one: **`readWithRetry` could not have fixed
@@ -3385,10 +3385,12 @@ The shipped pack is 2.30 GB and cannot be laid out in a test; this is the same
 production function over files a checkout can hold.
 
 **The fourth stale comment**: `CudaRuntimeView` described a 2.97 GB on-demand
-runtime download that left with the streaming engine. Marked historical, with the
-hazard it recorded kept — a transient state written to the model coordinator
-makes a ready app announce "Setup needed", which is exactly what a `verifying`
-leak did.
+runtime download that left with the streaming engine. It was marked historical
+and kept because `phase9.schema.json` still named it as a response shape — a type
+surviving to satisfy a schema entry for a command that does not exist. Both are
+deleted now. The hazard it recorded is stated where it applies instead: a
+transient state written to the model coordinator makes a ready app announce
+"Setup needed", which is exactly what a `verifying` leak did.
 
 ### 26. Engine warm and dictation-refusal invariants — as of 2026-08-30
 

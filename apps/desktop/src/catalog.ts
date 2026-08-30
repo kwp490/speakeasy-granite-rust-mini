@@ -226,6 +226,12 @@ export const messages = {
   sessionLog: "Recent transcripts",
   sessionLogDetail:
     "Finished transcripts, newest first. While Keep them between sessions is on, this includes transcripts restored from the saved copy on disk, so it can span earlier runs; deleting the saved transcripts removes those restored entries, while transcripts from this run of SpeakEasy stay listed here until you close it. While it is off, nothing is written to disk and the list covers this run only.",
+  // Shown only when the change subscription was refused, which is the one case
+  // where the list is a snapshot rather than a view. It says what the user is
+  // looking at and what to do, because "some transcripts are missing" is not
+  // something anyone can notice on their own.
+  sessionLogNotLive:
+    "This list could not subscribe to updates, so it shows the transcripts as they were when this window opened. Close and reopen it to see newer ones.",
   sessionLogEmpty: "Finished transcripts will appear here.",
   sessionLogCount: (count: number) => (count === 1 ? "1 transcript" : `${count} transcripts`),
   copyEntry: "Copy",
@@ -622,32 +628,8 @@ export const messages = {
     install_busy: "Another model installation is already running. Wait for it to finish.",
     install_not_active: "No model installation is running.",
     model_state_unavailable: "Model installation state is unavailable. Wait a moment and retry.",
-    cuda_runtime_state_unavailable:
-      "Graphics-card acceleration state is unavailable. Wait a moment and retry.",
     gpu_not_admissible:
       "No supported graphics card was found, so graphics-card acceleration cannot be installed on this computer.",
-    cuda_runtime_download_failed:
-      "The graphics-card acceleration files could not be downloaded. Check the connection and try again; a retry resumes rather than restarting.",
-    // Distinguished from a plain download failure because a length or digest
-    // mismatch is not something to retry through — it means the bytes served
-    // were not the bytes the catalog pins.
-    cuda_runtime_verification_failed:
-      "The downloaded graphics-card acceleration files did not match the trusted catalog and were refused. Nothing was installed.",
-    cuda_runtime_insufficient_disk:
-      "There is not enough free disk space to install graphics-card acceleration. Free up space and try again.",
-    // The one failure here with a concrete user action attached: Windows locks a
-    // library that is already loaded, so replacing it needs the app restarted.
-    cuda_runtime_in_use:
-      "Graphics-card acceleration is currently in use and cannot be replaced. Restart the app and try again.",
-    cuda_runtime_incomplete:
-      "The graphics-card acceleration files are incomplete, so the processor is still being used. Try installing again.",
-    cuda_runtime_write_failed:
-      "The graphics-card acceleration files could not be written. Check disk space and permissions, then try again.",
-    cuda_runtime_cancelled: "The graphics-card acceleration installation was cancelled.",
-    cuda_runtime_manifest_incomplete:
-      "The trusted catalog does not describe graphics-card acceleration completely. Reinstall the app.",
-    cuda_runtime_name_collision:
-      "The trusted catalog describes conflicting graphics-card acceleration files. Reinstall the app.",
     remove_failed: "The model could not be removed. It may be in use by an active dictation.",
     streaming_pack_not_installed:
       "No transcription model is ready to run on this computer. Install one from Transcription settings.",

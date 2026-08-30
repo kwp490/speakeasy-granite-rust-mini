@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 
+import { messages } from "../../src/catalog";
 import { Audio } from "../../src/settings/Audio";
 import { TranscriptLog } from "../../src/settings/TranscriptLog";
 import { deferred, invokeDouble, type InvokeDouble } from "./fixtures";
@@ -22,6 +23,8 @@ const events = vi.hoisted(() => ({
   unlistened: 0,
   /** Held open by a test that needs `listen` to resolve late; see the mock. */
   attach: null as { promise: Promise<void>; resolve: (value: void) => void } | null,
+  /** Makes `listen` reject, which the component has to survive. */
+  refuse: false,
   emit(name: string) {
     for (const handler of events.handlers.get(name) ?? []) handler();
   },
@@ -47,6 +50,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (name: string, handler: () => void) =>
     (events.attach?.promise ?? Promise.resolve()).then(() => {
+      if (events.refuse) throw "event_subscription_refused";
       const set = events.handlers.get(name) ?? new Set();
       set.add(handler);
       events.handlers.set(name, set);
@@ -67,6 +71,7 @@ beforeEach(() => {
   events.handlers.clear();
   events.unlistened = 0;
   events.attach = null;
+  events.refuse = false;
 });
 
 afterEach(() => {
@@ -400,4 +405,48 @@ test("one snapshot feeds the meter and the device-health panel", async () => {
   const meter = screen.getByTestId("settings-input-level");
   expect(meter.getAttribute("value")).toBe("0.4");
   expect(screen.getByText("Logitech BRIO")).toBeDefined();
+});
+
+/**
+ * A refused subscription still shows the list, and says it will not update.
+ *
+ * `listen` can reject. Left to the promise that was an unhandled rejection and
+ * -- because the snapshot is issued from the subscription's resolution -- no
+ * read at all, so the window sat on an empty list for the life of the process
+ * with nothing on screen to say why. Both halves are asserted: the one
+ * authorized snapshot happens, and the page stops claiming to be current.
+ */
+test("a refused subscription still snapshots once and says it is not live", async () => {
+  events.refuse = true;
+  const double = install(
+    invokeDouble({
+      session_transcript_log: [transcript("t-1", "recorded before the refusal")],
+    }),
+  );
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  render(<TranscriptLog />);
+  await settle();
+
+  expect(double.count("session_transcript_log")).toBe(1);
+  expect(screen.getByText("recorded before the refusal")).toBeDefined();
+  expect(screen.getByTestId("session-log-not-live").textContent).toBe(
+    messages.sessionLogNotLive,
+  );
+  expect(events.count(TRANSCRIPT_LOG_CHANGED)).toBe(0);
+
+  // And it stays at one read: no listener means no follow-up, and the notice is
+  // what carries that rather than a silent poll reappearing.
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(double.count("session_transcript_log")).toBe(1);
+  expect(errors).not.toHaveBeenCalled();
+  errors.mockRestore();
+});
+
+/** A successful subscription says nothing, because there is nothing to say. */
+test("a live transcript list carries no unavailable notice", async () => {
+  install(invokeDouble({ session_transcript_log: [] }));
+  render(<TranscriptLog />);
+  await settle();
+
+  expect(screen.queryByTestId("session-log-not-live")).toBeNull();
 });

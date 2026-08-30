@@ -760,63 +760,43 @@ fn model_catalog(
         .collect())
 }
 
+/// The four host facts the Advanced page shows.
+///
+/// `speakeasy_models::host_summary` rather than the full inventory probe: the
+/// removed fields were the only readers of the disk refresh, the adapter
+/// registry walk, the physical-core count and the AVX2 check. The memory figure
+/// is the process-cached one, so a page that reads this on every mount does not
+/// re-measure installed memory.
 #[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-fn model_hardware(
-    window: tauri::WebviewWindow,
-    state: tauri::State<'_, ModelCoordinator>,
-    qualification: tauri::State<'_, GpuQualificationCoordinator>,
-) -> Result<ModelHardwareView, &'static str> {
+fn model_hardware(window: tauri::WebviewWindow) -> Result<ModelHardwareView, &'static str> {
     require_main_window(&window)?;
-    let snapshot = SafeStandardHardwareProbe.probe(&state.root);
+    let host = speakeasy_models::host_summary();
     Ok(ModelHardwareView {
-        operating_system: snapshot.operating_system,
-        operating_system_build: snapshot.operating_system_build,
-        architecture: snapshot.architecture,
-        physical_cores: snapshot.physical_cores,
-        logical_processors: snapshot.logical_processors,
-        has_avx2: snapshot.has_avx2,
-        total_memory_bytes: snapshot.total_memory_bytes,
-        available_disk_bytes: snapshot.available_disk_bytes,
-        adapters: snapshot
-            .detected_adapters
-            .into_iter()
-            .map(|item| item.name)
-            .collect(),
-        // Still never true from inventory. The GPU probe can say a card is
-        // admissible, but qualification means a model has run, and nothing here
-        // has run one. `gpu_status` reports the difference.
-        qualified: qualification.current(&NvmlGpuProbe.probe()).is_qualified(),
+        operating_system: host.operating_system,
+        operating_system_build: host.operating_system_build,
+        logical_processors: host.logical_processors,
+        total_memory_bytes: Some(host.total_memory_bytes),
     })
 }
 
-/// Reports whether this machine can run the GPU backends, and why not when it
-/// cannot.
+/// What dictation is running on, and why that engine and not another.
 ///
-/// Reads the probe on every call rather than caching at launch. Free VRAM moves
-/// — other applications take and release it — and a driver can be installed
-/// while the app is open, which is precisely the case where a blocked user
-/// retries and should not have to restart to be re-examined.
+/// No GPU probe. NVML was read here to fill an inventory panel — adapter name,
+/// VRAM, driver version, an admissibility flag — that no control rendered, and
+/// the resident Granite coordinator is the runtime truth about device and
+/// provider. It reports what a worker actually holds; a probe reports what a
+/// card could do, and those disagree on a machine whose driver refused.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn gpu_status(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, ModelCoordinator>,
-    qualification: tauri::State<'_, GpuQualificationCoordinator>,
     granite: tauri::State<'_, GraniteEngineCoordinator>,
 ) -> Result<GpuStatusView, &'static str> {
     require_main_window(&window)?;
     let selection = granite_selection(&state.root.join("models"), granite.cuda_worker_available());
-    let snapshot = NvmlGpuProbe.probe();
-    let decision = qualification.current(&snapshot);
-    Ok(GpuStatusView::from_snapshot(
-        &snapshot,
+    Ok(GpuStatusView::from_selection(
         selection.as_ref(),
-        &decision,
-        // The device the worker reported and NVML confirmed, not the pack's
-        // provider. The page displays this under "Dictation runs on", and
-        // displaying the pack there was a mislabel on every machine whose worker
-        // holds the card.
         granite.device(),
         granite.provider_integrity(),
     ))

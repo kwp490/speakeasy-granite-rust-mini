@@ -189,9 +189,11 @@ fn model_install_start(
         match result {
             Ok(()) => {
                 ModelCoordinator::set_status(&status, "verified_on_disk", None);
-                // Installation is the cold-start boundary. Warm the exact
-                // resolved pack now, and let that warm perform the execution
-                // smoke that can construct GPU Qualified evidence.
+                // Installation is the cold-start boundary, so the exact resolved
+                // pack is warmed here rather than at the next dictation. The
+                // warm establishes the device and the provider record that
+                // `gpu_status` reports; it runs no inference, so it cannot and
+                // does not claim the engine has executed on the card.
                 warm_granite_engine(&app_handle);
             }
             Err(_error) if token.is_cancelled() => {

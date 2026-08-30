@@ -788,64 +788,6 @@ pub struct ModelCoordinator {
     active_download: Arc<Mutex<Option<ActiveDownload>>>,
 }
 
-/// Holds execution evidence for the GPU currently in use.
-///
-/// The probe is intentionally re-read for every status request, so the
-/// evidence cannot be baked into a launch-time snapshot. A changed adapter
-/// invalidates the old proof; a changed free-VRAM reading does not, because it
-/// is an ambient resource rather than device identity.
-#[derive(Debug, Default)]
-pub struct GpuQualificationCoordinator {
-    decision: Mutex<Option<GpuQualification>>,
-}
-
-impl GpuQualificationCoordinator {
-    fn current(&self, snapshot: &speakeasy_models::GpuSnapshot) -> GpuQualification {
-        let observed = speakeasy_models::admit(snapshot);
-        let Some(device) = observed.device() else {
-            return observed;
-        };
-        let Ok(decision) = self.decision.lock() else {
-            return observed;
-        };
-        match decision.as_ref() {
-            Some(GpuQualification::Qualified {
-                device: proven,
-                evidence,
-            }) if same_gpu_identity(proven, device) => GpuQualification::Qualified {
-                device: device.clone(),
-                evidence: evidence.clone(),
-            },
-            _ => observed,
-        }
-    }
-
-    // `record` lived here: it promoted the GPU from "admissible" to "qualified"
-    // once a model had genuinely executed on it, and the streaming engine's
-    // warm-time smoke test was what called it.
-    //
-    // It was deleted on 2026-08-21 with a note saying it "comes back with the
-    // CUDA worker, not before". **The CUDA worker shipped on 2026-08-26 and
-    // nothing brought it back** -- a comment naming its own trigger is a task
-    // nothing tracks. Restoring it was then refused rather than faked, and that
-    // is still the position: `Qualified` carries an `ExecutionEvidence` whose
-    // `inference_sample_count` exists precisely so a caller cannot claim success
-    // without having inferred anything, and nothing at warm time has that
-    // number. `device=cuda` proves a held context and loaded weights, not
-    // samples pushed through. So the coordinator reports what the probe sees,
-    // and the sentence telling users their engine "has not passed its local
-    // execution check" was removed rather than made true by invention.
-}
-
-fn same_gpu_identity(
-    left: &speakeasy_models::CudaDevice,
-    right: &speakeasy_models::CudaDevice,
-) -> bool {
-    left.name == right.name
-        && left.compute_capability == right.compute_capability
-        && left.total_vram_bytes == right.total_vram_bytes
-}
-
 #[derive(Debug)]
 pub struct ProfileCoordinator {
     root: PathBuf,

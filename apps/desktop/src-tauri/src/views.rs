@@ -43,9 +43,8 @@ use speakeasy_domain::{
     AppReadiness, IngressEvent, ProducerId, Reducer, ReducerDisposition, SessionPhase,
 };
 use speakeasy_models::{
-    Archive, DownloadPolicy, DownloadRequest, GpuProbe, GpuQualification,
-    HardwareProbe, InstallManager, InstallSpec, LooseInstallFile, NvmlGpuProbe, Pack, RequiredFile,
-    RuntimeEvidence, RuntimeState, SafeStandardHardwareProbe, bundled_manifest, download_to_file,
+    Archive, DownloadPolicy, DownloadRequest, InstallManager, InstallSpec, LooseInstallFile,
+    Pack, RequiredFile, RuntimeEvidence, RuntimeState, bundled_manifest, download_to_file,
 };
 use speakeasy_storage::{
     ActivationHotkeyMode, DEFAULT_ACTIVATION_HOTKEY, HistoryPolicy, HistoryRepository,
@@ -192,68 +191,44 @@ pub struct ModelCatalogItem {
     installed: bool,
 }
 
+/// The host facts the Advanced page displays, and nothing else.
+///
+/// Every field here is read by `ModelHardware` in `types.ts`. The struct used to
+/// carry seven more — architecture, physical cores, AVX2, free disk, the display
+/// adapter list and a `qualified` flag — which were serialized on every read and
+/// declared by no frontend type.
 #[derive(Clone, Debug, Serialize)]
 pub struct ModelHardwareView {
     operating_system: String,
     operating_system_build: Option<String>,
-    architecture: String,
-    physical_cores: Option<usize>,
     logical_processors: usize,
-    has_avx2: bool,
     total_memory_bytes: Option<u64>,
-    available_disk_bytes: Option<u64>,
-    adapters: Vec<String>,
-    /// Whether a model has actually run on this machine's GPU.
-    ///
-    /// This was a hardcoded `false` with no branch that could set it, which was
-    /// honest but useless: it could not distinguish a machine with no Nvidia
-    /// card from one that has never been asked to try. It is still never set
-    /// true by inventory alone — see [`GpuStatusView`] for the distinction.
-    qualified: bool,
 }
 
-/// The GPU decision, as the setup UI needs to render it.
+/// What the Transcription page's engine disclosure renders.
 ///
-/// Separate from [`ModelHardwareView`] because the two answer different
-/// questions and are read at different times. `model_hardware` describes the
-/// host; this says whether the app can run here and, when it cannot, why — the
-/// difference between "install a driver" and "this card is too old" is the
-/// whole content of the message a blocked user gets.
+/// Every field is consumed by a control. The struct used to carry nine more —
+/// a qualification code and flag, an admissibility flag, the adapter name,
+/// compute capability, total and free VRAM, driver version and the minimum
+/// compute capability — describing a card-inventory panel that does not exist.
+/// None of them was read, and serializing an adapter name into a payload the
+/// diagnostic log can carry is a privacy cost with no reader.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct GpuStatusView {
-    /// A stable code, never a device name: this reaches the diagnostic log,
-    /// which is a privacy surface.
-    status: String,
-    /// True only once an execution test has passed. Inventory never sets it.
-    qualified: bool,
-    /// True when the card cleared the capability floor but nothing has run on
-    /// it yet. Distinct from `qualified` on purpose.
-    admissible: bool,
-    adapter_name: Option<String>,
-    compute_capability: Option<String>,
-    total_vram_bytes: Option<u64>,
-    free_vram_bytes: Option<u64>,
-    driver_version: Option<String>,
-    minimum_compute_capability: String,
-    /// The provider the selected **pack** publishes, or `None` when no pack is
-    /// installed for any provider.
+    /// Whether a Granite pack is installed at all.
     ///
-    /// Deliberately distinct from what the probe prefers *and* from what is
-    /// actually running. There is one Granite GGUF and a CUDA worker offloads
-    /// that same file, so this reads `cpu` on a machine whose worker is holding
-    /// the card — which is why it is no longer what the settings page shows as
-    /// the active provider. It stays because the pack's identity is a real fact
-    /// and the reason code below is about the pack.
-    active_provider: Option<String>,
+    /// Presence, not identity. The page branches on it to choose between naming
+    /// a device and saying no engine is configured; it never displayed which
+    /// pack, and it must not — there is one Granite GGUF and a CUDA worker
+    /// offloads that same file, so the pack reads `cpu` on a machine holding the
+    /// card. `active_device` below is the only field allowed to name what
+    /// dictation runs on.
+    pack_installed: bool,
     /// A stable code for why that engine and not another. See
     /// [`granite_engine::EngineChoiceReason::code`].
     engine_reason: String,
     /// The device the resident worker is actually running on: `cpu`, `cuda`,
     /// `cuda_unverified`, `unknown`, or `not_configured` before a warm.
-    ///
-    /// The field the disclosure reads. `active_provider` above named the pack
-    /// and was being displayed under "Dictation runs on", which is a different
-    /// question with a different answer on any machine running a CUDA worker.
     active_device: String,
     /// Whether what setup recorded still describes what is running. `ok` and
     /// `unrecorded` are the quiet answers; see
@@ -270,33 +245,19 @@ pub struct GpuStatusView {
 }
 
 impl GpuStatusView {
-    fn from_snapshot(
-        snapshot: &speakeasy_models::GpuSnapshot,
+    fn from_selection(
         selection: Option<&GraniteSelection>,
-        qualification: &GpuQualification,
         active_device: &str,
         provider_integrity: ProviderIntegrity,
     ) -> Self {
-        let decision = qualification;
-        let device = decision.device();
         Self {
-            active_provider: selection
-                .map(|selection| selection.capabilities.provider.to_owned()),
+            pack_installed: selection.is_some(),
             engine_reason: selection
                 .map_or("no_pack_installed", |selection| selection.reason.code())
                 .to_owned(),
             active_device: active_device.to_owned(),
             provider_integrity: provider_integrity.code().to_owned(),
             provider_fault: provider_integrity.is_fault(),
-            status: decision.code(),
-            qualified: decision.is_qualified(),
-            admissible: device.is_some(),
-            adapter_name: device.map(|device| device.name.clone()),
-            compute_capability: device.map(|device| device.compute_capability.to_string()),
-            total_vram_bytes: device.map(|device| device.total_vram_bytes),
-            free_vram_bytes: device.map(|device| device.free_vram_bytes),
-            driver_version: snapshot.driver_version.clone(),
-            minimum_compute_capability: speakeasy_models::MINIMUM_COMPUTE_CAPABILITY.to_string(),
         }
     }
 }
@@ -305,45 +266,6 @@ impl GpuStatusView {
 pub struct ModelInstallView {
     state: String,
     error: Option<String>,
-    bytes_downloaded: Option<u64>,
-    bytes_total: Option<u64>,
-}
-
-/// The CUDA runtime as an offer: what it costs, whether it is here, and what an
-/// install is currently doing.
-///
-/// **Historical.** The 2.97 GB on-demand runtime download this describes left
-/// with the streaming engine; setup fetches the CUDA worker and its two NVIDIA
-/// redistributables now (438.5 MB), and nothing in the app downloads a runtime
-/// after installation. The type survives because `phase9.schema.json` still
-/// names it as a response shape.
-///
-/// The reason it was kept separate from [`ModelInstallView`] is still worth
-/// knowing, because the hazard is live even though this flow is not:
-/// `setup_requirement` reads the model coordinator's state, and anything that
-/// writes a transient state there makes a ready app announce "Setup needed"
-/// for as long as the transient lasts. That is exactly what a `verifying` state
-/// leaking out of a finished warm did.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct CudaRuntimeView {
-    /// `absent`, `partial`, `downloading`, `installing`, `installed`,
-    /// `cancelled`, or `failed`.
-    ///
-    /// `partial` is a real state, not a rounding of `absent`: 2 GB of a 2.45 GB
-    /// runtime is on disk and cannot run, and a user who paid for that transfer
-    /// is owed something better than being told nothing happened.
-    state: String,
-    error: Option<String>,
-    /// Whether to offer this at all. False when the probe found no admissible
-    /// card, because fetching 2.97 GB of CUDA for a machine that cannot use it
-    /// is pure cost.
-    offered: bool,
-    /// What the offer must show. Never presented without these.
-    download_bytes: u64,
-    installed_bytes: u64,
-    file_count: u32,
-    /// Component codes already fully present, for a resumed install.
-    installed_components: Vec<String>,
     bytes_downloaded: Option<u64>,
     bytes_total: Option<u64>,
 }

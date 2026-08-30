@@ -41,6 +41,14 @@ export function TranscriptLog() {
   const [entries, setEntries] = useState<SessionTranscriptEntry[]>([]);
   const [copied, setCopied] = useState("");
   const [copyError, setCopyError] = useState("");
+  /**
+   * Whether this list is still being told about changes.
+   *
+   * False only when the event subscription itself was refused. The list is then
+   * a single snapshot that cannot update, and saying so is the difference
+   * between a stale list and a list the user knows is stale.
+   */
+  const [live, setLive] = useState(true);
 
   /**
    * One read once subscribed, then one read per change, never two at once.
@@ -104,18 +112,35 @@ export function TranscriptLog() {
         });
     };
 
-    // `listen` resolves to the unlisten function asynchronously, so a component
-    // unmounted before it resolves would otherwise leave a listener attached to
-    // a dead tree. `cancelled` covers that window and the returned cleanup
-    // covers the rest.
-    const pending = listen(TRANSCRIPT_LOG_CHANGED, read);
-    void pending.then(read);
+    // `listen` resolves asynchronously and can reject, and both outcomes are
+    // handled here rather than left to the promise. An unmount before it
+    // resolves would otherwise leave a listener on a dead tree, and a rejection
+    // would otherwise be an unhandled promise that silently left the window
+    // showing an empty list forever.
+    let unlisten: (() => void) | null = null;
+    listen(TRANSCRIPT_LOG_CHANGED, read).then(
+      (off) => {
+        if (cancelled) {
+          off();
+          return;
+        }
+        unlisten = off;
+        read();
+      },
+      () => {
+        if (cancelled) return;
+        // Nothing will announce a change, so the list can only ever be the one
+        // snapshot below. Both halves are needed: without the read the window
+        // shows nothing at all, and without the notice it shows a list that
+        // silently stops matching the app.
+        setLive(false);
+        read();
+      },
+    );
 
     return () => {
       cancelled = true;
-      void pending.then((unlisten) => {
-        unlisten();
-      });
+      unlisten?.();
     };
   }, []);
 
@@ -137,6 +162,11 @@ export function TranscriptLog() {
         <output aria-live="polite">{messages.sessionLogCount(entries.length)}</output>
       </div>
       <p className="setting-detail">{messages.sessionLogDetail}</p>
+      {!live && (
+        <p data-testid="session-log-not-live" role="status">
+          {messages.sessionLogNotLive}
+        </p>
+      )}
       {copyError !== "" && <p role="alert">{copyError}</p>}
       {entries.length === 0 ? (
         <p className="setting-detail">{messages.sessionLogEmpty}</p>

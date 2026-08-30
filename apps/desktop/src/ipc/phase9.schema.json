@@ -76,21 +76,6 @@
       "window": "main",
       "mutates": false
     },
-    "cuda_runtime_status": {
-      "response": "CudaRuntimeView",
-      "window": "main",
-      "mutates": false
-    },
-    "cuda_runtime_install_start": {
-      "response": "unit",
-      "window": "main",
-      "mutates": true
-    },
-    "cuda_runtime_install_cancel": {
-      "response": "unit",
-      "window": "main",
-      "mutates": true
-    },
     "model_install_start": {
       "response": "unit",
       "window": "main",

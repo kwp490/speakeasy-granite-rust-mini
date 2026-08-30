@@ -32,7 +32,6 @@ use speakeasy_windows::CrashThrottle;
 /// the two from silently diverging again, and a test asserts this constant
 /// never falls below it.
 const MINIMUM_TOTAL_MEMORY_BYTES: u64 = 8 * 1_024 * 1_024 * 1_024;
-const LOCAL_POLISH_MINIMUM_MEMORY_BYTES: u64 = 8 * 1_024 * 1_024 * 1_024;
 
 /// The dictation floor, for the one caller outside this module that has to
 /// reason about it: `granite_engine` asserts this never falls below its own,
@@ -46,10 +45,6 @@ pub const fn minimum_total_memory_bytes() -> u64 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeRole {
     FinalAsr,
-    /// Memory-budget gate for a local LLM polish engine. No local inference
-    /// engine is wired in; only `FinalAsr` runs in the shipped app today.
-    #[allow(dead_code)]
-    LocalPolish,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -120,7 +115,6 @@ impl RuntimeWizardCoordinator {
         }
         let required = match role {
             RuntimeRole::FinalAsr => MINIMUM_TOTAL_MEMORY_BYTES,
-            RuntimeRole::LocalPolish => LOCAL_POLISH_MINIMUM_MEMORY_BYTES,
         };
         if total_memory_bytes.is_none_or(|bytes| bytes < required) {
             return Err("runtime_memory_budget_unavailable");
@@ -236,28 +230,6 @@ mod tests {
         );
         first.cancel();
         scheduler.finish();
-        assert!(scheduler.begin(Some(MINIMUM_TOTAL_MEMORY_BYTES)).is_ok());
-    }
-
-    #[test]
-    fn final_asr_and_local_polish_never_load_together_and_oom_recovers() {
-        let scheduler = RuntimeWizardCoordinator::new(PathBuf::from("missing"));
-        scheduler
-            .begin_role(RuntimeRole::FinalAsr, Some(16 * 1_024 * 1_024 * 1_024))
-            .unwrap();
-        assert_eq!(
-            scheduler
-                .begin_role(RuntimeRole::LocalPolish, Some(16 * 1_024 * 1_024 * 1_024))
-                .expect_err("concurrent model must be refused"),
-            "runtime_busy"
-        );
-        scheduler.finish();
-        assert_eq!(
-            scheduler
-                .begin_role(RuntimeRole::LocalPolish, Some(4 * 1_024 * 1_024 * 1_024))
-                .expect_err("low memory must fail before load"),
-            "runtime_memory_budget_unavailable"
-        );
         assert!(scheduler.begin(Some(MINIMUM_TOTAL_MEMORY_BYTES)).is_ok());
     }
 

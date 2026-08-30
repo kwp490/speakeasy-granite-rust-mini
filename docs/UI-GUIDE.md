@@ -180,6 +180,15 @@ component tests:
   event arrived describes a list already known to have changed, so it is dropped
   rather than rendered on the way to the follow-up.
 
+**A refused subscription is disclosed, not absorbed.** `listen` can reject, and
+because the snapshot is issued from its resolution a rejection left with no
+handler means no read at all — an empty list for the life of the process, and an
+unhandled promise. The rejection path takes the one snapshot anyway and renders
+`sessionLogNotLive`, which says the list is as it was when the window opened and
+that reopening it is the remedy. Both halves are required: the read alone leaves
+a list that silently stops matching the app, and the notice alone leaves nothing
+to read.
+
 **Deleting the saved transcripts removes what was restored from disk and keeps
 what this run produced.** The list is in memory but is seeded at launch from the
 optional history, so it holds entries of two origins and only one of them is a
@@ -236,21 +245,19 @@ model", directly beneath `Dictation runs on: Graphics card (GPU)`. Rewritten to
 the graphics card is running it." The reason *code* is unchanged: it is a wire
 value in `granite_warm` and in `docs/RUNBOOK.md` under "Diagnostics".
 
-**No qualification sentence** (removed 2026-08-28). A line beneath the device read
-`gpu.qualified ? "…has passed its local execution check." : "…has not passed its
-local execution check yet."`, and only the negative half was reachable:
-`GpuQualificationCoordinator::record`, the sole promotion from admissible to
-proven, was deleted on 2026-08-21 with a note saying it comes back with the CUDA
-worker. The worker shipped on 2026-08-26 and it did not come back. So every
-graphics-card user was told the engine had not passed a check, beside a device
-line saying it was running on the card, with a "Re-test graphics-card engine"
-button implying a remedy that could not reach it. Removed rather than reworded,
-because the device line and the provider-integrity line already answer the same
-question from evidence that *is* reachable — NVML on the worker's own pid. The
-button stays: `gpu_retest` invalidates the engine and re-warms it, so its effect
-lands on both lines above. Restoring the promotion needs an `ExecutionEvidence`
-with a true `inference_sample_count`, which nothing at warm time has; that is an
-open gap in `docs/handoff/CURRENT.md`, not a thing to fake.
+**No qualification sentence, and no field behind one.** A line beneath the device
+once read `gpu.qualified ? "…has passed its local execution check." : "…has not
+passed its local execution check yet."` with only the negative half reachable, so
+every graphics-card user was told the engine had not passed a check beside a
+device line saying it was running on the card. The sentence went on 2026-08-28;
+`qualified`, `admissible` and the card-inventory fields behind it are no longer
+sent at all, so the claim is unreachable rather than merely unwritten. The device
+line and the provider-integrity line answer the same question from evidence that
+*is* reachable — NVML on the worker's own pid, read by the resident coordinator.
+The button stays: `gpu_retest` invalidates the engine and re-warms it, so its
+effect lands on both lines above. Claiming a model has executed on the card needs
+an `ExecutionEvidence` with a true `inference_sample_count`, which nothing at warm
+time has; that is an open gap in `docs/handoff/CURRENT.md`, not a thing to fake.
 
 Beneath them, and **only when it says something**, sits the provider-integrity
 line. Three of the five states have copy: `gpu_install_not_operational`, the

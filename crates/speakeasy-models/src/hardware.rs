@@ -93,6 +93,38 @@ pub fn measure_total_physical_memory(probe: &impl TotalMemoryProbe) -> u64 {
     probe.total_memory_bytes()
 }
 
+/// The four host facts a settings page displays.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HostSummary {
+    pub operating_system: String,
+    pub operating_system_build: Option<String>,
+    pub logical_processors: usize,
+    pub total_memory_bytes: u64,
+}
+
+/// Answers those four and asks nothing else.
+///
+/// [`SafeStandardHardwareProbe::probe`] answers them too, and to do it builds a
+/// `System::new_all`, refreshes the whole disk list, walks the display-adapter
+/// registry, counts physical cores and runs an AVX2 check -- none of which any
+/// caller of this reads. The memory figure comes from
+/// [`total_physical_memory_bytes`], so on every call after the first it is a
+/// cached read rather than a measurement.
+///
+/// The full inventory stays for the callers that genuinely want it: setup's
+/// recommendation needs the disk figure and the adapter list.
+#[must_use]
+pub fn host_summary() -> HostSummary {
+    HostSummary {
+        operating_system: System::long_os_version()
+            .or_else(System::name)
+            .unwrap_or_else(|| std::env::consts::OS.to_owned()),
+        operating_system_build: operating_system_build(),
+        logical_processors: std::thread::available_parallelism().map_or(1, usize::from),
+        total_memory_bytes: total_physical_memory_bytes(),
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SafeStandardHardwareProbe;
 
@@ -146,10 +178,7 @@ fn platform_inventory() -> (Option<String>, Vec<DetectedAdapter>) {
     use winreg::enums::HKEY_LOCAL_MACHINE;
 
     let local_machine = RegKey::predef(HKEY_LOCAL_MACHINE);
-    let build = local_machine
-        .open_subkey("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion")
-        .ok()
-        .and_then(|key| key.get_value::<String, _>("CurrentBuildNumber").ok());
+    let build = operating_system_build();
     let mut adapters = Vec::new();
     let mut seen = HashSet::new();
     if let Ok(video) = local_machine.open_subkey("SYSTEM\\CurrentControlSet\\Control\\Video") {
@@ -177,7 +206,28 @@ fn platform_inventory() -> (Option<String>, Vec<DetectedAdapter>) {
 
 #[cfg(not(windows))]
 fn platform_inventory() -> (Option<String>, Vec<DetectedAdapter>) {
-    (System::kernel_version(), Vec::new())
+    (operating_system_build(), Vec::new())
+}
+
+/// The OS build alone, without the display-adapter walk `platform_inventory`
+/// also performs.
+///
+/// Split out so `host_summary` can answer it without enumerating adapters,
+/// which is the expensive half and which nothing reading a host summary wants.
+#[cfg(windows)]
+fn operating_system_build() -> Option<String> {
+    use winreg::RegKey;
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+
+    RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion")
+        .ok()
+        .and_then(|key| key.get_value::<String, _>("CurrentBuildNumber").ok())
+}
+
+#[cfg(not(windows))]
+fn operating_system_build() -> Option<String> {
+    System::kernel_version()
 }
 
 #[cfg(not(target_arch = "x86_64"))]

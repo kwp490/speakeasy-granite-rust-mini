@@ -2184,10 +2184,18 @@ test("the active provider is reported as the device, never as the pack", async (
   const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
 
   assert.match(page, /formatState\(gpu\.active_device\)/);
+  // The pack's provider is no longer sent: `GpuStatusView` carries
+  // `pack_installed`, a presence flag, so there is no field here that names it
+  // and the mislabel is unreachable rather than merely unwritten.
+  assert.doesNotMatch(page, /active_provider/);
+  const types = await readFile(
+    new URL("../src/settings/types.ts", import.meta.url),
+    "utf8",
+  );
   assert.doesNotMatch(
-    page,
-    /messages\.engineDisclosure[\s\S]{0,200}formatState\(gpu\.active_provider\)/,
-    "the disclosure must read the device, not the pack's provider",
+    types.slice(types.indexOf("export type GpuStatus")),
+    /active_provider/,
+    "GpuStatus must not regain a field naming the pack's provider",
   );
   // A graphics-card engine whose context could not be confirmed gets its own
   // label. Calling it `cuda` is the unverified claim; calling it `cpu` reports a
@@ -2584,20 +2592,17 @@ test("Advanced's diagnostics report the running device, not the selected pack", 
 });
 
 test("nothing claims the graphics card passed an execution check that cannot pass", async () => {
-  // `GpuQualificationCoordinator::record` is the only thing that promotes a card
-  // from admissible to proven, and it was deleted on 2026-08-21 with a note
-  // saying it "comes back with the CUDA worker, not before". The worker shipped
-  // 2026-08-26 and it did not come back, so `qualified` is unreachable -- and
-  // the sentence it drove told every graphics-card user the engine "has not
-  // passed its local execution check yet", underneath a device line reading
-  // Graphics card (GPU).
+  // Nothing promotes a card from admissible to proven: that needs an
+  // `ExecutionEvidence` with a real `inference_sample_count`, and nothing at warm
+  // time has one. So a qualification claim can only ever be the negative half,
+  // which told every graphics-card user the engine "has not passed its local
+  // execution check yet" underneath a device line reading Graphics card (GPU).
   //
-  // This is one-directional on purpose: it forbids *rendering* an unreachable
-  // qualification claim, not keeping `qualified` in the view payload, where
-  // `admissible_execution_untested` is an honest answer. Restoring the promotion
-  // with real `ExecutionEvidence` is what makes this test's premise expire; if
-  // that happens, delete this test in the same change rather than working
-  // around it.
+  // The field is now absent from `GpuStatusView` rather than present and
+  // unrendered, so both are asserted: the payload cannot carry the claim, and no
+  // component can render one. Restoring the promotion with real evidence is what
+  // makes this test's premise expire; delete it in that change rather than
+  // working around it.
   const rendered = await readSources([".tsx"]);
   assert.ok(rendered.length > 50_000, `corpus is too small to be real: ${rendered.length} bytes`);
   assert.match(rendered, /provider_integrity/, "self-check: the corpus must include the GPU panel");
@@ -2605,6 +2610,23 @@ test("nothing claims the graphics card passed an execution check that cannot pas
   assert.ok(
     !/\bgpu\.qualified\b/.test(rendered),
     "no component may render `gpu.qualified`: nothing can promote it, so it is always false",
+  );
+  const views = await readFile(
+    fileURLToPath(new URL("../src-tauri/src/views.rs", import.meta.url)),
+    "utf8",
+  );
+  const gpuView = views.slice(
+    views.indexOf("pub struct GpuStatusView {"),
+    views.indexOf("impl GpuStatusView {"),
+  );
+  assert.ok(
+    gpuView.startsWith("pub struct GpuStatusView {"),
+    "self-check: GpuStatusView must be findable in views.rs",
+  );
+  assert.doesNotMatch(
+    gpuView,
+    /qualified: bool,/,
+    "GpuStatusView must not regain a qualification field nothing can set",
   );
   const catalog = await readFile(
     fileURLToPath(new URL("../src/catalog.ts", import.meta.url)),

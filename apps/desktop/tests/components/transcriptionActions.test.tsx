@@ -59,26 +59,18 @@ function personalization(): PersonalizationStatus {
   };
 }
 
-function gpuStatus(): GpuStatus {
+function gpuStatus(overrides: Partial<GpuStatus> = {}): GpuStatus {
   return {
-    status: "admissible",
-    qualified: false,
-    admissible: false,
-    adapter_name: null,
-    compute_capability: null,
-    total_vram_bytes: null,
-    free_vram_bytes: null,
-    driver_version: null,
-    minimum_compute_capability: "7.0",
-    active_provider: "cpu",
+    pack_installed: true,
     engine_reason: "probe_preferred",
     active_device: "cpu",
     provider_integrity: "ok",
     provider_fault: false,
+    ...overrides,
   };
 }
 
-function page(status: ModelInstallStatus) {
+function page(status: ModelInstallStatus, gpu: GpuStatus = gpuStatus()) {
   return install(
     invokeDouble({
       model_catalog: [catalogRow()],
@@ -87,7 +79,7 @@ function page(status: ModelInstallStatus) {
       // test here asserts on. An unanswered read resolves to `undefined`, which
       // the component stores and then dereferences -- so a missing stub surfaces
       // as a `TypeError` deep in a render, reading like a component defect.
-      gpu_status: gpuStatus(),
+      gpu_status: gpu,
       model_hardware: {
         operating_system: "Windows",
         operating_system_build: null,
@@ -205,4 +197,77 @@ test("a completed personalization export names the file", async () => {
   await waitFor(() => {
     expect(screen.getByText("personalization-2026-08-30.json")).toBeDefined();
   });
+});
+
+/**
+ * What "Dictation runs on" says, for each of the three answers it has.
+ *
+ * `GpuStatusView` sends five fields; before that it sent fourteen, and the
+ * device line was assembled from a `active_provider === null` branch over a
+ * field that named the selected *pack*. These pin the rendered outcome rather
+ * than the shape it is derived from, so the payload can shrink again without
+ * the disclosure changing silently.
+ */
+const engineDisclosure = () => screen.findByTestId("engine-disclosure");
+
+test("the disclosure names the processor when the worker is on it", async () => {
+  page({ state: "verified_on_disk", error: null }, gpuStatus({ active_device: "cpu" }));
+  render(<Transcription />);
+
+  expect((await engineDisclosure()).textContent).toContain(messages.states.cpu);
+});
+
+test("the disclosure names the graphics card when the worker holds it", async () => {
+  page({ state: "verified_on_disk", error: null }, gpuStatus({ active_device: "cuda" }));
+  render(<Transcription />);
+
+  const line = await engineDisclosure();
+  expect(line.textContent).toContain(messages.states.cuda);
+  // Never both. The pack behind a graphics-card worker is the processor-named
+  // one, and naming it here was the mislabel this line exists to prevent.
+  expect(line.textContent).not.toContain(messages.states.cpu);
+});
+
+test("the disclosure says nothing is configured rather than naming a device", async () => {
+  page(
+    { state: "absent", error: null },
+    gpuStatus({ pack_installed: false, active_device: "not_configured" }),
+  );
+  render(<Transcription />);
+
+  const line = await engineDisclosure();
+  expect(line.textContent).toContain(messages.engineNone);
+  expect(line.textContent).not.toContain(messages.states.cpu);
+  expect(line.textContent).not.toContain(messages.states.cuda);
+});
+
+/**
+ * The integrity sentence is its own element, shown only when it says something.
+ *
+ * `ok` and `unrecorded` are the quiet answers and have no copy, so a normal
+ * launch renders nothing here — the requirement being never to hide a provider
+ * disagreement and never to narrate agreement either.
+ */
+test("a provider disagreement is disclosed and a quiet one is not", async () => {
+  page({ state: "verified_on_disk", error: null }, gpuStatus());
+  const { unmount } = render(<Transcription />);
+  await engineDisclosure();
+  expect(screen.queryByTestId("provider-integrity")).toBeNull();
+  unmount();
+
+  page(
+    { state: "verified_on_disk", error: null },
+    gpuStatus({
+      active_device: "cpu",
+      provider_integrity: "gpu_install_not_operational",
+      provider_fault: true,
+    }),
+  );
+  render(<Transcription />);
+
+  const disclosure = await screen.findByTestId("provider-integrity");
+  expect(disclosure.textContent).toBe(messages.providerIntegrity.gpu_install_not_operational);
+  // The fault flag is decided in Rust and drives the styling; re-deriving it
+  // from the code in TypeScript would be a second copy to get wrong.
+  expect(disclosure.className).toBe("warning");
 });

@@ -82,7 +82,6 @@ pub fn run() {
         let granite = GraniteEngineCoordinator::default();
         let models = ModelCoordinator::new(root, granite.cuda_worker_available());
         app.manage(models);
-        app.manage(GpuQualificationCoordinator::default());
         // Managed here rather than further down, ahead of the coordinators
         // below that open files: the settings page fires its startup reads
         // concurrently, and every statement between `setup` beginning and this

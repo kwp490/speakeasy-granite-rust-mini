@@ -419,17 +419,14 @@ export function Transcription() {
             whose pack was never installed. */}
         {gpu !== null && (
           <>
-            {/* The **device**, not the pack. `active_provider` names the
-                selected pack, and there is one Granite GGUF that a graphics-card
-                worker offloads unchanged — so the pack reads `cpu` on a machine
-                holding the card, and showing it here said the wrong thing about
-                every such machine. */}
+            {/* The **device**, not the pack. `pack_installed` says only whether
+                an engine is configured at all; the pack's own provider reads
+                `cpu` on a machine whose graphics-card worker offloads that same
+                GGUF, so it is not sent and cannot be rendered here. */}
             <p className="setting-detail" data-testid="engine-disclosure">
               {messages.engineDisclosure}{" "}
               <bdi>
-                {gpu.active_provider === null
-                  ? messages.engineNone
-                  : formatState(gpu.active_device)}
+                {gpu.pack_installed ? formatState(gpu.active_device) : messages.engineNone}
               </bdi>
             </p>
             {/* Its own sentence, in its own element, and never joined to the
@@ -456,27 +453,15 @@ export function Transcription() {
               </p>
             )}
             <article className="model-row" data-testid="gpu-controls">
-              {/* A qualification sentence sat here and could only ever be the
-                  negative one. `GpuQualificationCoordinator::record` -- the only
-                  thing that promotes a card from "admissible" to "proven" -- was
-                  deleted on 2026-08-21 because Granite had no GPU path to smoke,
-                  and its own note said it "comes back with the CUDA worker, not
-                  before". The CUDA worker shipped on 2026-08-26 and nothing
-                  brought it back, so this line told every graphics-card user
-                  that the engine "has not passed its local execution check yet"
-                  -- beside a device line reading Graphics card (GPU), with a
-                  button that implied a remedy no amount of pressing could reach.
-                  Found 2026-08-28.
-                  Removed rather than reworded, because the question it asked is
-                  already answered above by two facts that *are* reachable: the
-                  device line, which reads `cuda` only where NVML confirmed the
-                  worker's own pid holds a context, and the provider-integrity
-                  line, which speaks up when the record and the run disagree.
-                  Restoring the promotion needs an `ExecutionEvidence` with a
-                  real `inference_sample_count`, which nothing at warm time has
-                  -- and inventing one would be the manufactured claim this whole
-                  area exists to prevent. Recorded as an open gap in
-                  `docs/handoff/CURRENT.md`.
+              {/* No qualification sentence, and no field behind one. The two
+                  lines above answer that question from evidence that is
+                  reachable: the device line reads `cuda` only where NVML
+                  confirmed the worker's own pid holds a context, and the
+                  provider-integrity line speaks up when the record and the run
+                  disagree. A claim that a model has *executed* on the card needs
+                  an `ExecutionEvidence` with a real `inference_sample_count`,
+                  which nothing at warm time has; it is an open gap in
+                  `docs/handoff/CURRENT.md` rather than something to invent.
                   The button below stays and is not cosmetic: `gpu_retest`
                   invalidates the engine and re-warms it, so its effect lands on
                   both lines above. */}

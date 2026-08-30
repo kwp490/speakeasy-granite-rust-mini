@@ -34,28 +34,24 @@ export type ModelCatalogItem = {
 /**
  * Which engine dictation will actually run on, and why.
  *
- * `active_provider` is deliberately not the same question as whether a GPU was
+ * `active_device` is deliberately not the same question as whether a GPU was
  * detected: an admissible card whose pack was never installed runs on CPU, and
  * `engine_reason` is the only thing that says so.
  */
 export type GpuStatus = {
-  status: string;
-  qualified: boolean;
-  admissible: boolean;
-  adapter_name: string | null;
-  compute_capability: string | null;
-  total_vram_bytes: number | null;
-  free_vram_bytes: number | null;
-  driver_version: string | null;
-  minimum_compute_capability: string;
-  active_provider: string | null;
+  /**
+   * Whether a Granite pack is installed at all. Presence, not identity: the page
+   * branches on it to choose between naming a device and saying no engine is
+   * configured.
+   */
+  pack_installed: boolean;
   engine_reason: string;
   /**
    * The device the worker is actually running on, which is what the disclosure
-   * shows. Distinct from `active_provider`, which names the selected *pack* —
-   * there is one Granite GGUF and a graphics-card worker offloads that same
-   * file, so the pack reads `cpu` on a machine holding the card. Displaying the
-   * pack under "Dictation runs on" was a mislabel of exactly that case.
+   * shows. The only field allowed to name what dictation runs on — the pack this
+   * comes from is `cpu` on a machine whose graphics-card worker offloads that
+   * same file, and displaying the pack under "Dictation runs on" was a mislabel
+   * of exactly that case.
    */
   active_device: string;
   /**

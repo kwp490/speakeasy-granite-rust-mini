@@ -33,9 +33,9 @@ pub use granite_gpu::{
     inspect_gpu_payload, prove_cuda_context, required_cuda_runtime_files,
 };
 pub use hardware::{
-    DetectedAdapter, HardwareProbe, HardwareSnapshot, SafeStandardHardwareProbe, SysinfoMemory,
-    TotalMemoryProbe, cached_total_memory, measure_total_physical_memory,
-    total_physical_memory_bytes,
+    DetectedAdapter, HardwareProbe, HardwareSnapshot, HostSummary, SafeStandardHardwareProbe,
+    SysinfoMemory, TotalMemoryProbe, cached_total_memory, host_summary,
+    measure_total_physical_memory, total_physical_memory_bytes,
 };
 pub use lifecycle::{
     ArchiveEntry, ArchiveEntryKind, ArchiveLimits, ArchiveValidationError, InstallFailure,
