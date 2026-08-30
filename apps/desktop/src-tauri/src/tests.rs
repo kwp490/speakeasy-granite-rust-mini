@@ -363,10 +363,20 @@ mod tests {
                 // warms. The real probe rather than a double, because a test
                 // double here would imply this path exercises it.
                 cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                // Never reached either, and for the same reason.
+                verifier: &granite_engine::TrustedDigestVerifier,
             },
             &coordinator,
         );
-        assert!(outcome.is_ok(), "an unconfigured engine is not an error");
+        assert!(
+            outcome.error.is_none(),
+            "an unconfigured engine is not an error"
+        );
+        assert_eq!(
+            outcome.verification,
+            granite_engine::WarmVerification::NotAttempted,
+            "no digest pass can have run without a worker binary"
+        );
         assert_ne!(
             coordinator.warm_state(),
             "cold",
@@ -1981,6 +1991,283 @@ mod tests {
             }),
             "failed"
         );
+    }
+
+    /// A resident adapter for pack A cannot promote pack B.
+    ///
+    /// The whole chain, from what `ensure_ready` reports when it finds an
+    /// adapter already loaded to what the settle does with it. `ensure_ready`'s
+    /// early return used to build `AlreadyLoaded` from the *requested* choice
+    /// while handing back the *resident* adapter, so: adapter A loaded, pack B
+    /// resolved, adapter A returned, `AlreadyLoaded { B }` recorded, and
+    /// `settled_model_state` stamped B `verified_on_disk` on evidence nobody
+    /// ever gathered for B. That is the pack-mismatch defect
+    /// [`granite_engine::WarmVerification`] was added to prevent, arriving
+    /// through the variant that was added to prevent it.
+    ///
+    /// Restore the defect by building the outcome from `requested` in
+    /// `resident_outcome` and this goes red on the first assertion: B is
+    /// promoted on A's digests.
+    #[test]
+    fn a_resident_pack_cannot_promote_the_one_that_replaced_it() {
+        let a = ("granite-speech-4.1-2b-q4_k_m-cpu", "1");
+        let b = ("granite-speech-4.1-2b-q4_k_m-cuda", "1");
+        let present = ("installed_unverified", None);
+        let resolved_b = (b.0.to_owned(), b.1.to_owned());
+
+        // Adapter A is resident; the resolver now points at B, which is what a
+        // worker answering "compiled with CUDA" does to `granite_selection`.
+        let outcome = granite_engine::resident_outcome(a, b);
+        let (state, error) = settled_model_state(present.clone(), Some(&resolved_b), &outcome);
+        assert_eq!(
+            state, "installed_unverified",
+            "B's bytes were never read, so nothing may say they were"
+        );
+        assert_eq!(error, None, "and nothing may say they are wrong either");
+
+        // The honest half of the same rule: when the resolver still points at
+        // the pack that is loaded, the earlier pass in this process does count.
+        let resolved_a = (a.0.to_owned(), a.1.to_owned());
+        assert_eq!(
+            settled_model_state(present, Some(&resolved_a), &granite_engine::resident_outcome(a, a))
+                .0,
+            "verified_on_disk",
+        );
+    }
+
+    /// Each warm settles from its own outcome, and a later pass cannot reach
+    /// back into an earlier one.
+    ///
+    /// `warm_granite_if_configured` used to return `Result<(), _>` and leave its
+    /// verdict in a `Mutex<WarmVerification>` on the coordinator, which
+    /// `warm_granite_engine` read back. `run_granite_final_pass` writes that
+    /// same field — a dictation's own warm can be the first of a process — so
+    /// between the launch warm returning and the settle reading, an unrelated
+    /// pass could replace the verdict the settle was about to act on. Below,
+    /// that interleaved pass *refuses* the bytes, so acting on it would condemn
+    /// a model the launch warm had just accepted.
+    ///
+    /// **The control is the assignment two lines from the bottom.** Restore the
+    /// coordinator field and its accessor, and settle from
+    /// `&coordinator.warm_verification()` instead of `&launch.verification`:
+    /// this turns red with `failed` / `granite_model_files_unverified`, which is
+    /// the shipped symptom exactly — an installed, verified model reported as
+    /// corrupt.
+    #[test]
+    fn a_settlement_reads_the_warm_it_belongs_to() {
+        /// Answers a staged verdict, so both a passing and a failing digest pass
+        /// are reachable without 2.30 GB of real weights.
+        struct StagedVerifier(bool);
+        impl granite_engine::PackVerifier for StagedVerifier {
+            fn bytes_match(&self, _pack: &speakeasy_models::Pack, _model_root: &Path) -> bool {
+                self.0
+            }
+        }
+
+        let manifest = speakeasy_models::bundled_manifest().expect("the bundled manifest");
+        let pack = manifest
+            .select_sole_install_eligible(
+                speakeasy_models::PackRole::FinalAsr,
+                speakeasy_models::ExecutionProvider::Cpu,
+            )
+            .expect("one admitted Granite pack");
+        let install_root = tempfile::tempdir().expect("tempdir");
+        let model_root = install_root
+            .path()
+            .join(pack.id())
+            .join(pack.revision());
+        fs::create_dir_all(&model_root).expect("model root");
+        for required in pack.required_files() {
+            fs::write(model_root.join(required.path()), b"stub").expect("stub");
+        }
+
+        let environment = |verifier: &'static dyn granite_engine::PackVerifier| {
+            granite_engine::GraniteEnvironment {
+                // Never spawned; the pack is stubs. What matters here is which
+                // verdict each invocation produces.
+                granite_worker_exe: Some(Path::new("unused-worker.exe")),
+                install_root: install_root.path(),
+                total_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+                diagnostic_log: None,
+                recorded_provider: "unrecorded",
+                cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                verifier,
+            }
+        };
+
+        let coordinator = granite_engine::GraniteEngineCoordinator::default();
+        let launch = granite_engine::warm_granite_if_configured(
+            environment(&StagedVerifier(true)),
+            &coordinator,
+        );
+        assert_eq!(
+            launch.verification,
+            granite_engine::WarmVerification::Verified {
+                pack_id: pack.id().to_owned(),
+                revision: pack.revision().to_owned(),
+            }
+        );
+
+        // A dictation's own warm, on the same coordinator, refusing the bytes.
+        let audio = UtteranceAudio {
+            session_id: speakeasy_domain::SessionId::from_bytes([9; 16]),
+            sample_rate_hz: 16_000,
+            samples: vec![0; 1_600],
+        };
+        let request = AsrRequest {
+            correlation_id: speakeasy_domain::CorrelationId::from_bytes([10; 16]),
+            session_id: audio.session_id,
+            language: AsrLanguage::English,
+            task: AsrTask::Transcribe,
+        };
+        let interleaved =
+            tauri::async_runtime::block_on(granite_engine::run_granite_final_pass(
+                environment(&StagedVerifier(false)),
+                &coordinator,
+                audio,
+                request,
+                CancelToken::default(),
+            ));
+        assert!(
+            interleaved.is_err(),
+            "the interleaved pass must really have refused, or it proves nothing"
+        );
+
+        // The launch warm's settle, from the launch warm's own outcome.
+        let resolved = (pack.id().to_owned(), pack.revision().to_owned());
+        let (state, error) = settled_model_state(
+            ("installed_unverified", None),
+            Some(&resolved),
+            &launch.verification,
+        );
+        assert_eq!(
+            state, "verified_on_disk",
+            "the pass this settle belongs to accepted these bytes"
+        );
+        assert_eq!(error, None);
+    }
+
+    /// The dock and the global shortcut refuse the same press for the same
+    /// reason, before any audio is captured.
+    ///
+    /// Two copies of this rule is how `can_start` came to refuse a press the
+    /// shortcut accepted, and stating it twice failed again immediately: the
+    /// three terminal engine states were added to `setup_requirement` and not to
+    /// `start_dictation`, so a machine below the 8 GiB floor had its Start
+    /// button disabled and its hotkey working — two minutes of speech recorded
+    /// and then a report that the engine could not start. `dictation_blocker` is
+    /// the single statement; both callers consume it.
+    ///
+    /// The codes are asserted rather than merely "some refusal", because they
+    /// are what the dock renders and what `dictation_start` logs, and a refusal
+    /// that named the wrong condition would send the user to fix something that
+    /// is not broken.
+    #[test]
+    fn one_rule_refuses_a_dictation_for_the_dock_and_the_shortcut() {
+        let ready = |model: &str| dictation_blocker(Some(model), Some("ready"), Some(true));
+        assert_eq!(ready("verified_on_disk"), None);
+        assert_eq!(
+            ready("installed_unverified"),
+            None,
+            "nobody is hashing and a dictation's own warm will, so this does not refuse"
+        );
+        assert_eq!(ready("verifying"), Some("model_verifying"));
+        assert_eq!(ready("absent"), Some("model_missing"));
+        assert_eq!(
+            ready("failed"),
+            Some("model_missing"),
+            "the specific byte fault is the engine chip's to name"
+        );
+
+        // The three terminal engine states, which are the half `start_dictation`
+        // did not have. Each must refuse before capture, not after it.
+        for state in [
+            "granite_worker_missing",
+            "memory_below_granite_floor",
+            "granite_quarantined",
+        ] {
+            assert_eq!(
+                dictation_blocker(Some("verified_on_disk"), Some(state), Some(true)),
+                Some(state),
+                "a terminal engine state must refuse the press itself"
+            );
+        }
+        // A warm in flight is not a refusal, and neither is a model fault the
+        // model branch already reported.
+        for state in [
+            "cold",
+            "warming",
+            "ready",
+            "granite_model_files_unverified",
+        ] {
+            assert_eq!(
+                dictation_blocker(Some("verified_on_disk"), Some(state), Some(true)),
+                None,
+                "{state} is not a reason to refuse"
+            );
+        }
+
+        assert_eq!(
+            dictation_blocker(Some("verified_on_disk"), Some("ready"), Some(false)),
+            Some("microphone_missing")
+        );
+
+        // An unmanaged coordinator refuses nothing. Windows load before `setup`
+        // finishes and the shortcut is registered at the end of it, so a guard
+        // that cannot see the machine must not be able to suppress a dictation
+        // the user asked for.
+        assert_eq!(dictation_blocker(None, None, None), None);
+        assert_eq!(
+            dictation_blocker(None, Some("memory_below_granite_floor"), None),
+            Some("memory_below_granite_floor"),
+            "and what it can see, it still answers"
+        );
+    }
+
+    /// Neither caller may restate the rule it shares.
+    ///
+    /// A source scan, and the only thing that can see this: the invariant is
+    /// "there is one statement of this", and two functions that agree today are
+    /// indistinguishable from two functions that will not. Every refusal code
+    /// `dictation_blocker` can return must appear in `dictation_blocker` and
+    /// nowhere else in the two callers — `start_dictation` held its own copy of
+    /// `model_verifying`, which is how it came to know about that state and not
+    /// about the memory floor.
+    #[test]
+    fn no_caller_states_a_refusal_the_shared_rule_owns() {
+        let capture = include_str!("commands/capture.rs");
+        let start = capture
+            .find("fn dictation_blocker")
+            .expect("dictation_blocker must exist");
+        let end = capture[start..]
+            .find("\n#[tauri::command]")
+            .map_or(capture.len(), |offset| start + offset);
+        let rule = &capture[start..end];
+        let elsewhere = format!("{}{}", &capture[..start], &capture[end..]);
+        let views = include_str!("views.rs");
+
+        for code in [
+            "model_verifying",
+            "model_missing",
+            "granite_worker_missing",
+            "memory_below_granite_floor",
+            "granite_quarantined",
+            "microphone_missing",
+        ] {
+            let quoted = format!("\"{code}\"");
+            assert!(
+                rule.contains(&quoted),
+                "{code} must be stated in dictation_blocker"
+            );
+            assert!(
+                !elsewhere.contains(&quoted),
+                "{code} is stated twice in commands/capture.rs"
+            );
+            assert!(
+                !views.contains(&quoted),
+                "{code} is stated again in views.rs; start_dictation must consume the shared rule"
+            );
+        }
     }
 
     /// A history coordinator with persistence switched on and the plaintext

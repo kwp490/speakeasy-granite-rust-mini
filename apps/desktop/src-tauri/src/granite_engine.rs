@@ -341,6 +341,38 @@ const fn granite_memory_is_sufficient(total_memory_bytes: Option<u64>) -> bool {
     }
 }
 
+/// How a warm decides whether the bytes under a pack's `model_root` are the
+/// bytes the manifest pins.
+///
+/// A parameter rather than a direct call to [`verify_pack_files`], for the same
+/// reason `cuda_context_probe` is one: the claim the surviving digest pass makes
+/// is *"exactly one per warm"*, and a count is the only way to observe it. The
+/// test that was written to pin that count wrapped the production function in a
+/// closure the test itself called twice and then counted its own calls -- a
+/// measurement of the test rather than of the warm, which would have stayed
+/// green with a second pass inserted anywhere in this module.
+///
+/// **Not an environment variable and not a feature flag.** The shipped binary
+/// names [`TrustedDigestVerifier`] at both of its composition roots and has no
+/// way to name anything else, so nothing in production can weaken the check.
+pub trait PackVerifier: Sync {
+    /// `false` when a required file is missing, is the wrong length, or is not
+    /// the pinned digest. Which of the three is [`verify_pack_files`]'s to
+    /// report; a warm turns all of them into the same install-defect outcome,
+    /// so nothing here needs to tell them apart.
+    fn bytes_match(&self, pack: &Pack, model_root: &Path) -> bool;
+}
+
+/// The only verifier the shipped binary knows about: the manifest's own pinned
+/// lengths and SHA-256 digests, read from disk.
+pub struct TrustedDigestVerifier;
+
+impl PackVerifier for TrustedDigestVerifier {
+    fn bytes_match(&self, pack: &Pack, model_root: &Path) -> bool {
+        verify_pack_files(pack, model_root).is_ok()
+    }
+}
+
 /// Everything about *this machine and this install* that decides whether
 /// Granite runs at all, gathered once at the call site.
 ///
@@ -386,6 +418,10 @@ pub struct GraniteEnvironment<'a> {
     /// to make the app misreport its own provider is the shape of the defect this
     /// module exists to have removed.
     pub cuda_context_probe: &'a dyn CudaContextProbe,
+    /// How the warm checks the pack's bytes. `&TrustedDigestVerifier` in the
+    /// shipped binary; see [`PackVerifier`] for why it is a parameter rather
+    /// than a direct call.
+    pub verifier: &'a dyn PackVerifier,
 }
 
 /// Bounds the `FinishStream` call, where Granite's ~2 GB load and inference
@@ -484,6 +520,29 @@ pub enum WarmVerification {
     /// were its own -- which is the pack-mismatch defect re-entering by another
     /// door, since the resolution can change between two warms.
     AlreadyLoaded { pack_id: String, revision: String },
+    /// A resident adapter was already loaded and it is **not** the artifact this
+    /// invocation resolved, so the adapter that gets returned is one pack's and
+    /// the resolution is another's.
+    ///
+    /// This is what the early return used to report as `AlreadyLoaded` built
+    /// from the *requested* choice: adapter A resident, pack B requested,
+    /// adapter A returned and pack B certified. `settled_model_state` then
+    /// promoted B to `verified_on_disk` on evidence nobody ever gathered for B --
+    /// the pack-mismatch defect this enum was added to prevent, reintroduced
+    /// through it. Latent while only one Granite pack is admitted, and written
+    /// for the two-pack case because `granite_selection` re-resolves on every
+    /// warm with `cuda_worker_available()`, which changes the moment a worker
+    /// speaks.
+    ///
+    /// [`Self::identity`] is deliberately `None`: neither claim is safe to
+    /// settle from. The resident pack's digests are about a pack the resolver no
+    /// longer points at, and the requested pack has no digests at all.
+    ResidentMismatch {
+        resident_pack_id: String,
+        resident_revision: String,
+        requested_pack_id: String,
+        requested_revision: String,
+    },
     /// This pack's bytes did not match. A named, actionable install fault.
     Failed { pack_id: String, revision: String },
 }
@@ -493,10 +552,26 @@ impl WarmVerification {
     #[must_use]
     pub fn identity(&self) -> Option<(&str, &str)> {
         match self {
-            Self::NotAttempted => None,
+            // A mismatch is about two artifacts, which is the same as being
+            // about none: a promotion needs one pack whose bytes were read, and
+            // there is no such pack here.
+            Self::NotAttempted | Self::ResidentMismatch { .. } => None,
             Self::Verified { pack_id, revision }
             | Self::AlreadyLoaded { pack_id, revision }
             | Self::Failed { pack_id, revision } => Some((pack_id, revision)),
+        }
+    }
+
+    /// A stable code for the support log, so a mismatch is findable rather than
+    /// merely harmless. `granite_warm` carries it as `bytes=`.
+    #[must_use]
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::NotAttempted => "not_attempted",
+            Self::Verified { .. } => "verified",
+            Self::AlreadyLoaded { .. } => "already_loaded",
+            Self::ResidentMismatch { .. } => "resident_pack_mismatch",
+            Self::Failed { .. } => "unverified",
         }
     }
 
@@ -512,12 +587,57 @@ impl WarmVerification {
     }
 }
 
+/// The resident worker, and the artifact it was actually loaded for.
+///
+/// The identity is stored *with* the adapter because
+/// [`GraniteEngineCoordinator::ensure_ready`]'s early return has to describe the
+/// pack that is loaded rather than the pack this invocation happened to resolve.
+/// It used to build its outcome from the requested choice, so a resident adapter
+/// for pack A returned while pack B was requested certified B. See
+/// [`WarmVerification::ResidentMismatch`].
+struct ResidentPack {
+    adapter: Arc<ResidentGraniteAdapter>,
+    pack_id: String,
+    revision: String,
+}
+
+/// What [`GraniteEngineCoordinator::ensure_ready`] did, as two facts rather than
+/// one.
+///
+/// The adapter is a `Result` inside the struct rather than the struct being
+/// inside a `Result` because the verification survives a failure and matters
+/// there: a warm that ends on `granite_model_files_unverified` is the one
+/// outcome entitled to condemn a pack, and returning `Err` alone would have
+/// dropped the identity of the pack that failed on the floor -- which is how the
+/// caller came to read it back off a shared coordinator field instead.
+pub struct EnsureReadyOutcome {
+    /// What this invocation did about the bytes.
+    pub verification: WarmVerification,
+    /// The resident adapter, or why there is none.
+    pub adapter: Result<Arc<ResidentGraniteAdapter>, DomainError>,
+}
+
+/// What [`warm_granite_if_configured`] did, per invocation.
+///
+/// Returned rather than recorded. See that function's own doc comment.
+pub struct WarmOutcome {
+    /// What this invocation did about the bytes.
+    pub verification: WarmVerification,
+    /// The error this warm ended on, when it ended on one. `None` covers both a
+    /// successful warm and every "Granite is not part of this install" exit,
+    /// which are the same non-fault to every caller.
+    pub error: Option<DomainError>,
+}
+
 pub struct GraniteEngineCoordinator {
     crashes: Mutex<CrashThrottle>,
-    /// What the last warm hashed. See [`WarmVerification`].
-    verification: Mutex<WarmVerification>,
     started_at: std::time::Instant,
-    adapter: Mutex<Option<Arc<ResidentGraniteAdapter>>>,
+    /// The resident worker and the pack it holds. **No shared "last warm"
+    /// verdict lives beside it**, deliberately: a warm's outcome is returned to
+    /// the caller that asked for it, because a field is answered by whichever
+    /// invocation wrote last and `settle_after_warm` was reading a verdict from
+    /// a pass that had not run in its own invocation.
+    adapter: Mutex<Option<ResidentPack>>,
     reason: Mutex<&'static str>,
     /// Which device the resident worker reported it can actually use, as
     /// opposed to which pack `reason` says was selected. Separate fields
@@ -566,7 +686,6 @@ impl Default for GraniteEngineCoordinator {
             device: Mutex::new("not_configured"),
             cuda_worker: Mutex::new(None),
             integrity: Mutex::new(ProviderIntegrity::Unrecorded),
-            verification: Mutex::new(WarmVerification::NotAttempted),
             warm: Mutex::new("cold"),
         }
     }
@@ -642,23 +761,6 @@ impl GraniteEngineCoordinator {
         self.warm
             .lock()
             .map_or("granite_state_unavailable", |state| *state)
-    }
-
-    /// What the last warm's digest pass hashed and concluded.
-    ///
-    /// `NotAttempted` before any warm, and after one that never reached the
-    /// digest pass. That is not a failure state and must not be rendered as
-    /// one: it means nobody has looked at the bytes.
-    pub fn warm_verification(&self) -> WarmVerification {
-        self.verification
-            .lock()
-            .map_or(WarmVerification::NotAttempted, |slot| slot.clone())
-    }
-
-    fn record_verification(&self, verification: WarmVerification) {
-        if let Ok(mut slot) = self.verification.lock() {
-            *slot = verification;
-        }
     }
 
     fn record_warm_state(&self, state: &'static str) {
@@ -745,14 +847,17 @@ impl GraniteEngineCoordinator {
     }
 
     /// Spawns the worker and loads the model if that has not already
-    /// happened. Returns the shared adapter.
+    /// happened. Returns the shared adapter, and what this invocation did about
+    /// the bytes.
     ///
-    /// # Errors
+    /// Both, and in one value, because they are two different facts and the
+    /// second one used to be left in a coordinator field for the caller to read
+    /// back. See [`EnsureReadyOutcome`].
     ///
-    /// Returns a recoverable [`DomainError`] when the pack's files fail
-    /// verification or the worker process fails to spawn or load. A spawn or
-    /// load failure also records a crash via [`Self::record_worker_failure`];
-    /// a verification failure does not — see
+    /// `EnsureReadyOutcome::adapter` is a recoverable [`DomainError`] when the
+    /// pack's files fail verification or the worker process fails to spawn or
+    /// load. A spawn or load failure also records a crash via
+    /// [`Self::record_worker_failure`]; a verification failure does not — see
     /// `a_hash_mismatch_fails_verification_without_quarantining` in this
     /// module's tests for why a static install defect must not count as a
     /// crash.
@@ -768,21 +873,30 @@ impl GraniteEngineCoordinator {
         diagnostic_log: Option<PathBuf>,
         recorded_provider: &str,
         cuda_context_probe: &dyn CudaContextProbe,
-    ) -> Result<Arc<ResidentGraniteAdapter>, DomainError> {
-        let mut slot = self
-            .adapter
-            .lock()
-            .map_err(|_| domain_error(ErrorCode::AdapterFailed))?;
-        if let Some(adapter) = slot.as_ref() {
-            // Nothing was hashed here. Recorded as its own outcome rather than
-            // left alone, because leaving the field holding the previous
-            // invocation's verdict is what let a caller settle from a pass that
-            // did not run.
-            self.record_verification(WarmVerification::AlreadyLoaded {
-                pack_id: choice.pack.id().to_owned(),
-                revision: choice.pack.revision().to_owned(),
-            });
-            return Ok(Arc::clone(adapter));
+        verifier: &dyn PackVerifier,
+    ) -> EnsureReadyOutcome {
+        let requested = (choice.pack.id(), choice.pack.revision());
+        let Ok(mut slot) = self.adapter.lock() else {
+            // A poisoned lock says nothing about any pack's bytes, so the
+            // verification is `NotAttempted` rather than anything that could be
+            // settled from.
+            return EnsureReadyOutcome {
+                verification: WarmVerification::NotAttempted,
+                adapter: Err(domain_error(ErrorCode::AdapterFailed)),
+            };
+        };
+        if let Some(resident) = slot.as_ref() {
+            // Nothing was hashed here, and the outcome describes the pack that
+            // is *loaded* rather than the one this invocation resolved. Building
+            // it from `choice` returned adapter A while certifying pack B, which
+            // is the defect `ResidentMismatch` exists to make unrepresentable.
+            return EnsureReadyOutcome {
+                verification: resident_outcome(
+                    (resident.pack_id.as_str(), resident.revision.as_str()),
+                    requested,
+                ),
+                adapter: Ok(Arc::clone(&resident.adapter)),
+            };
         }
         self.record_engine_reason(choice.reason.code());
         // Every exit from here sets the warm state, including both failures.
@@ -795,26 +909,25 @@ impl GraniteEngineCoordinator {
         // handed `model_root`. The identity is recorded either way, because the
         // caller has to promote *this* pack rather than whichever one it
         // re-resolves afterwards.
-        let identity = (
-            choice.pack.id().to_owned(),
-            choice.pack.revision().to_owned(),
-        );
-        if verify_pack_files(choice.pack, &choice.model_root).is_err() {
-            self.record_verification(WarmVerification::Failed {
-                pack_id: identity.0,
-                revision: identity.1,
-            });
+        let identity = (requested.0.to_owned(), requested.1.to_owned());
+        if !verifier.bytes_match(choice.pack, &choice.model_root) {
             // Deliberately its own code rather than the generic warm failure.
             // A hash mismatch or a missing file is a static install defect the
             // user can act on, and it takes no quarantine strike — see
             // `a_hash_mismatch_fails_verification_without_quarantining`.
             self.record_warm_state("granite_model_files_unverified");
-            return Err(domain_error(ErrorCode::AdapterFailed));
+            return EnsureReadyOutcome {
+                verification: WarmVerification::Failed {
+                    pack_id: identity.0,
+                    revision: identity.1,
+                },
+                adapter: Err(domain_error(ErrorCode::AdapterFailed)),
+            };
         }
-        self.record_verification(WarmVerification::Verified {
-            pack_id: identity.0,
-            revision: identity.1,
-        });
+        let verification = WarmVerification::Verified {
+            pack_id: identity.0.clone(),
+            revision: identity.1.clone(),
+        };
         let (adapter, worker) = match warm(
             granite_worker_exe,
             choice,
@@ -831,13 +944,57 @@ impl GraniteEngineCoordinator {
                 // `include!`d into the crate root — one mapping of `ErrorCode`
                 // to a wire code, not two that can drift.
                 self.record_warm_state(crate::domain_error_code(&error));
-                return Err(error);
+                // The digest pass still ran, and it still passed. A worker that
+                // would not spawn is not evidence against the bytes, and
+                // reporting `NotAttempted` here would throw away the one hash a
+                // launch takes.
+                return EnsureReadyOutcome {
+                    verification,
+                    adapter: Err(error),
+                };
             }
         };
         self.record_worker_provider(worker, recorded_provider);
-        *slot = Some(Arc::clone(&adapter));
+        // The identity is stored with the adapter, so the next invocation that
+        // finds it resident can say which pack it is holding.
+        *slot = Some(ResidentPack {
+            adapter: Arc::clone(&adapter),
+            pack_id: identity.0,
+            revision: identity.1,
+        });
         self.record_warm_state("ready");
-        Ok(adapter)
+        EnsureReadyOutcome {
+            verification,
+            adapter: Ok(adapter),
+        }
+    }
+}
+
+/// What an `ensure_ready` that found a resident adapter may claim about the
+/// bytes on disk.
+///
+/// The whole of the pack-mismatch rule, pure and by itself so both halves can be
+/// exercised: on this machine only one Granite pack is admitted, so the
+/// mismatched branch is unreachable through the real resolver and a test that
+/// could only ask what *this* machine resolves would never see it. It is not
+/// unreachable in principle — `granite_selection` re-resolves on every warm with
+/// `cuda_worker_available()`, which changes the first time a worker answers
+/// `Hello`.
+///
+/// Never `Verified`: nothing was hashed in the invocation that calls this.
+pub fn resident_outcome(resident: (&str, &str), requested: (&str, &str)) -> WarmVerification {
+    if resident == requested {
+        WarmVerification::AlreadyLoaded {
+            pack_id: resident.0.to_owned(),
+            revision: resident.1.to_owned(),
+        }
+    } else {
+        WarmVerification::ResidentMismatch {
+            resident_pack_id: resident.0.to_owned(),
+            resident_revision: resident.1.to_owned(),
+            requested_pack_id: requested.0.to_owned(),
+            requested_revision: requested.1.to_owned(),
+        }
     }
 }
 
@@ -960,21 +1117,31 @@ const fn granite_worker_is_unusable(code: ErrorCode) -> bool {
 /// lazily instead, at the cost of that one dictation paying the load time
 /// inline — a disclosed simplification, not an oversight.
 ///
-/// # Errors
-///
-/// Returns a recoverable [`DomainError`] under the same conditions
-/// [`GraniteEngineCoordinator::ensure_ready`] does.
 /// Warms the engine, and reports what **this invocation** did about the bytes.
 ///
+/// [`WarmOutcome::error`] carries a recoverable [`DomainError`] under the same
+/// conditions [`GraniteEngineCoordinator::ensure_ready`] does.
+///
 /// The outcome is returned rather than left for the caller to read back off the
-/// coordinator. A shared "last warm" field cannot answer "what did this call
+/// coordinator, and since 2026-08-29 that is true of the code as well as of this
+/// sentence. A shared "last warm" field cannot answer "what did *this* call
 /// find", and the two diverge in a way that matters: `ensure_ready` returns a
-/// resident adapter without hashing, so a second warm would have settled the
-/// model status from the first warm's verdict. See [`WarmVerification`].
+/// resident adapter without hashing, so a second warm settled the model status
+/// from the first warm's verdict. There is no such field now — the outcome has
+/// nowhere to be read back from. See [`WarmVerification`].
 pub fn warm_granite_if_configured(
     environment: GraniteEnvironment<'_>,
     coordinator: &GraniteEngineCoordinator,
-) -> Result<(), DomainError> {
+) -> WarmOutcome {
+    /// Every exit that reached no digest pass, spelled once. The model on disk
+    /// is neither proven nor suspect after one of these: nobody looked.
+    fn not_attempted(error: Option<DomainError>) -> WarmOutcome {
+        WarmOutcome {
+            verification: WarmVerification::NotAttempted,
+            error,
+        }
+    }
+
     // Every path that returns without warming says so, and `cold` is not that
     // answer. `cold` means "not loaded yet", the frontend maps it to
     // `loading_model` along with `warming`, and a machine that will never warm
@@ -991,44 +1158,47 @@ pub fn warm_granite_if_configured(
     // report a fault as a to-do.
     let Some(granite_worker_exe) = environment.granite_worker_exe else {
         coordinator.record_warm_state("granite_worker_missing");
-        coordinator.record_verification(WarmVerification::NotAttempted);
-        return Ok(());
+        return not_attempted(None);
     };
     if !granite_memory_is_sufficient(environment.total_memory_bytes) {
         coordinator.record_engine_reason("memory_below_granite_floor");
         coordinator.record_warm_state("memory_below_granite_floor");
-        coordinator.record_verification(WarmVerification::NotAttempted);
-        return Ok(());
+        return not_attempted(None);
     }
     // Same ordering as `run_granite_final_pass`, and for the same reason —
     // see the comment there.
     if coordinator.is_quarantined() {
-        coordinator.record_verification(WarmVerification::NotAttempted);
-        return Err(domain_error(ErrorCode::EngineQuarantined));
+        return not_attempted(Some(domain_error(ErrorCode::EngineQuarantined)));
     }
     let Ok(manifest) = bundled_manifest() else {
-        coordinator.record_verification(WarmVerification::NotAttempted);
         coordinator.record_warm_state("not_configured");
-        return Ok(());
+        return not_attempted(None);
     };
     let Some(choice) = admitted_granite_pack(
         &manifest,
         environment.install_root,
         coordinator.cuda_worker_available(),
     ) else {
-        coordinator.record_verification(WarmVerification::NotAttempted);
         coordinator.record_warm_state("not_configured");
-        return Ok(());
+        return not_attempted(None);
     };
-    coordinator
-        .ensure_ready(
-            granite_worker_exe,
-            &choice,
-            environment.diagnostic_log.clone(),
-            environment.recorded_provider,
-            environment.cuda_context_probe,
-        )
-        .map(|_adapter| ())?;
+    let outcome = coordinator.ensure_ready(
+        granite_worker_exe,
+        &choice,
+        environment.diagnostic_log.clone(),
+        environment.recorded_provider,
+        environment.cuda_context_probe,
+        environment.verifier,
+    );
+    if let Err(error) = outcome.adapter {
+        // The verification travels with the failure. A warm that hashed the
+        // pack and *then* failed to spawn a worker has still read those bytes,
+        // and it is the only thing entitled to condemn them.
+        return WarmOutcome {
+            verification: outcome.verification,
+            error: Some(error),
+        };
+    }
 
     // Select once more, now that the worker has said what it is. The first
     // selection of a process necessarily guessed — a CUDA backend compiled
@@ -1042,7 +1212,10 @@ pub fn warm_granite_if_configured(
     {
         coordinator.record_engine_reason(corrected.reason.code());
     }
-    Ok(())
+    WarmOutcome {
+        verification: outcome.verification,
+        error: None,
+    }
 }
 
 /// Which Granite pack a dictation will run on, where it lives, and why that
@@ -1235,13 +1408,21 @@ pub async fn run_granite_final_pass(
         return Ok(None);
     };
 
-    let adapter = coordinator.ensure_ready(
-        granite_worker_exe,
-        &choice,
-        environment.diagnostic_log,
-        environment.recorded_provider,
-        environment.cuda_context_probe,
-    )?;
+    // The verification is deliberately dropped here and nowhere else. A
+    // dictation's own warm can be the first of a process, but the model status
+    // is settled by the launch warm's caller — and a second settler reading a
+    // second invocation's verdict is how two callers came to disagree about one
+    // pack in the first place.
+    let adapter = coordinator
+        .ensure_ready(
+            granite_worker_exe,
+            &choice,
+            environment.diagnostic_log,
+            environment.recorded_provider,
+            environment.cuda_context_probe,
+            environment.verifier,
+        )
+        .adapter?;
 
     // Built from the resident adapter's own clock, not a fresh one -- see
     // `WorkerFinalAdapter::clock`'s doc comment for the shipped bug this caused.
@@ -1312,7 +1493,68 @@ pub fn granite_selection(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
     use super::*;
+
+    /// A [`PackVerifier`] that counts what the **warm** asked it, and answers a
+    /// staged verdict.
+    ///
+    /// The count is the whole instrument. The test this replaces wrapped the
+    /// production function in a closure it called twice itself and then asserted
+    /// the closure had been called twice -- a measurement of the test, which
+    /// would have stayed green with a second digest pass inserted anywhere in
+    /// this module. Nothing here calls `bytes_match`; only the warm does.
+    ///
+    /// The staged answer is what makes the pass observable at all: the shipped
+    /// pack is 2.30 GB and no checkout can lay out bytes the real digests
+    /// accept, so a warm over staged stubs would always refuse and the code
+    /// after the check would never be reached.
+    struct CountingVerifier {
+        passes: AtomicU32,
+        answer: bool,
+    }
+
+    impl CountingVerifier {
+        const fn accepting() -> Self {
+            Self {
+                passes: AtomicU32::new(0),
+                answer: true,
+            }
+        }
+
+        const fn refusing() -> Self {
+            Self {
+                passes: AtomicU32::new(0),
+                answer: false,
+            }
+        }
+
+        fn passes(&self) -> u32 {
+            self.passes.load(Ordering::Relaxed)
+        }
+    }
+
+    impl PackVerifier for CountingVerifier {
+        fn bytes_match(&self, _pack: &Pack, _model_root: &Path) -> bool {
+            self.passes.fetch_add(1, Ordering::Relaxed);
+            self.answer
+        }
+    }
+
+    /// A `<root>/<pack id>/<revision>` directory holding a stub for every file
+    /// the real pack requires, so `admitted_granite_pack`'s presence check
+    /// passes. The bytes are wrong on purpose -- what a warm concludes about
+    /// them is [`CountingVerifier`]'s to stage.
+    fn stage_present_pack(pack: &Pack) -> tempfile::TempDir {
+        let install_root = tempfile::tempdir().expect("tempdir");
+        let model_root = install_root.path().join(pack.id()).join(pack.revision());
+        std::fs::create_dir_all(&model_root).expect("create model root");
+        for required in pack.required_files() {
+            std::fs::write(model_root.join(required.path()), b"stub").expect("write stub file");
+        }
+        install_root
+    }
 
     /// The reported failure, reproduced exactly.
     ///
@@ -1590,6 +1832,7 @@ mod tests {
                 diagnostic_log: None,
                 recorded_provider: "unrecorded",
                 cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                verifier: &TrustedDigestVerifier,
             },
             &coordinator,
             audio,
@@ -1631,6 +1874,7 @@ mod tests {
                 diagnostic_log: None,
                 recorded_provider: "unrecorded",
                 cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                verifier: &TrustedDigestVerifier,
             },
             &coordinator,
             audio,
@@ -1805,6 +2049,7 @@ mod tests {
                 diagnostic_log: None,
                 recorded_provider: "unrecorded",
                 cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                verifier: &TrustedDigestVerifier,
             },
             &coordinator,
             audio,
@@ -1862,13 +2107,6 @@ mod tests {
     #[test]
     fn a_hash_mismatch_fails_verification_without_quarantining() {
         let coordinator = GraniteEngineCoordinator::default();
-        // Nothing has looked at any bytes yet, and that is its own state --
-        // neither proven nor suspect. Asserted first so the transition below is
-        // a transition rather than a coincidence.
-        assert_eq!(
-            coordinator.warm_verification(),
-            WarmVerification::NotAttempted
-        );
         let manifest = bundled_manifest().expect("the bundled manifest must parse");
         let pack = granite_pack(&manifest);
         let install_root = tempfile::tempdir().expect("tempdir");
@@ -1899,6 +2137,7 @@ mod tests {
                 diagnostic_log: None,
                 recorded_provider: "unrecorded",
                 cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                verifier: &TrustedDigestVerifier,
             },
             &coordinator,
             audio,
@@ -1907,22 +2146,163 @@ mod tests {
         ));
         assert_eq!(outcome, Err(domain_error(ErrorCode::AdapterFailed)));
         assert!(!coordinator.is_quarantined());
-        // The failure names the artifact whose bytes were read, and it is the
-        // pack that was actually resolved. `settle_after_warm` compares this
-        // against the pack it re-resolves and promotes nothing on a mismatch,
-        // so an identity that were merely plausible here -- or absent -- would
-        // let a different pack be stamped on this pack's evidence.
+        assert_eq!(coordinator.warm_state(), "granite_model_files_unverified");
+
+        // The same install through the launch warm, which is the caller that
+        // has to act on the verdict. The failure names the artifact whose bytes
+        // were read, and it is the pack that was actually resolved:
+        // `settle_after_warm` compares this against the pack it re-resolves and
+        // promotes nothing on a mismatch, so an identity that were merely
+        // plausible here -- or absent -- would let a different pack be stamped
+        // on this pack's evidence.
+        let warm = warm_granite_if_configured(
+            GraniteEnvironment {
+                granite_worker_exe: Some(Path::new("unused-worker.exe")),
+                install_root: install_root.path(),
+                total_memory_bytes: AMPLE_MEMORY,
+                diagnostic_log: None,
+                recorded_provider: "unrecorded",
+                cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                verifier: &TrustedDigestVerifier,
+            },
+            &coordinator,
+        );
         assert_eq!(
-            coordinator.warm_verification(),
+            warm.verification,
             WarmVerification::Failed {
                 pack_id: pack.id().to_owned(),
                 revision: pack.revision().to_owned(),
             },
-            "a failed digest pass must record which pack failed"
+            "a failed digest pass must report which pack failed"
         );
-        // Exactly one pass ran: the worker was never spawned, so nothing
-        // downstream could have recorded a second verdict over this one.
-        assert_eq!(coordinator.warm_state(), "granite_model_files_unverified");
+        assert_eq!(warm.error, Some(domain_error(ErrorCode::AdapterFailed)));
+        assert!(!coordinator.is_quarantined());
+    }
+
+    /// A warm reads the pack exactly once, and the count is of the warm.
+    ///
+    /// This is the claim item 21 left behind: `readiness` used to hash, and it
+    /// runs twice on a configured launch, so with the warm's own pass a launch
+    /// read 2.30 GB three times before the app was usable. One survives, and it
+    /// is this one -- taken immediately before the worker is handed the
+    /// `model_root`.
+    ///
+    /// **Counted at the warm boundary through an injected [`PackVerifier`].**
+    /// The test this replaces counted its own calls to a closure it had wrapped
+    /// around the production function: two deliberate calls, an assertion that
+    /// there had been two, and no way for a third pass inside the warm to make
+    /// any difference. Nothing in this test calls `bytes_match`. Insert a second
+    /// `verifier.bytes_match(..)` anywhere in `ensure_ready` and this goes red.
+    ///
+    /// Both verdicts are exercised, because the refusing one takes a different
+    /// exit and could hash again on its way out.
+    #[test]
+    fn one_warm_takes_exactly_one_digest_pass() {
+        let manifest = bundled_manifest().expect("the bundled manifest must parse");
+        let pack = granite_pack(&manifest);
+
+        let warm_with = |verifier: &CountingVerifier, install_root: &Path| {
+            warm_granite_if_configured(
+                GraniteEnvironment {
+                    // Never spawned: the pack is staged as stubs, so there is no
+                    // real worker to reach and none is needed. What is being
+                    // counted happens before the spawn.
+                    granite_worker_exe: Some(Path::new("unused-worker.exe")),
+                    install_root,
+                    total_memory_bytes: AMPLE_MEMORY,
+                    diagnostic_log: None,
+                    recorded_provider: "unrecorded",
+                    cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                    verifier,
+                },
+                &GraniteEngineCoordinator::default(),
+            )
+        };
+
+        let install_root = stage_present_pack(pack);
+        let accepting = CountingVerifier::accepting();
+        let outcome = warm_with(&accepting, install_root.path());
+        assert_eq!(
+            accepting.passes(),
+            1,
+            "a warm reads the pack once -- not zero times, and not twice"
+        );
+        assert_eq!(
+            outcome.verification,
+            WarmVerification::Verified {
+                pack_id: pack.id().to_owned(),
+                revision: pack.revision().to_owned(),
+            },
+            "and it reports the artifact it read"
+        );
+
+        let refusing = CountingVerifier::refusing();
+        let outcome = warm_with(&refusing, install_root.path());
+        assert_eq!(
+            refusing.passes(),
+            1,
+            "a refusal is one pass too; nothing re-reads the pack to be sure"
+        );
+        assert_eq!(
+            outcome.verification,
+            WarmVerification::Failed {
+                pack_id: pack.id().to_owned(),
+                revision: pack.revision().to_owned(),
+            }
+        );
+    }
+
+    /// A resident adapter is only ever described as the pack it is holding.
+    ///
+    /// `ensure_ready`'s early return used to build its outcome from the
+    /// *requested* choice while returning the *resident* adapter: pack A loaded,
+    /// pack B resolved, adapter A handed back and pack B certified. The settle
+    /// then promoted B to `verified_on_disk` on digests that were never taken
+    /// for B -- the pack-mismatch defect this outcome type was added to prevent,
+    /// reintroduced through it.
+    ///
+    /// Unreachable on this machine today, because one Granite pack is admitted.
+    /// Not unreachable in principle: `granite_selection` re-resolves on every
+    /// warm with `cuda_worker_available()`, and that answer changes the first
+    /// time a worker says it was compiled with CUDA. The rule is a pure function
+    /// for exactly that reason -- a test that could only ask what this machine
+    /// resolves would never see the branch that has the bug.
+    #[test]
+    fn a_resident_adapter_is_certified_only_as_the_pack_it_holds() {
+        let a = ("granite-speech-4.1-2b-q4_k_m-cpu", "1");
+        let b = ("granite-speech-4.1-2b-q4_k_m-cuda", "1");
+
+        assert_eq!(
+            resident_outcome(a, a),
+            WarmVerification::AlreadyLoaded {
+                pack_id: a.0.to_owned(),
+                revision: a.1.to_owned(),
+            },
+            "the same artifact: a pass ran earlier in this process, on these bytes"
+        );
+
+        let mismatch = resident_outcome(a, b);
+        assert_eq!(
+            mismatch,
+            WarmVerification::ResidentMismatch {
+                resident_pack_id: a.0.to_owned(),
+                resident_revision: a.1.to_owned(),
+                requested_pack_id: b.0.to_owned(),
+                requested_revision: b.1.to_owned(),
+            }
+        );
+        assert_eq!(
+            mismatch.identity(),
+            None,
+            "a mismatch is about two artifacts, so it may certify neither"
+        );
+        assert!(!mismatch.bytes_match());
+
+        // The revision alone is enough, and matching on the id would miss it:
+        // that is the ordinary upgrade case, where the same pack gains new bytes.
+        let upgraded = resident_outcome(a, (a.0, "2"));
+        assert_eq!(upgraded.identity(), None);
+        assert!(!upgraded.bytes_match());
     }
 
     /// A minimal RIFF/WAVE reader for 16 kHz mono 16-bit PCM -- the same small,
@@ -2100,7 +2480,9 @@ mod tests {
                     None,
                     "cpu",
                     &speakeasy_models::NvmlCudaContextProbe,
+                    &TrustedDigestVerifier,
                 )
+                .adapter
                 .expect("a CUDA worker must warm on a machine with a card");
             assert_eq!(
                 coordinator.device(),
@@ -2125,7 +2507,9 @@ mod tests {
                     None,
                     "cpu",
                     &StagedContextProbe(Err(speakeasy_models::GpuProbeFailure::LibraryMissing)),
+                    &TrustedDigestVerifier,
                 )
+                .adapter
                 .expect("an unanswerable driver must not fail the warm");
             assert_eq!(coordinator.device(), "cuda_unverified");
             // Nothing was proved, so nothing is promoted: against a processor
@@ -2146,7 +2530,9 @@ mod tests {
                     None,
                     "cuda",
                     &StagedContextProbe(Ok(vec![])),
+                    &TrustedDigestVerifier,
                 )
+                .adapter
                 .expect("a worker NVML does not list must still warm");
             assert_eq!(coordinator.device(), "cpu");
             assert_eq!(
@@ -2238,6 +2624,7 @@ mod tests {
                 diagnostic_log: None,
                 recorded_provider: "unrecorded",
                 cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                verifier: &TrustedDigestVerifier,
             },
             &coordinator,
             audio,
@@ -2324,6 +2711,7 @@ mod tests {
                     diagnostic_log: None,
                     recorded_provider: "unrecorded",
                     cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                    verifier: &TrustedDigestVerifier,
                 },
                 &coordinator,
                 audio,
@@ -2341,29 +2729,27 @@ mod tests {
         let manifest = bundled_manifest().expect("the bundled manifest must parse");
         let pack = granite_pack(&manifest);
         let choice = cpu_choice(pack, &install_root);
-        let first_adapter = coordinator
-            .ensure_ready(
-                &worker_exe,
-                &choice,
-                None,
-                "unrecorded",
-                &speakeasy_models::NvmlCudaContextProbe,
-            )
-            .expect("the first dictation must have warmed the engine");
+        // The resident adapter, asked for the same way a dictation asks.
+        let resident = |why: &str| {
+            coordinator
+                .ensure_ready(
+                    &worker_exe,
+                    &choice,
+                    None,
+                    "unrecorded",
+                    &speakeasy_models::NvmlCudaContextProbe,
+                    &TrustedDigestVerifier,
+                )
+                .adapter
+                .unwrap_or_else(|error| panic!("{why}: {error:?}"))
+        };
+        let first_adapter = resident("the first dictation must have warmed the engine");
 
         let started = std::time::Instant::now();
         let second = run(0x6b);
         let second_elapsed = started.elapsed();
 
-        let second_adapter = coordinator
-            .ensure_ready(
-                &worker_exe,
-                &choice,
-                None,
-                "unrecorded",
-                &speakeasy_models::NvmlCudaContextProbe,
-            )
-            .expect("the engine is still warm after the second dictation");
+        let second_adapter = resident("the engine is still warm after the second dictation");
         record_resident_timing(&target_debug, &worker_exe, first_elapsed, second_elapsed);
 
         assert!(
@@ -2465,6 +2851,7 @@ mod tests {
                     diagnostic_log: Some(diagnostic_log.clone()),
                     recorded_provider: "unrecorded",
                     cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                    verifier: &TrustedDigestVerifier,
                 },
                 &coordinator,
                 audio,

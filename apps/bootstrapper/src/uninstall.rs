@@ -945,12 +945,27 @@ mod tests {
     /// rather than remove it.
     ///
     /// What is done instead: the key name carries the process id, so concurrent
-    /// `cargo test` runs cannot collide; a `Drop` guard removes it even when an
-    /// assertion panics; and a sandbox without `HKCU` write access skips rather
-    /// than fails, because "this environment cannot write to the registry" is
-    /// not evidence about the code. **A skip here is a gap, not a pass** -- it
-    /// is reported as `ignored`, and a run that skips it has not exercised this
-    /// behaviour at all.
+    /// `cargo test` runs cannot collide, and a `Drop` guard removes it even when
+    /// an assertion panics.
+    ///
+    /// # An environment that cannot reach `HKCU` fails this test
+    ///
+    /// It used to `return` there, after printing that the behaviour had not been
+    /// exercised, on the reasoning that "this environment cannot write to the
+    /// registry" is not evidence about the code. That reasoning is sound and the
+    /// implementation of it was not: **an early return is reported as `ok`**.
+    /// The doc comment claimed the skip showed up as `ignored`; nothing marks a
+    /// test ignored from inside its own body, so the summary line counted it
+    /// among the passes and the two `eprintln!`s went to a stream `cargo test`
+    /// captures and discards on success. A gap that reports itself as a pass is
+    /// the exact shape this repository keeps throwing out, and it was sitting
+    /// inside a comment explaining why it must not be.
+    ///
+    /// So it fails instead. The gate runs on Windows as a real user, where
+    /// `HKCU` is always writable, and an environment where it is not has not run
+    /// this proof — which is a red test, not a green one. `#[ignore]` was the
+    /// other honest option and is worse here: it would take this out of every
+    /// ordinary gate run to accommodate a sandbox nobody develops in.
     #[test]
     fn an_emptied_product_key_is_removed_and_an_occupied_one_is_not() {
         use winreg::RegKey;
@@ -974,14 +989,14 @@ mod tests {
             std::process::id()
         );
         let path = path.as_str();
-        // A sandbox with no `HKCU` write access proves nothing about this code,
-        // so it declines rather than reporting a defect. Loud, because a silent
-        // skip is indistinguishable from a pass.
-        if user.create_subkey(path).is_err() {
-            eprintln!("SKIPPED: this environment cannot write to HKCU.");
-            eprintln!("The registry semantics under test were NOT exercised.");
-            return;
-        }
+        // An environment with no `HKCU` write access has not exercised the
+        // registry semantics this test exists for, and that is a failure to
+        // report rather than a pass to hand out. It used to `return` here, which
+        // `cargo test` counts as `ok`.
+        user.create_subkey(path).expect(
+            "this environment cannot write to HKCU, so the registry semantics under test \
+             were NOT exercised; run this where the current user's hive is writable",
+        );
         let _cleanup = RemoveOnDrop(path);
         remove_key_if_empty(&user, path);
         assert!(

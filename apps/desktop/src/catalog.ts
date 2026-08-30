@@ -674,6 +674,17 @@ export const messages = {
     // the instruction is to wait rather than to do anything.
     model_verifying:
       "The installed model is being checked. Dictation starts as soon as that finishes.",
+    // The other two the shortcut can now refuse with. Every reason
+    // `dictation_blocker` returns reaches this table, because `useHudStatus`
+    // renders a failed `dictation_start` through it and an unlisted code falls
+    // through to "The operation stopped safely" -- a lost dictation with no
+    // instruction. The remaining four (`granite_worker_missing`,
+    // `granite_quarantined`, `memory_below_granite_floor`, and
+    // `dictation_still_finishing` above) already had entries.
+    model_missing:
+      "No speech model is installed yet. Install the local model before dictating.",
+    microphone_missing:
+      "No supported microphone was found. Connect one and choose it in Settings, Audio.",
     engine_unavailable: "The transcription engine is still starting. Wait a moment and retry.",
     runtime_stale_response:
       "The transcription engine did not answer in time while loading. Use Restart engine in Advanced settings.",

@@ -144,55 +144,83 @@ fn setup_requirement(
     let Some(models) = app.try_state::<ModelCoordinator>() else {
         return Err("capture_status_unavailable");
     };
-    // Three states mean "a model is installed", and they differ only in what is
-    // known about its bytes.
-    //
-    // `verifying` is the one that refuses, and it refuses with its own reason
-    // rather than `model_missing`: a digest pass is running right now, it is
-    // bounded by the warm, and telling the user "Setup needed" while the app
-    // checks a model they already installed would be false. `installed_unverified`
-    // does *not* refuse -- nothing is running, nobody has read the bytes, and a
-    // dictation's own warm will hash them before loading anything.
-    //
-    // A pack whose bytes are genuinely wrong lands on `failed` and falls through
-    // to `model_missing` here, while the engine chip carries the specific
-    // `granite_model_files_unverified` and its instruction.
-    match models.status_snapshot().state.as_str() {
-        "verified_on_disk" | "installed_unverified" => {}
-        "verifying" => return Ok(Some("model_verifying")),
-        _ => return Ok(Some("model_missing")),
+    let model_state = models.status_snapshot().state;
+    Ok(dictation_blocker(
+        Some(model_state.as_str()),
+        app.try_state::<GraniteEngineCoordinator>()
+            .map(|granite| granite.warm_state()),
+        // Through the coordinator's cache rather than `CaptureWizardCoordinator::
+        // devices` directly. This is on the 10 Hz path and that call is a full
+        // WASAPI enumeration; see `has_supported_microphone`.
+        Some(capture.has_supported_microphone()),
+    ))
+}
+
+/// The one statement of what stands between this machine and a dictation.
+///
+/// Consumed by `setup_requirement` — which is what the dock renders and what its
+/// Start button is gated on — and by `start_dictation`, which is the single
+/// implementation behind both the global shortcut and that button. **Two copies
+/// of this rule is how `can_start` came to refuse a press the shortcut
+/// accepted**, and stating it twice failed again on 2026-08-29: the three
+/// terminal engine states were added to `setup_requirement` alone, so the dock
+/// refused a machine below the 8 GiB floor and the shortcut went on accepting
+/// the press, recorded two minutes of speech and then reported that the engine
+/// could not start. One function, both callers, no second answer.
+///
+/// # What each argument means, and why `None` never refuses
+///
+/// `None` for an argument means the coordinator that answers it is not managed
+/// yet, which is genuinely reachable: windows declared in `tauri.conf.json` load
+/// before `setup` finishes, and the shortcut is registered at the end of it. A
+/// guard that cannot see the machine must not be able to suppress a dictation
+/// the user asked for — the same fail-open stance the one-at-a-time guard takes,
+/// and for the same reason. The dictation then fails, if it fails, with a named
+/// reason from a coordinator that does exist.
+///
+/// Three model states mean "a model is installed", and they differ only in what
+/// is known about its bytes. `verifying` is the one that refuses, and it refuses
+/// with its own reason rather than `model_missing`: a digest pass is running
+/// right now, it is bounded by the warm, and telling the user "Setup needed"
+/// while the app checks a model they already installed would be false.
+/// `installed_unverified` does *not* refuse — nothing is running, nobody has read
+/// the bytes, and a dictation's own warm will hash them before loading anything.
+/// A pack whose bytes are genuinely wrong lands on `failed` and falls through to
+/// `model_missing`, while the engine chip carries the specific
+/// `granite_model_files_unverified` and its instruction.
+///
+/// Only the *terminal* engine states gate. `cold` and `warming` are a warm in
+/// flight and `ready` is the good case; none of them is a reason to refuse.
+/// `granite_model_files_unverified` is deliberately absent too — it is the
+/// model's fault, not the engine's, and the model branch already reports it.
+///
+/// Pure, so every combination can be exercised without a running app. The
+/// alternative is a rule only observable through two Tauri commands, which is
+/// how it came to be stated twice.
+fn dictation_blocker(
+    model_state: Option<&str>,
+    engine_warm_state: Option<&str>,
+    microphone_present: Option<bool>,
+) -> Option<&'static str> {
+    match model_state {
+        None | Some("verified_on_disk" | "installed_unverified") => {}
+        Some("verifying") => return Some("model_verifying"),
+        Some(_) => return Some("model_missing"),
     }
     // A model on disk is not the same as an engine that can run it, and the
     // difference is a recorded decision rather than a nicety: "Refusing at
     // `begin`, before a sample is captured, is the same answer at the only
-    // useful moment." The memory floor was being checked in
-    // `run_retained_transcription` -- *after* the recording -- so a machine
-    // below the 8 GiB floor let the user speak for two minutes and then said
-    // the engine could not start. Same for a missing worker binary and for a
-    // quarantined engine.
-    //
-    // Only the terminal answers gate. `cold` and `warming` are a warm in
-    // flight, and `ready` is the good case; none of them is a reason to refuse.
-    // `granite_model_files_unverified` is deliberately absent too -- it is the
-    // model's fault, not the engine's, and the branch above already reports it
-    // through `failed`.
-    if let Some(granite) = app.try_state::<GraniteEngineCoordinator>() {
-        match granite.warm_state() {
-            "granite_worker_missing" => return Ok(Some("granite_worker_missing")),
-            "memory_below_granite_floor" => {
-                return Ok(Some("memory_below_granite_floor"));
-            }
-            "granite_quarantined" => return Ok(Some("granite_quarantined")),
-            _ => {}
-        }
+    // useful moment."
+    match engine_warm_state {
+        Some("granite_worker_missing") => return Some("granite_worker_missing"),
+        Some("memory_below_granite_floor") => return Some("memory_below_granite_floor"),
+        Some("granite_quarantined") => return Some("granite_quarantined"),
+        _ => {}
     }
-    // Through the coordinator's cache rather than `CaptureWizardCoordinator::
-    // devices` directly. This is on the 10 Hz path and that call is a full
-    // WASAPI enumeration; see `has_supported_microphone`.
-    if !capture.has_supported_microphone() {
-        return Ok(Some("microphone_missing"));
+    if microphone_present == Some(false) {
+        return Some("microphone_missing");
     }
-    Ok(None)
+    None
 }
 
 #[tauri::command]
@@ -771,6 +799,9 @@ async fn run_retained_transcription(
                 // dictation's own warm can be the first of a process, so this is
                 // a second composition-root site rather than a second decision.
                 cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                // As above: the same verifier the launch warm names, because a
+                // dictation's own warm can be the first of a process.
+                verifier: &granite_engine::TrustedDigestVerifier,
             },
             &app.state::<GraniteEngineCoordinator>(),
             audio.clone(),

@@ -180,18 +180,25 @@ mod tests {
             .expect("synthetic catalog must validate")
     }
 
-    /// Verification reads every required file exactly once, and refuses the
-    /// moment any of them is not the pinned bytes.
+    /// A single byte changed in place, at the same length, is refused by name.
     ///
-    /// Counted through a probe that wraps the real check, over synthetic files
-    /// small enough to exist in a checkout -- the shipped pack is 2.30 GB and no
-    /// test can lay it out. The count is the claim worth pinning: a launch takes
-    /// **one** digest pass, and this is the pass it takes. A verification that
-    /// quietly read the pack twice would look identical from the outside.
+    /// The case that must stop the worker being handed the pack: presence and
+    /// length both still pass, so only the digest can catch it, and the file
+    /// that failed has to be named or the user is told their install is broken
+    /// without being told which part.
+    ///
+    /// # This test used to also claim a count, and the count was of itself
+    ///
+    /// It wrapped `verify_pack_files` in a closure, called that closure twice,
+    /// and asserted the closure had been called twice -- "a launch takes one
+    /// digest pass" measured by counting the test's own calls. Nothing about the
+    /// warm was observable from here, and a second pass inserted anywhere in the
+    /// engine would not have moved the number. The claim is real and it belongs
+    /// where the pass happens: `one_warm_takes_exactly_one_digest_pass` in
+    /// `apps/desktop`'s `granite_engine` counts an injected `PackVerifier` that
+    /// only the warm calls.
     #[test]
-    fn verification_reads_each_required_file_once_and_refuses_tampered_bytes() {
-        use std::sync::atomic::{AtomicU32, Ordering};
-
+    fn a_single_flipped_byte_is_refused_by_name() {
         let dir = tempdir().unwrap();
         let alpha = b"alpha bytes".to_vec();
         let beta = b"beta bytes, longer".to_vec();
@@ -212,31 +219,24 @@ mod tests {
         ]));
         let pack = &manifest.packs()[0];
 
-        // Wraps the production check so the count is of the real thing rather
-        // than of a re-implementation that could drift from it.
-        let passes = AtomicU32::new(0);
-        let verify = || {
-            passes.fetch_add(1, Ordering::Relaxed);
-            verify_pack_files(pack, dir.path())
-        };
+        assert!(
+            verify_pack_files(pack, dir.path()).is_ok(),
+            "the bytes on disk are the pinned bytes"
+        );
 
-        assert!(verify().is_ok(), "the bytes on disk are the pinned bytes");
-        assert_eq!(passes.load(Ordering::Relaxed), 1);
-
-        // One byte of one file, changed in place at the same length -- so
-        // presence and length both still pass and only the digest can catch it.
-        // This is the case that must stop the worker being handed the pack.
+        // One byte of one file, changed in place at the same length. Two files,
+        // so the name in the error is a fact about which one failed rather than
+        // the only name it could have said.
         let mut tampered = beta.clone();
         tampered[0] ^= 0xff;
         std::fs::write(dir.path().join("beta.gguf"), &tampered).unwrap();
+        assert_eq!(tampered.len(), beta.len(), "the length must still match");
         assert!(
-            matches!(verify(), Err(PackVerificationError::HashMismatch(name)) if name == "beta.gguf"),
+            matches!(
+                verify_pack_files(pack, dir.path()),
+                Err(PackVerificationError::HashMismatch(name)) if name == "beta.gguf"
+            ),
             "a single flipped byte must be refused, by name"
-        );
-        assert_eq!(
-            passes.load(Ordering::Relaxed),
-            2,
-            "two deliberate calls, and no hidden third"
         );
     }
 

@@ -3437,6 +3437,80 @@ hazard it recorded kept — a transient state written to the model coordinator
 makes a ready app announce "Setup needed", which is exactly what a `verifying`
 leak did.
 
+### 26. The fix for item 25 shipped four more, and two of them were the same defect — 2026-08-29
+
+Item 25's own fixes, reviewed rather than tested, and four of them did not hold.
+Two are the *same* defect item 25 named, arriving through the mechanism it added.
+
+**The warm outcome was still read from shared state.**
+`warm_granite_if_configured` returned `Result<(), DomainError>` and recorded its
+verdict into `GraniteEngineCoordinator.verification`; `warm_granite_engine` read
+it back with `coordinator.warm_verification()`. Its own doc comment said the
+opposite in as many words — "The outcome is returned rather than left for the
+caller to read back off the coordinator" — which is the shape this repository
+keeps finding: a comment describing the fix somebody meant to write.
+`run_granite_final_pass` writes that same field, so a dictation's own warm could
+replace the verdict between the launch warm ending and the settle reading it.
+Both entry points return the outcome now, in a `WarmOutcome` / `EnsureReadyOutcome`
+that carries the verification alongside the error — because a warm that hashed a
+pack and *then* failed to spawn a worker is the one thing entitled to condemn
+those bytes, and returning `Err` alone would drop that on the floor. **The field
+is deleted**, so there is nowhere left to read it back from.
+
+**`AlreadyLoaded` certified the requested pack while returning the resident
+one.** This is the serious one. `ensure_ready`'s early return built
+`AlreadyLoaded { pack_id, revision }` from `choice.pack` — the pack this
+invocation *resolved* — and returned the adapter that was already loaded. Adapter
+A resident, pack B requested: adapter A handed back, `AlreadyLoaded { B }`
+recorded, and `settled_model_state` stamped B `verified_on_disk` on digests
+nobody ever took for B. **The pack-mismatch defect the variant was added to
+prevent, reintroduced through it.** Latent only because one Granite pack is
+admitted today; `granite_selection` re-resolves on every warm with
+`cuda_worker_available()`, which changes the first time a worker answers `Hello`,
+so the code is written for the two-pack case. The loaded pack's identity is
+stored with the adapter now (`ResidentPack`), and `resident_outcome` — a pure
+function, because the branch with the bug is unreachable through this machine's
+resolver — returns `AlreadyLoaded` only on an exact match and
+`WarmVerification::ResidentMismatch` otherwise. A mismatch has **no**
+`identity()`, so it can certify neither pack. `granite_warm` logs it as `bytes=`.
+
+**The dock and the shortcut disagreed about starting a dictation, again.** Item
+25 added the three terminal engine states to `setup_requirement` and not to
+`start_dictation`, which refused only on `dictation_still_finishing` and
+`model_verifying` — so on a machine below the 8 GiB floor the dock disabled its
+Start button and the global shortcut accepted the press, recorded up to two
+minutes and reported afterwards that the engine could not start. That is the
+exact failure the previous batch was closing, half-fixed. `dictation_blocker` is
+now the single statement of the rule and both callers consume it; it is pure, so
+every combination is exercised, and a source scan asserts neither caller restates
+a code it owns — a behavioural test cannot see a second copy that happens to
+agree. Two of its six codes had no catalog copy and would have rendered as "The
+operation stopped safely" over a dictation that never started.
+
+**Two tests reported success they had not earned.** The `HKCU` test in
+`uninstall.rs` early-returned when it could not create the key, printing that the
+behaviour was not exercised — and its own doc comment claimed that showed up as
+`ignored`. Nothing marks a test ignored from inside its body: `cargo test`
+counted it among the passes and captured the two `eprintln!`s. It fails now. And
+`verification_reads_each_required_file_once_and_refuses_tampered_bytes` wrapped
+`verify_pack_files` in a closure, called that closure twice, and asserted the
+closure had been called twice — a count of the test, not of production, which
+would not have moved if a second digest pass were inserted anywhere in the
+engine. The count claim moved to where the pass happens: `PackVerifier` is
+injected through `GraniteEnvironment` and
+`one_warm_takes_exactly_one_digest_pass` counts what the **warm** asked. The
+tamper half was sound and stays, as `a_single_flipped_byte_is_refused_by_name`.
+
+**Every new test was controlled by restoring the real defect**, files copied
+aside and copied back rather than `git checkout --`. Seven controls, all red, and
+two reproduced the shipped symptom exactly: pack B promoted to `verified_on_disk`
+on adapter A's evidence, and an installed, verified model settling to `failed`
+because the settle read a shared field an unrelated pass had overwritten.
+
+**Still open, and unchanged by any of this:** the one surviving digest pass runs
+in the desktop process and the worker reopens the model by path, so it is not an
+execution-time integrity check. Item 21. Needs a threat-model decision.
+
 ## Mistakes made this session, so they are not repeated
 
 - **A whole crate went red unnoticed.** The manifest trim broke

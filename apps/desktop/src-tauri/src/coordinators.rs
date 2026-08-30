@@ -636,21 +636,31 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
                 // is what makes a staged one possible without a switch in the
                 // shipped binary.
                 cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                // The manifest's own pinned lengths and digests. Named here
+                // rather than reached for inside the warm, for the reason the
+                // context probe is: the claim the surviving pass makes is a
+                // *count*, and nothing can count a direct call.
+                verifier: &granite_engine::TrustedDigestVerifier,
             },
             &coordinator,
         );
-        let result = match &outcome {
-            Ok(()) => "ok",
-            Err(error) => domain_error_code(error),
+        let result = match &outcome.error {
+            None => "ok",
+            Some(error) => domain_error_code(error),
         };
         // Startup had to guess which pack resolves, because only a worker can
         // say whether it is CUDA-capable; this is the first moment the guess can
         // be corrected. It is also the moment the pack stops being `verifying`:
         // the warm above holds the single hash a launch takes, so its verdict is
         // what promotes the pack to `verified_on_disk` or condemns it.
+        // From `outcome`, which is what *this* warm did, and not from a field on
+        // the coordinator. The field is gone: `ensure_ready` returns a resident
+        // adapter before any digest pass, so a shared "last warm" verdict handed
+        // a second warm the first warm's answer -- a claim about a pass that did
+        // not run in this invocation.
         models.settle_after_warm(
             coordinator.cuda_worker_available(),
-            &coordinator.warm_verification(),
+            &outcome.verification,
         );
         // `engine` carries which Granite pack this machine resolved and why,
         // the way the deleted `streaming_warm` event carried the streaming
@@ -687,6 +697,11 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
                 // and nothing anywhere looked at them together, so nothing
                 // reported it. `ok` and `unrecorded` are the quiet answers.
                 ("provider", coordinator.provider_integrity().code()),
+                // What this warm did about the bytes. A warm that found a
+                // resident adapter for a *different* pack than it resolved is
+                // otherwise indistinguishable from an ordinary repeat warm, and
+                // it is the one outcome nobody should have to infer.
+                ("bytes", outcome.verification.code()),
             ],
         );
     });

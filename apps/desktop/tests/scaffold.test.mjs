@@ -577,12 +577,27 @@ test("startup model verification is explicit and failure-visible", async () => {
   // the dock must not call either "Setup needed". A pass that is genuinely
   // running gets its own reason, so the refusal says what is happening and
   // clears itself.
-  assert.match(backend, /"verified_on_disk" \| "installed_unverified" => \{\}/);
-  assert.match(backend, /"verifying" => return Ok\(Some\("model_verifying"\)\)/);
-  // The same refusal reaches the global shortcut, through the one function both
-  // controllers share — two copies of this rule is how `can_start` came to
-  // refuse a press the shortcut accepted.
-  assert.match(backend, /fn start_dictation[\s\S]{0,2500}?return Err\("model_verifying"\)/);
+  // From the one file, not the joined backend: `tests.rs` holds the string
+  // "fn dictation_blocker" in a source scan of its own, it sorts ahead of
+  // `commands/`, and the first match in a concatenation is whichever file came
+  // first.
+  const blocker = rustFunctionBody(
+    await readFile(
+      fileURLToPath(new URL("../src-tauri/src/commands/capture.rs", import.meta.url)),
+      "utf8",
+    ),
+    "dictation_blocker",
+  );
+  assert.ok(blocker, "fn dictation_blocker must be findable");
+  assert.match(blocker, /Some\("verified_on_disk" \| "installed_unverified"\) => \{\}/);
+  assert.match(blocker, /Some\("verifying"\) => return Some\("model_verifying"\)/);
+  // The same refusal reaches the global shortcut, and every other refusal with
+  // it, through the one function both controllers consume — two copies of this
+  // rule is how `can_start` came to refuse a press the shortcut accepted, and
+  // restating it is how `start_dictation` came to know about `model_verifying`
+  // and not about the 8 GiB memory floor.
+  assert.match(backend, /fn setup_requirement[\s\S]{0,900}?Ok\(dictation_blocker\(/);
+  assert.match(backend, /fn start_dictation[\s\S]{0,2500}?if let Some\(reason\) = dictation_blocker\(/);
   assert.match(app, /model_verifying/);
   assert.match(backend, /fn status_snapshot\(&self\)[\s\S]*PoisonError::into_inner/);
   assert.match(backend, /fn model_install_status\(\s*app:/);
@@ -2622,4 +2637,46 @@ test("Advanced mounts only while its own tab is active", async () => {
     /activeGroup === "advanced" && <Advanced/,
     "Advanced must be mounted only while its tab is active, or its reads race the worker's Hello",
   );
+});
+
+test("every reason the shared dictation guard returns has catalog copy", async () => {
+  // `useHudStatus` dispatches `request_failed` with the raw code from a refused
+  // `dictation_start`, and the dock renders it through
+  // `messages.errors[code] ?? messages.errorUnknown`. So an unlisted code shows
+  // "The operation stopped safely" over a dictation that did not start -- the
+  // generic non-answer this catalog exists to have removed.
+  //
+  // The codes are read out of `dictation_blocker`'s own source rather than
+  // listed here, because a list written by hand is a record of what was true
+  // when it was written. That function grew four codes on 2026-08-29 when the
+  // dock's rule and the shortcut's rule were merged; two of them had no copy.
+  const rust = await readFile(
+    fileURLToPath(
+      new URL("../src-tauri/src/commands/capture.rs", import.meta.url),
+    ),
+    "utf8",
+  );
+  const rule = rustFunctionBody(rust, "dictation_blocker");
+  assert.ok(rule, "self-check: dictation_blocker must be findable");
+
+  const codes = [...rule.matchAll(/Some\("([a-z_]+)"\)/gu)]
+    .map((match) => match[1])
+    // The left-hand side of the model match arms names states, not codes.
+    .filter((code) => !["verified_on_disk", "installed_unverified", "verifying"].includes(code));
+  assert.ok(
+    codes.length >= 6,
+    `self-check: the scanner found ${codes.length} codes, so it is not reading the rule`,
+  );
+
+  const catalog = await readFile(
+    fileURLToPath(new URL("../src/catalog.ts", import.meta.url)),
+    "utf8",
+  );
+  const errors = catalog.slice(catalog.indexOf("errors: {"));
+  for (const code of codes) {
+    assert.ok(
+      new RegExp(String.raw`\n\s{4}${code}:`, "u").test(errors),
+      `${code} can refuse a dictation and has no catalog copy`,
+    );
+  }
 });

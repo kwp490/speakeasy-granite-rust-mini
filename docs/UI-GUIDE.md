@@ -490,6 +490,26 @@ is where the claims are easiest to overstate:
   copy, because "the shortcut did nothing" is otherwise indistinguishable from a
   broken shortcut.
 
+  **And the same is true of every other reason a dictation is refused**, since
+  2026-08-29. The dock's "Setup needed" reason and the shortcut's refusal are one
+  function — `dictation_blocker` — consumed by `setup_requirement` and by
+  `start_dictation`. It answers `model_missing`, `model_verifying`,
+  `granite_worker_missing`, `memory_below_granite_floor`, `granite_quarantined`
+  or `microphone_missing`, and all six now refuse **before** any audio is
+  captured, on both controllers. Stating the rule twice failed again in the batch
+  that fixed the last instance: the three terminal engine states were added to
+  the dock's copy alone, so a machine below the 8 GiB floor had its Start button
+  disabled while its hotkey recorded two minutes and reported afterwards that the
+  engine could not start. Every code the function returns has catalog copy,
+  because a refused `dictation_start` is rendered through
+  `messages.errors[code]`; a scaffold test derives the list from the function's
+  own source rather than from a list somebody maintains.
+
+  A coordinator that is not managed yet answers nothing and refuses nothing. The
+  dock's poll and the shortcut both reach this before `setup` has finished, and a
+  guard that cannot see the machine must not be able to suppress a dictation the
+  user asked for.
+
   The **notice is its own window** (`notice`, 360x192 logical, always on top,
   `focus: false`, placed beside the dock). It is not a dock glyph because the
   dock is 62 px wide and cannot hold a sentence; it is not a Windows toast

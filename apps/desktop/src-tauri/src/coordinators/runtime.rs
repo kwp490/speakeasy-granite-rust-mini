@@ -17,7 +17,10 @@
 /// **Only the pack that was hashed.** `resolved` is re-resolved with the
 /// post-warm CUDA answer, which is exactly what the warm can change, so it is
 /// not necessarily the pack the digest pass read. Both id and revision must
-/// match or nothing is promoted.
+/// match or nothing is promoted. A `ResidentMismatch` -- a warm that found an
+/// adapter loaded for a pack the resolver no longer points at -- has no identity
+/// at all, so it falls out at the same guard: neither the loaded pack's digests
+/// nor the resolved pack's absence of them is a fact about the other one.
 fn settled_model_state(
     presence: (&'static str, Option<String>),
     resolved: Option<&(String, String)>,
@@ -156,6 +159,12 @@ impl ModelCoordinator {
     /// where the capability flipped the resolution it would have stamped pack B
     /// verified on the strength of pack A's digests. [`WarmVerification`]
     /// carries the identity, and a mismatch promotes nothing.
+    ///
+    /// **And the verdict is the caller's, not the coordinator's.** `verification`
+    /// is what the warm this settle belongs to returned. It used to be read back
+    /// off a shared field on `GraniteEngineCoordinator`, which any other pass in
+    /// the process could overwrite between the warm ending and this running --
+    /// including a dictation's own warm, which calls the same `ensure_ready`.
     ///
     /// **It must never leave `verifying` behind.** The warm thread has ended by
     /// the time this runs, so nothing is verifying, whatever happened. A warm

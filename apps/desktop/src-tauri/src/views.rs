@@ -928,27 +928,31 @@ fn start_dictation(app: &tauri::AppHandle, session_id: SessionId) -> Result<(), 
         );
         return Err("dictation_still_finishing");
     }
-    // Refused while the launch warm is hashing the model, for the same reason
-    // and in the same place: this is the single implementation behind both the
-    // shortcut and the dock's button, so a refusal that lived in only one of
-    // them would be two answers to one question -- which is exactly how
-    // `can_start` came to refuse a press the shortcut accepted.
+    // Everything standing between this machine and a dictation, asked once,
+    // through the function the dock's `setup_requirement` also calls. This
+    // refusal used to be a local copy that knew only about `model_verifying`,
+    // so the dock refused a machine below the 8 GiB memory floor -- or with no
+    // worker binary, or a quarantined engine -- and the shortcut accepted the
+    // press, recorded up to two minutes and reported the failure afterwards.
+    // Two statements of one rule is exactly how `can_start` came to refuse a
+    // press the shortcut accepted.
     //
-    // `setup_requirement` reports `model_verifying` to the dock, which disables
-    // the button and says what is happening; this is the shortcut's half of the
-    // same fact. Bounded by the warm: `settle_after_warm` runs unconditionally
-    // when the warm thread's work is done, so this cannot latch.
-    if app
+    // Before capture begins, which is the whole point: "Refusing at `begin`,
+    // before a sample is captured, is the same answer at the only useful
+    // moment." Bounded, not latching -- `settle_after_warm` runs unconditionally
+    // when the warm thread's work is done.
+    let model_state = app
         .try_state::<ModelCoordinator>()
-        .is_some_and(|models| models.status_snapshot().state == "verifying")
-    {
-        log_event_for_session(
-            app,
-            session_id,
-            "dictation_start",
-            &[("result", "model_verifying")],
-        );
-        return Err("model_verifying");
+        .map(|models| models.status_snapshot().state);
+    if let Some(reason) = dictation_blocker(
+        model_state.as_deref(),
+        app.try_state::<GraniteEngineCoordinator>()
+            .map(|granite| granite.warm_state()),
+        app.try_state::<CaptureWizardCoordinator>()
+            .map(|capture| capture.has_supported_microphone()),
+    ) {
+        log_event_for_session(app, session_id, "dictation_start", &[("result", reason)]);
+        return Err(reason);
     }
     let device_id = hotkey_capture_device(app)?;
     let capture = app.state::<CaptureWizardCoordinator>();
