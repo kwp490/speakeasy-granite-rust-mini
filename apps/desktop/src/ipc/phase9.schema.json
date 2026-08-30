@@ -26,11 +26,6 @@
       "window": "main",
       "mutates": true
     },
-    "history_list": {
-      "response": "TranscriptResult[]",
-      "window": "main",
-      "mutates": false
-    },
     "history_export": {
       "response": "file_name",
       "window": "main",
@@ -41,11 +36,6 @@
       "window": "main",
       "mutates": true
     },
-    "startup_status_view": {
-      "response": "boolean",
-      "window": "main",
-      "mutates": false
-    },
     "startup_configure": {
       "response": "ProfileView",
       "window": "main",
@@ -55,16 +45,6 @@
       "response": "CredentialStatusView",
       "window": "main",
       "mutates": false
-    },
-    "import_preview": {
-      "response": "ImportPreview|null",
-      "window": "main",
-      "mutates": false
-    },
-    "import_commit": {
-      "response": "ImportReport",
-      "window": "main",
-      "mutates": true
     },
     "reset_preview": {
       "response": "ResetPreviewView",

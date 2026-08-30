@@ -339,22 +339,6 @@ fn recording_feedback_configure(
 }
 
 #[tauri::command]
-fn history_list(
-    window: tauri::WebviewWindow,
-    history: tauri::State<'_, HistoryCoordinator>,
-) -> Result<Vec<TranscriptResult>, &'static str> {
-    require_main_window(&window)?;
-    history
-        .repository
-        .lock()
-        .map_err(|_| "history_state_unavailable")?
-        .as_ref()
-        .map_or(Ok(Vec::new()), |repository| {
-            repository.list(100).map_err(|_| "history_read_failed")
-        })
-}
-
-#[tauri::command]
 fn history_export(
     window: tauri::WebviewWindow,
     history: tauri::State<'_, HistoryCoordinator>,
@@ -421,14 +405,6 @@ fn history_delete_all(
 }
 
 #[tauri::command]
-fn startup_status_view(window: tauri::WebviewWindow) -> Result<bool, &'static str> {
-    require_main_window(&window)?;
-    startup_status()
-        .map(|status| status.enabled)
-        .map_err(|_| "startup_status_unavailable")
-}
-
-#[tauri::command]
 fn startup_configure(
     window: tauri::WebviewWindow,
     profile: tauri::State<'_, ProfileCoordinator>,
@@ -473,86 +449,6 @@ const fn credential_source_code(source: LegacyCredentialSource) -> &'static str 
         LegacyCredentialSource::AccessDenied => "access_denied",
         LegacyCredentialSource::Unavailable => "unavailable",
     }
-}
-
-#[tauri::command]
-fn import_preview(
-    window: tauri::WebviewWindow,
-    state: tauri::State<'_, ImportCoordinator>,
-) -> Result<Option<ImportPreview>, &'static str> {
-    require_main_window(&window)?;
-    let Some(root) = ProductionImportRoot::detect().map_err(|_| "v1_source_invalid")? else {
-        return Ok(None);
-    };
-    // Source fingerprints protect preview and commit. Avoid searching PATH for
-    // a process-list helper merely to add a best-effort warning.
-    let running = false;
-    let plan = ProductionImportPlan::inspect(root, running).map_err(|_| "v1_preview_failed")?;
-    let preview = plan.preview().clone();
-    *state
-        .plan
-        .lock()
-        .map_err(|_| "v1_import_state_unavailable")? = Some(plan);
-    Ok(Some(preview))
-}
-
-#[tauri::command]
-fn import_commit(
-    window: tauri::WebviewWindow,
-    state: tauri::State<'_, ImportCoordinator>,
-    personalization: tauri::State<'_, PersonalizationCoordinator>,
-    operations: tauri::State<'_, OperationCoordinator>,
-    nonce: String,
-    choices: ImportChoices,
-) -> Result<ImportReport, &'static str> {
-    require_main_window(&window)?;
-    operations.begin(ExclusiveOperation::StorageMigration)?;
-    let result = state
-        .plan
-        .lock()
-        .map_err(|_| "v1_import_state_unavailable")?
-        .as_ref()
-        .ok_or("v1_preview_required")?
-        .commit(&state.destination, &nonce, &choices)
-        .map_err(|_| "v1_import_failed")
-        .and_then(|report| {
-            if choices.presets {
-                let presets_root = state.destination.join("config/presets");
-                let mut imported_terms = Vec::new();
-                if presets_root.is_dir() {
-                    let entries =
-                        fs::read_dir(&presets_root).map_err(|_| "v1_profile_vocabulary_failed")?;
-                    for entry in entries.take(256) {
-                        let path = entry.map_err(|_| "v1_profile_vocabulary_failed")?.path();
-                        if path.extension().is_none_or(|extension| extension != "json") {
-                            continue;
-                        }
-                        let bytes = fs::read(&path).map_err(|_| "v1_profile_vocabulary_failed")?;
-                        if bytes.len() > 1_048_576 {
-                            return Err("v1_profile_vocabulary_failed");
-                        }
-                        let preset: serde_json::Value = serde_json::from_slice(&bytes)
-                            .map_err(|_| "v1_profile_vocabulary_failed")?;
-                        let name = path
-                            .file_stem()
-                            .and_then(|value| value.to_str())
-                            .ok_or("v1_profile_vocabulary_failed")?;
-                        imported_terms.extend(extract_v1_protected_terms(name, &preset, "en-US"));
-                    }
-                }
-                personalization
-                    .repository
-                    .lock()
-                    .map_err(|_| "personalization_state_unavailable")?
-                    .add_imported_terms(imported_terms)
-                    .map_err(|_| "v1_profile_vocabulary_failed")?;
-            }
-            Ok(report)
-        });
-    if let Ok(mut arbiter) = operations.arbiter.lock() {
-        let _ = arbiter.finish(ExclusiveOperation::StorageMigration);
-    }
-    result
 }
 
 #[tauri::command]

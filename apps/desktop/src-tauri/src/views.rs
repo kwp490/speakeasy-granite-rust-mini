@@ -49,11 +49,9 @@ use speakeasy_models::{
 };
 use speakeasy_storage::{
     ActivationHotkeyMode, DEFAULT_ACTIVATION_HOTKEY, HistoryPolicy, HistoryRepository,
-    HudDockEdge, HudDockPlacement, ImportChoices, ImportPreview,
-    ImportReport, PersonalizationRepository, ProductionImportPlan,
-    ProductionImportRoot, ResultProvenance, SafeDeliveryPreference, Settings,
-    SettingsStore, TranscriptResult, WritingRulePreferences,
-    clear_pending_update_after_health_checks, extract_v1_protected_terms,
+    HudDockEdge, HudDockPlacement, PersonalizationRepository, ResultProvenance,
+    SafeDeliveryPreference, Settings, SettingsStore, TranscriptResult,
+    WritingRulePreferences, clear_pending_update_after_health_checks,
 };
 use speakeasy_transforms::{
     BoundaryPolicy, CasePolicy, DictionaryEntry, DictionaryOrigin, DictionarySet,
@@ -69,7 +67,7 @@ use speakeasy_windows::{
     ClipboardWriter, CommitWriter, Confirmation,
     LegacyCredentialSource, ProcessWorkerClient, TargetObserver, WindowsCredentialManager,
     append_diagnostics_line, confirm_destructive_action, migrate_legacy_startup,
-    redact_diagnostic_text, set_startup_with_windows, startup_status,
+    redact_diagnostic_text, set_startup_with_windows,
 };
 use tauri::Emitter;
 use tauri::Manager;

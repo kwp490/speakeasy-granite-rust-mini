@@ -129,7 +129,6 @@ pub fn run() {
         }
         app.manage(personalization);
         app.manage(profile);
-        app.manage(ImportCoordinator::new(&app_root));
         app.manage(WindowsCredentialManager::default());
         app.manage(granite);
         app.manage(DiagnosticsRuntimeCoordinator::default());
@@ -194,14 +193,10 @@ pub fn run() {
         disk_logging_configure,
         delivery_configure,
         recording_feedback_configure,
-        history_list,
         history_export,
         history_delete_all,
-        startup_status_view,
         startup_configure,
         credential_status,
-        import_preview,
-        import_commit,
         reset_preview,
         reset_commit,
         diagnostics_status,

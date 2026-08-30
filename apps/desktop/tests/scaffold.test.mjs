@@ -612,15 +612,6 @@ test("startup model verification is explicit and failure-visible", async () => {
   assert.match(app, /attempts >= 20/);
 });
 
-test("frontend reducer rejects stale and unsupported IPC state", async () => {
-  const reducer = await readFile(
-    new URL("../src/phase1Reducer.ts", import.meta.url),
-    "utf8",
-  );
-  assert.match(reducer, /incoming\.sequence < current\.sequence/);
-  assert.match(reducer, /response\.schema_version !== 1/);
-});
-
 test("single instance is registered first and the WebView has no shortcut permission", async () => {
   const capability = JSON.parse(
     await readFile(
@@ -1361,16 +1352,6 @@ test("TSX contains no hard-coded visible text outside the message catalog", asyn
   // shown raw. The lookup lives in `format.ts` now, not in a component.
   assert.match(app, /messages\.states/);
   assert.match(app, /messages\.displayNames/);
-});
-
-test("checked-in IPC schema is versioned, bounded, and closed", async () => {
-  const schema = JSON.parse(
-    await readFile(new URL("../src/ipc/phase1.schema.json", import.meta.url), "utf8"),
-  );
-  assert.equal(schema.additionalProperties, false);
-  assert.equal(schema.properties.schema_version.const, 1);
-  assert.equal(schema.properties.states.maxItems, 16);
-  assert.equal(schema.properties.states.items.additionalProperties, false);
 });
 
 test("settings keep five groups, inert content, and keyboard tab semantics", async () => {

@@ -100,24 +100,6 @@ export type ProfileStatus = {
   preferred_capture_device_id: string | null;
 };
 
-export type ImportPreview = {
-  nonce: string;
-  source_fingerprint: string;
-  settings_available: boolean;
-  preset_names: string[];
-  warnings: string[];
-  running_v1: boolean;
-};
-
-export type CollisionPolicy = "keep_v2" | "replace_from_v1" | "rename_v1";
-
-export type ImportReport = {
-  source_fingerprint: string;
-  settings_written: boolean;
-  presets_written: number;
-  collisions_resolved: string[];
-};
-
 export type DiagnosticsStatus = {
   schema_version: number;
   engine: string;

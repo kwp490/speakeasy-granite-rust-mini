@@ -1311,12 +1311,6 @@ fn append_diagnostics_log(root: &Path, line: &str) -> std::io::Result<()> {
     append_diagnostics_line(&path, line)
 }
 
-#[derive(Debug)]
-pub struct ImportCoordinator {
-    destination: PathBuf,
-    plan: Mutex<Option<ProductionImportPlan>>,
-}
-
 pub struct HistoryCoordinator {
     database_path: PathBuf,
     export_root: PathBuf,
@@ -1394,15 +1388,6 @@ impl HistoryCoordinator {
         repository
             .record(result)
             .map_err(|_| "history_write_failed")
-    }
-}
-
-impl ImportCoordinator {
-    fn new(root: &std::path::Path) -> Self {
-        Self {
-            destination: root.join("migration"),
-            plan: Mutex::new(None),
-        }
     }
 }
 

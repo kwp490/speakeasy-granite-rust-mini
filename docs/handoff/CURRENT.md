@@ -2722,13 +2722,14 @@ this:
   opens to find out what the app is running. Six coordinators stand behind
   `diagnostics_status` alone, which makes it the read most exposed to the race.
 
-**Cleared, with the reason:** `session_transcript_log`, `capture_level`,
-`capture_wizard_status` and `capture_hud_status` are all read on an interval, so
-the first refusal costs one tick and the next one heals it. `capture_devices` and
-`startup_status_view` take no `State`. `model_install_status` resolves its own
-coordinator with `try_state` and returns `verifying` when it is absent, so it
-cannot be refused this way. `history_list` and `startup_status_view` are
-registered and never invoked from the frontend at all.
+**Cleared, with the reason:** `capture_level`, `capture_wizard_status` and
+`capture_hud_status` are all read on an interval, so the first refusal costs one
+tick and the next one heals it. `session_transcript_log` reads on an event now
+and carries its own retry. `capture_devices` takes no `State`.
+`model_install_status` resolves its own coordinator with `try_state` and returns
+`verifying` when it is absent, so it cannot be refused this way. `history_list`
+and `startup_status_view` were registered and never invoked from the frontend at
+all; both were deleted rather than cleared.
 
 #### The reported symptom had a second cause, and it is the one that reproduced
 
