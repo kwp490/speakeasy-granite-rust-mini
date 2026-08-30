@@ -156,6 +156,41 @@ found in another file with another command. The scaffold suite now derives the
 hazard from the Rust signatures and scans every `useEffect` in the tree — see
 "Automated checks".
 
+### The transcript list reads on an event, and what a deletion takes
+
+The Transcript log page and the pinned log window are the one surface that reads
+neither on an interval nor once: they read when `transcript-log-changed` says the
+list moved. A poll would be 40 IPC calls a minute from two windows to report a
+list that changes a few times an hour.
+
+Losing the interval removes the thing that healed every mistake on the next tick,
+so three ordering rules replace it and all three are proved by deferred-promise
+component tests:
+
+- **Subscribe, then snapshot.** The first read is issued from `listen`'s
+  resolution. `listen` attaches its handler asynchronously, so a read issued
+  first leaves a gap in which the list can change with nobody subscribed — the
+  answer in flight predates the change, the event reaches no handler, and with no
+  next tick coming the window renders a stale list for the life of the process.
+- **One read in flight.** Events arriving during a read set a flag rather than
+  issuing a second read; the read that settles issues exactly one follow-up
+  however many events it coalesced. Concurrent reads can answer out of order and
+  the loser overwrites the newer list.
+- **An invalidated answer is discarded.** A read that was outstanding when an
+  event arrived describes a list already known to have changed, so it is dropped
+  rather than rendered on the way to the follow-up.
+
+**Deleting the saved transcripts removes what was restored from disk and keeps
+what this run produced.** The list is in memory but is seeded at launch from the
+optional history, so it holds entries of two origins and only one of them is a
+view of the database. Leaving a seeded entry would tell a user a deleted
+transcript still exists — and leave it copyable in the window they deleted it
+from. Removing a current-process entry would be worse: a secure-target dictation
+is refused persistence by design and an undelivered transcript is recoverable
+from this list alone, so for both of them this list is the only copy, and
+emptying it would destroy a transcript in answer to a request about what is on
+disk. `sessionLogDetail` states both halves, because a user can infer neither.
+
 ### The active provider is the device, never the pack
 
 Settings → Transcription discloses what dictation runs on. It reads the **device

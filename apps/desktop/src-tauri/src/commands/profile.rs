@@ -406,14 +406,16 @@ fn history_delete_all(
         .delete_all()
         .map_err(|_| "history_delete_failed")?;
     *slot = HistoryRepository::open(&history.database_path, policy).ok();
-    // The listed transcripts go with the stored ones. The list is seeded at
-    // launch from this database, so deleting the rows and leaving the list alone
-    // told the user their transcripts were gone while they were still readable
-    // and copyable in the window they deleted them from.
+    // The entries seeded from this database go with the rows; the ones this run
+    // produced stay. Leaving a seeded entry listed would say a deleted
+    // transcript still exists, and it would still be copyable from the window
+    // the user deleted it in. Dropping a current-process entry would destroy the
+    // only copy of a secure-target or undelivered transcript in answer to a
+    // request about what is on disk.
     //
     // After the deletion, so a failed delete leaves the list describing what is
     // still on disk.
-    session_log.clear();
+    session_log.clear_seeded_history();
     notify_transcript_log_changed(&app);
     Ok(())
 }

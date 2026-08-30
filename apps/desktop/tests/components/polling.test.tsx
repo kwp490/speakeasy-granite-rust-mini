@@ -20,6 +20,8 @@ const backend = vi.hoisted(() => ({
 const events = vi.hoisted(() => ({
   handlers: new Map<string, Set<() => void>>(),
   unlistened: 0,
+  /** Held open by a test that needs `listen` to resolve late; see the mock. */
+  attach: null as { promise: Promise<void>; resolve: (value: void) => void } | null,
   emit(name: string) {
     for (const handler of events.handlers.get(name) ?? []) handler();
   },
@@ -32,16 +34,27 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (command: string, args?: Record<string, unknown>) => backend.invoke(command, args),
 }));
 
+/**
+ * Registration is asynchronous, and the handler is attached when it completes —
+ * not when `listen` is called.
+ *
+ * Both halves match Tauri and both are load-bearing. The gap between calling
+ * `listen` and being subscribed is where an event has nobody to reach, so a mock
+ * that registers synchronously cannot express a lost one. `events.attach` holds
+ * that gap open for a test that needs to fire an event inside it; left null it
+ * closes on the next microtask.
+ */
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: (name: string, handler: () => void) => {
-    const set = events.handlers.get(name) ?? new Set();
-    set.add(handler);
-    events.handlers.set(name, set);
-    return Promise.resolve(() => {
-      set.delete(handler);
-      events.unlistened += 1;
-    });
-  },
+  listen: (name: string, handler: () => void) =>
+    (events.attach?.promise ?? Promise.resolve()).then(() => {
+      const set = events.handlers.get(name) ?? new Set();
+      set.add(handler);
+      events.handlers.set(name, set);
+      return () => {
+        set.delete(handler);
+        events.unlistened += 1;
+      };
+    }),
 }));
 
 function install(double: InvokeDouble) {
@@ -53,6 +66,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   events.handlers.clear();
   events.unlistened = 0;
+  events.attach = null;
 });
 
 afterEach(() => {
@@ -123,6 +137,163 @@ test("unmounting the transcript list removes its listener", async () => {
   await settle();
   expect(events.count(TRANSCRIPT_LOG_CHANGED)).toBe(0);
   expect(events.unlistened).toBe(1);
+});
+
+/** One listed transcript, as `session_transcript_log` answers it. */
+function transcript(id: string, text: string) {
+  return { id, text, provenance: "finalized_stream", recorded_unix_ms: 1_700_000_000_000 };
+}
+
+/**
+ * Holds `session_transcript_log` open, one call at a time, so a test decides
+ * when each read stops being outstanding.
+ *
+ * `answer` settles the nth read, counting from zero in call order. A read beyond
+ * the staged ones resolves to the empty list rather than hanging, so a read the
+ * test did not plan for cannot be mistaken for one it is holding.
+ */
+function stagedReads(count: number) {
+  const double = install(invokeDouble({ session_transcript_log: [] }));
+  const staged = Array.from({ length: count }, () => deferred<unknown>());
+  backend.invoke = (command, args) => {
+    if (command !== "session_transcript_log") return double.invoke(command, args);
+    double.calls.push({ command, args });
+    return staged[double.count(command) - 1]?.promise ?? Promise.resolve([]);
+  };
+  const answer = (nth: number, entries: ReturnType<typeof transcript>[]) => {
+    const read = staged[nth];
+    if (read === undefined) throw new Error(`read ${nth} was not staged`);
+    read.resolve(entries);
+  };
+  return { double, answer };
+}
+
+/**
+ * A change between mounting and being subscribed reaches the window.
+ *
+ * The read was issued before `listen` resolved, so the answer already in flight
+ * predated the change and the event that announced it reached no handler. With
+ * nothing else scheduled — the poll that used to heal this on its next tick is
+ * gone — the window rendered a stale list for the life of the process.
+ *
+ * Subscribing first makes the unsubscribed gap carry no reads, so there is no
+ * answer for an event to invalidate.
+ */
+test("an update between mount and subscription is not lost", async () => {
+  const attach = deferred<void>();
+  events.attach = attach;
+  const double = install(invokeDouble({ session_transcript_log: [] }));
+  render(<TranscriptLog />);
+  await settle();
+  expect(double.count("session_transcript_log")).toBe(0);
+
+  // A transcript lands while nobody is subscribed. The event reaches no handler,
+  // which is exactly the wakeup that used to be lost.
+  double.answer("session_transcript_log", [transcript("t-1", "spoken while subscribing")]);
+  events.emit(TRANSCRIPT_LOG_CHANGED);
+
+  attach.resolve();
+  await settle();
+  expect(double.count("session_transcript_log")).toBe(1);
+  expect(screen.getByText("spoken while subscribing")).toBeDefined();
+});
+
+/**
+ * Events arriving during a read coalesce into exactly one follow-up, and the
+ * window ends on the fresh list.
+ *
+ * A read per event would let two answers race and the loser overwrite the
+ * winner; ignoring them would leave the outstanding read's already-stale answer
+ * standing.
+ */
+test("an event during an outstanding read produces one fresh follow-up", async () => {
+  const { double, answer } = stagedReads(2);
+  render(<TranscriptLog />);
+  await settle();
+  expect(double.count("session_transcript_log")).toBe(1);
+
+  // Three events against one outstanding read.
+  for (let i = 0; i < 3; i += 1) events.emit(TRANSCRIPT_LOG_CHANGED);
+  await settle();
+  expect(double.count("session_transcript_log")).toBe(1);
+
+  answer(0, [transcript("t-1", "the answer that was already stale")]);
+  await settle();
+  expect(double.count("session_transcript_log")).toBe(2);
+
+  answer(1, [transcript("t-2", "the list as it now stands")]);
+  await settle();
+  expect(screen.getByText("the list as it now stands")).toBeDefined();
+  expect(screen.queryByText("the answer that was already stale")).toBeNull();
+
+  // And it stops there: three events, one follow-up, no tail of reads.
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(double.count("session_transcript_log")).toBe(2);
+});
+
+/**
+ * An answer invalidated while outstanding never reaches the screen.
+ *
+ * It describes the list as it was before the event that superseded it, so
+ * rendering it on the way to the follow-up shows the user a list that is already
+ * known to be wrong — and if the follow-up is slow, shows it for as long as the
+ * follow-up takes.
+ */
+test("an older response cannot overwrite a newer list", async () => {
+  const { double, answer } = stagedReads(3);
+  render(<TranscriptLog />);
+  await settle();
+
+  answer(0, [transcript("t-1", "the list as it stands")]);
+  await settle();
+  expect(screen.getByText("the list as it stands")).toBeDefined();
+
+  // A second read, invalidated by a further event while it is outstanding.
+  events.emit(TRANSCRIPT_LOG_CHANGED);
+  await settle();
+  expect(double.count("session_transcript_log")).toBe(2);
+  events.emit(TRANSCRIPT_LOG_CHANGED);
+  await settle();
+
+  answer(1, [transcript("t-0", "an answer overtaken in flight")]);
+  await settle();
+  expect(screen.queryByText("an answer overtaken in flight")).toBeNull();
+  expect(screen.getByText("the list as it stands")).toBeDefined();
+
+  answer(2, [transcript("t-2", "the list after both changes")]);
+  await settle();
+  expect(screen.getByText("the list after both changes")).toBeDefined();
+});
+
+/**
+ * Unmounting mid-read detaches the listener and lands nothing on the dead tree.
+ *
+ * The read outstanding at unmount still settles, and its `.finally` is what
+ * issues a follow-up — so a cleanup that only unsubscribed would leave a
+ * coalesced event re-reading, and setting state, after the component was gone.
+ */
+test("unmounting during a read removes the listener and updates nothing", async () => {
+  const { double, answer } = stagedReads(2);
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  const view = render(<TranscriptLog />);
+  await settle();
+  expect(double.count("session_transcript_log")).toBe(1);
+  events.emit(TRANSCRIPT_LOG_CHANGED);
+
+  view.unmount();
+  await settle();
+  expect(events.count(TRANSCRIPT_LOG_CHANGED)).toBe(0);
+  expect(events.unlistened).toBe(1);
+
+  answer(0, [transcript("t-1", "answered after the window closed")]);
+  await settle();
+  await vi.advanceTimersByTimeAsync(60_000);
+  // No follow-up read, nothing rendered, and no React complaint about a state
+  // update on an unmounted tree.
+  expect(double.count("session_transcript_log")).toBe(1);
+  expect(screen.queryByText("answered after the window closed")).toBeNull();
+  expect(errors).not.toHaveBeenCalled();
+  errors.mockRestore();
 });
 
 const audioSnapshot = () => ({

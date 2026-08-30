@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
@@ -28,9 +28,10 @@ const TRANSCRIPT_LOG_CHANGED = "transcript-log-changed";
  *
  * 1. **This is not "this session only".** The backing list is in memory but is
  *    seeded at launch from the optional on-disk history, so with retention on it
- *    spans earlier runs. `sessionLogDetail` states that, and states that deleting
- *    the saved transcripts empties this list too — which the backend enforces by
- *    clearing the list inside `history_delete_all`.
+ *    spans earlier runs. `sessionLogDetail` states that, and states what deleting
+ *    the saved transcripts does to this list — the entries restored from disk go,
+ *    the ones this run produced stay, which `clear_seeded_history` enforces
+ *    inside `history_delete_all`.
  * 2. **Copy is backend-owned.** The window sends an id, never text; Rust looks up
  *    the entry and writes the clipboard.
  * 3. **Transcript text is untrusted inert content.** `<pre>` with a `<bdi>`, no
@@ -42,28 +43,7 @@ export function TranscriptLog() {
   const [copyError, setCopyError] = useState("");
 
   /**
-   * Through the retry, because the mount read can lose the startup race.
-   *
-   * `session_transcript_log` takes a `tauri::State`, and both windows that
-   * render this load before `setup` has managed the coordinator -- the pinned
-   * `log` window runs its React tree whether or not it is shown. The poll this
-   * replaced healed that on its next tick; a single event-driven read has no
-   * next tick, so the retry is what takes its place.
-   *
-   * On the event path it costs nothing: `readWithRetry` returns on the first
-   * success.
-   */
-  const reload = useCallback(() => {
-    void readWithRetry<SessionTranscriptEntry[]>("session_transcript_log")
-      .then(setEntries)
-      .catch(() => {
-        // The list is a convenience. A failed read leaves the last known one in
-        // place rather than blanking it, which would look like data loss.
-      });
-  }, []);
-
-  /**
-   * One read on mount, then one read per change.
+   * One read once subscribed, then one read per change, never two at once.
    *
    * This polled every 1.5 s for the life of the process -- about 40 IPC calls a
    * minute with nothing happening, from the `log` window as well as this page,
@@ -71,25 +51,73 @@ export function TranscriptLog() {
    * bursty and rare: almost every one of those calls returned the list it had
    * just returned.
    *
-   * `listen` resolves to the unlisten function asynchronously, so a component
-   * unmounted before it resolves would otherwise leave a listener attached to a
-   * dead tree. `cancelled` covers that window and the returned cleanup covers
-   * the rest.
+   * Three invariants hold the event-driven read together, and none of them was
+   * needed while a next tick was always coming.
+   *
+   * 1. **Subscribe, then snapshot.** The first read is issued from `listen`'s
+   *    resolution, not before it. `listen` attaches the handler asynchronously,
+   *    so a read issued first leaves a window in which the list can change with
+   *    nobody subscribed: the answer already in flight predates the change and
+   *    the event reaches no handler, so the window renders a stale list for the
+   *    life of the process. Subscribing first makes that window carry no reads.
+   * 2. **One read in flight.** A second read issued while one is outstanding can
+   *    answer out of order, and the loser overwrites the newer list. An event
+   *    arriving during a read sets `stale` instead, and the read that settles
+   *    issues exactly one follow-up however many events it coalesced.
+   * 3. **An invalidated answer is discarded.** A read that was outstanding when
+   *    an event arrived describes a list that has already changed, so its answer
+   *    is dropped rather than rendered on the way to the follow-up.
+   *
+   * The read goes through `readWithRetry` because `session_transcript_log` takes
+   * a `tauri::State`, and both windows that render this load before `setup` has
+   * managed the coordinator -- the pinned `log` window runs its React tree
+   * whether or not it is shown. The poll healed a lost race on its next tick; a
+   * single event-driven read has no next tick. On the event path it costs
+   * nothing, since `readWithRetry` returns on the first success.
    */
   useEffect(() => {
     let cancelled = false;
-    reload();
-    const pending = listen(TRANSCRIPT_LOG_CHANGED, () => {
+    let reading = false;
+    let stale = false;
+
+    const read = () => {
       if (cancelled) return;
-      reload();
-    });
+      if (reading) {
+        stale = true;
+        return;
+      }
+      reading = true;
+      stale = false;
+      void readWithRetry<SessionTranscriptEntry[]>("session_transcript_log")
+        .then((next) => {
+          if (!cancelled && !stale) setEntries(next);
+        })
+        .catch(() => {
+          // The list is a convenience. A failed read leaves the last known one
+          // in place rather than blanking it, which would look like data loss.
+        })
+        .finally(() => {
+          reading = false;
+          if (cancelled || !stale) return;
+          stale = false;
+          read();
+        });
+    };
+
+    // `listen` resolves to the unlisten function asynchronously, so a component
+    // unmounted before it resolves would otherwise leave a listener attached to
+    // a dead tree. `cancelled` covers that window and the returned cleanup
+    // covers the rest.
+    const pending = listen(TRANSCRIPT_LOG_CHANGED, read);
+    void pending.then(read);
+
     return () => {
       cancelled = true;
       void pending.then((unlisten) => {
         unlisten();
       });
     };
-  }, [reload]);
+  }, []);
 
   async function copyEntry(id: string) {
     setCopyError("");

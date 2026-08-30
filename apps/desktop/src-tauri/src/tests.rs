@@ -2276,13 +2276,15 @@ mod tests {
     }
 
     /// The listed transcripts span earlier runs while retention is on, and a
-    /// delete-all leaves nothing listed.
+    /// delete-all takes the entries seeded from disk.
     ///
-    /// Both halves of the disclosure `sessionLogDetail` makes. The list used to
-    /// be described as "this session only" while `seed_from_history` filled it
-    /// from disk at every launch, and a delete-all emptied the database while
-    /// leaving those entries readable and copyable in the window the user had
-    /// just deleted them from.
+    /// Both halves of the disclosure `sessionLogDetail` makes. A seeded entry
+    /// left listed after the rows behind it are deleted is readable, and
+    /// copyable, in the window the user deleted them from.
+    ///
+    /// Everything here is seeded, so the whole list goes. What a delete-all must
+    /// *not* take is
+    /// `a_delete_all_keeps_the_transcripts_this_run_produced_including_a_secure_one`.
     ///
     /// A restart is modelled by a fresh coordinator seeded from the same
     /// database, which is exactly what the composition root does at launch.
@@ -2325,11 +2327,11 @@ mod tests {
             );
         }
 
-        // Deleting the stored transcripts empties the list too.
-        session_log.clear();
+        // Deleting the stored transcripts takes the entries seeded from them.
+        session_log.clear_seeded_history();
         assert!(
             session_log.log().expect("log").is_empty(),
-            "nothing may remain listed after the saved transcripts are deleted"
+            "no entry seeded from the saved transcripts may remain listed after they are deleted"
         );
 
         // Retention off: nothing was written, so a relaunch seeds nothing.
@@ -2345,6 +2347,99 @@ mod tests {
         assert!(
             quiet_log.log().expect("log").is_empty(),
             "with retention off the list covers this run only"
+        );
+    }
+
+    /// A delete-all removes what was restored from disk and keeps what this run
+    /// produced, including a transcript that was never storable.
+    ///
+    /// The two origins are only separable with both present, which is the state
+    /// a user is actually in: they launched, some entries were seeded, they
+    /// dictated, then they deleted the saved copy.
+    ///
+    /// The secure-target entry is the one that makes over-deletion data loss
+    /// rather than inconvenience. `persist_delivered_history` refuses to store a
+    /// dictation delivered into a secure target, so this list is the only copy
+    /// that exists; emptying it in answer to a request about the database would
+    /// destroy a transcript the database never held. The same is true of a
+    /// transcript whose delivery was refused, which is recoverable from here
+    /// alone.
+    #[test]
+    fn a_delete_all_keeps_the_transcripts_this_run_produced_including_a_secure_one() {
+        let root = tempfile::tempdir().expect("history root");
+        let history = history_with_persistence(root.path());
+        for session in ["session-a", "session-b"] {
+            assert_eq!(
+                history.persist(&history_row_for(
+                    &transcript_row(session),
+                    DeliveryTarget::Cleared
+                )),
+                Ok(true),
+                "the row must be stored, or the seeded half of this proves nothing"
+            );
+        }
+
+        // Relaunch, then dictate: two seeded entries and three this run made.
+        let session_log = SessionTranscriptCoordinator::default();
+        session_log.seed_from_history(&history.stored(SESSION_TRANSCRIPT_LIMIT));
+        session_log.record(
+            SessionId::from_bytes([1; 16]),
+            "delivered this run",
+            "finalized_stream",
+        );
+        session_log.record(
+            SessionId::from_bytes([2; 16]),
+            "typed into a password field",
+            "finalized_stream",
+        );
+        session_log.record(
+            SessionId::from_bytes([3; 16]),
+            "the paste the target refused",
+            "finalized_stream",
+        );
+        assert_eq!(
+            session_log.log().expect("log").len(),
+            5,
+            "both origins must be listed together, or the filter is untested"
+        );
+
+        session_log.clear_seeded_history();
+
+        let listed = session_log.log().expect("log");
+        let texts: Vec<&str> = listed.iter().map(|entry| entry.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec![
+                "the paste the target refused",
+                "typed into a password field",
+                "delivered this run",
+            ],
+            "every transcript this run produced stays listed, newest first, and nothing else does"
+        );
+
+        // Gone from the list is gone from `copy_payload`, which resolves an id
+        // against it: a seeded entry that stayed copyable would hand back a
+        // transcript the user had just deleted.
+        for id in ["transcript-0", "transcript-1"] {
+            assert_eq!(
+                session_log.copy_payload(id),
+                Err("session_transcript_entry_unavailable"),
+                "{id} was seeded from the deleted rows and must no longer be copyable"
+            );
+        }
+        for entry in &listed {
+            assert!(
+                session_log.copy_payload(&entry.id).is_ok(),
+                "a transcript this run produced stays copyable after the saved copy is deleted"
+            );
+        }
+        assert_eq!(
+            session_log
+                .copy_payload(&listed[1].id)
+                .expect("secure entry")
+                .1,
+            "typed into a password field",
+            "the secure-target transcript is only in this list, so it must survive and resolve"
         );
     }
 

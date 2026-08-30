@@ -221,12 +221,11 @@ export const messages = {
   // Output & Privacy
   // Not "this session's transcripts". The list is seeded at launch from the
   // optional saved history, so with Keep them between sessions on it spans
-  // previous runs -- and the two sentences below are the only place a user can
-  // learn that, or learn that deleting the saved transcripts empties this list
-  // too.
+  // previous runs -- and the sentences below are the only place a user can learn
+  // that, or learn what a deletion does and does not take with it.
   sessionLog: "Recent transcripts",
   sessionLogDetail:
-    "Finished transcripts, newest first. While Keep them between sessions is on, this includes transcripts restored from the saved copy on disk, so it can span earlier runs; deleting the saved transcripts empties this list as well. While it is off, nothing is written to disk and the list covers this run only.",
+    "Finished transcripts, newest first. While Keep them between sessions is on, this includes transcripts restored from the saved copy on disk, so it can span earlier runs; deleting the saved transcripts removes those restored entries, while transcripts from this run of SpeakEasy stay listed here until you close it. While it is off, nothing is written to disk and the list covers this run only.",
   sessionLogEmpty: "Finished transcripts will appear here.",
   sessionLogCount: (count: number) => (count === 1 ? "1 transcript" : `${count} transcripts`),
   copyEntry: "Copy",

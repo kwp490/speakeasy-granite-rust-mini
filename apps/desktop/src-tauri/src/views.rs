@@ -1629,7 +1629,25 @@ pub struct RecoverableResultView {
     retry_available: bool,
 }
 
-/// One authoritative final produced during this run of the app.
+/// Where a listed transcript came from, which decides whether deleting the
+/// saved history may remove it.
+///
+/// Internal: it is not part of `SessionTranscriptEntryView` and never crosses
+/// the IPC boundary. The window renders one list and does not distinguish them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TranscriptOrigin {
+    /// Recorded by `record` during this run. Deleting the saved history does not
+    /// touch it: the user asked to delete what is stored on disk, and a
+    /// transcript produced since launch may never have been written there at all
+    /// -- a secure-target dictation is excluded from the database by design, and
+    /// a refused delivery leaves this list as the only place the text survives.
+    CurrentProcess,
+    /// Adopted by `seed_from_history` at launch. It is a view of a stored row, so
+    /// deleting the stored rows must remove it.
+    SeededHistory,
+}
+
+/// One authoritative final this window lists.
 #[derive(Clone, Debug)]
 struct SessionTranscriptEntry {
     /// Opaque, process-local, and unique per entry. Deliberately not the session
@@ -1640,6 +1658,7 @@ struct SessionTranscriptEntry {
     text: String,
     provenance: &'static str,
     recorded_unix_ms: i64,
+    origin: TranscriptOrigin,
 }
 
 /// Input level for the Audio page's meter. Display-only and non-mutating.

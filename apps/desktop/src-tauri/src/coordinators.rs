@@ -8,8 +8,10 @@
 ///
 /// Two consequences the copy has to carry, because a user cannot infer either:
 /// what is listed may predate this launch, and deleting the persisted history
-/// clears this list too. `clear` is what makes the second one true -- without it
-/// a delete-all emptied the database and left the seeded entries on screen.
+/// removes the entries that came from it. `clear_seeded_history` is what makes
+/// the second one true, and its `TranscriptOrigin` filter is what keeps it from
+/// overreaching: a transcript produced since launch is not stored history, and
+/// some of them were never storable.
 #[derive(Debug, Default)]
 pub struct SessionTranscriptCoordinator {
     entries: Mutex<Vec<SessionTranscriptEntry>>,
@@ -39,6 +41,7 @@ impl SessionTranscriptCoordinator {
                     .as_millis(),
             )
             .unwrap_or(i64::MAX),
+            origin: TranscriptOrigin::CurrentProcess,
         });
         if entries.len() > SESSION_TRANSCRIPT_LIMIT {
             entries.remove(0);
@@ -89,24 +92,34 @@ impl SessionTranscriptCoordinator {
                     | ResultProvenance::Polished => "finalized_stream",
                 },
                 recorded_unix_ms: record.created_unix_ms,
+                origin: TranscriptOrigin::SeededHistory,
             });
         }
     }
 
-    /// Empties the list.
+    /// Drops the entries adopted from the persisted history, and only those.
     ///
-    /// Called when the persisted history is deleted, because most of what is
-    /// listed may have come from it: emptying the database and leaving the
-    /// entries on screen told a user their transcripts were gone while they were
-    /// still readable, and copyable, in the window they had just used to delete
-    /// them.
+    /// Called when the persisted history is deleted. Both halves are load-bearing.
+    ///
+    /// **Seeded entries go**, because they are a view of the rows just deleted:
+    /// leaving them told a user their transcripts were gone while they were still
+    /// readable, and copyable, in the window they had used to delete them. They
+    /// stop being addressable at the same moment, since `copy_payload` resolves an
+    /// id against this list.
+    ///
+    /// **Current-process entries stay**, because deleting the saved copy is not a
+    /// request to discard the transcripts this run produced -- and for two of them
+    /// this list is the only copy that exists. A secure-target dictation is
+    /// refused persistence by design, and a transcript whose delivery was refused
+    /// is recoverable from here alone; emptying the list would destroy both, in
+    /// response to an action about what is on disk.
     ///
     /// Best-effort on a poisoned lock, like `record`. A deletion that could not
-    /// clear the view is still a deletion, and the command reports its own
+    /// update the view is still a deletion, and the command reports its own
     /// failures; refusing here would turn a completed delete into an error.
-    fn clear(&self) {
+    fn clear_seeded_history(&self) {
         if let Ok(mut entries) = self.entries.lock() {
-            entries.clear();
+            entries.retain(|entry| entry.origin == TranscriptOrigin::CurrentProcess);
         }
     }
 
