@@ -1,91 +1,44 @@
-# Handoff — SpeakEasy Mini, as of 2026-08-20 (third session)
+# Handoff — SpeakEasy Mini, as of 2026-08-30
 
 The state of the fork, what is finished, what is not, and the things that will
 cost you an afternoon if you rediscover them yourself.
 
 Read `CLAUDE.md` first. This file assumes it.
 
-> **Picking this up cold?** Items 0, 0b, 1b, 8, 9, 10, 11, 14, 15 and 17 are all
-> **done** — read them for what they found, not for what to do. **Item 3 is the
-> live one**: publishing the CUDA worker, started 2026-08-26 and part-way through.
-> Item 2b is the release, and item 16 is four sentences of copy that item 3 closes
-> on its own.
+> **Picking this up cold? Four things, in order.**
 >
-> The three findings item 0 produced were all closed on 2026-08-21, and two of
-> them were closed by *measuring* rather than reasoning: `cudart64_13.dll` is
-> genuinely never loaded and `cublasLt64_13.dll` genuinely is, both proved by
-> deleting them.
+> **1. There are commits on `main` that have not been pushed.** `git log
+> --oneline origin/main..HEAD` is the count -- five as this was written, four of
+> them code. They were held for review deliberately, not forgotten.
+> `docs/handoff/NEXT-SESSION-PROMPT.md` says what is in them and what the two
+> open review questions are.
 >
-> **Item 1b closed on 2026-08-25 and produced seven findings of its own** — items
-> 11 to 17, of which **14 and 17 were defects** and the rest are a retired risk,
-> two documentation errors and two honest behaviours nobody had written down.
+> **2. The hardware tests have not run against any of them.** Seven tests are
+> `#[ignore]`d and five of those are the only proofs in this repository that
+> touch a real worker process. `GraniteEngineCoordinator::ensure_ready` changed
+> signature twice in those commits and none of them ran. Everything needed to run
+> them is staged on this machine. **This is the first job.**
 >
-> **Items 14 and 17 are closed, and item 11's latent half with them (2026-08-26).**
-> Item 14 turned out to be **two defects on two pages with one symptom**: the
-> refused read it diagnosed, which had never actually been seen and which leaves
-> Advanced showing five headings and *no facts at all* on the shipped build; and a
-> read that succeeds and returns `registration: "pending"` because the shortcut is
-> registered at the end of `setup`, after every eager page has already read. The
-> second is the one that reproduces on every launch, and the original diagnosis
-> would have shipped without fixing the reported symptom. Both are fixed, both
-> measured on a release frontend, and the check that replaces the old one derives
-> the hazard from the Rust signatures instead of naming a command — because the
-> old one was green on the day this was found.
+> **3. Numbered items 0–18 below are history.** Read them for what they found,
+> not for what to do. Items 19–28 are the current state of the areas they name,
+> written as invariants rather than as a diary — the convention changed on
+> 2026-08-30 and `CLAUDE.md` "Conventions" carries it.
 >
-> Item 11's warning is now a test: raising `MAX_CAPTURE_SECONDS` past ~410 s fails
-> the gate until `max_new_tokens` moves with it. The truncation this repository has
-> been hunting since the fork is **unreachable through the hotkey path**, because
-> the capture ceiling caps a dictation at roughly a fifth of the token budget —
-> arithmetic nobody did for months. Item 11.
->
-> **Item 15 closed 2026-08-26** on an owner decision: one dictation at a time,
-> refused rather than queued. The fix is small; the finding is that the dock had
-> refused that press all along and the global shortcut had not, so two controllers
-> disagreed about one key because the rule was stated twice.
->
-> **Item 3 is done and the CUDA worker is published (2026-08-26).** It is on
-> Hugging Face at `orangeblue39/speakeasy-mini-runtime`, pinned in
-> `models/trusted-manifest.json` at an immutable commit, and the whole path from
-> the wizard's radio button to a staged worker in `proof/` is written. The
-> graphics-card option is live: on a capable machine setup now fetches four items
-> instead of one and records `cuda` from the engine check's verdict.
->
-> Read item 3 for what it cost. Four gaps it did not anticipate, none of them
-> visible on this machine without deliberately looking: the installable check
-> asked the *disk*, so pinning alone would have left the option disabled on every
-> fresh machine; the provider radio was never read, so pinning would have enabled
-> a control that decided nothing; staging keyed on disk presence would have handed
-> the card to someone who chose the processor; and the uninstaller would have
-> reported setup's own staged libraries as files it did not place. **Seven tests
-> inverted on the pin**, including one hardcoded artifact count nobody predicted,
-> and `Test-SetupWizard.ps1` had to stop hardcoding `cpu`.
->
-> **`scripts/Enable-GraniteCuda.ps1` is retired (2026-08-26).** Its own header
-> said it "should be retired rather than maintained" once setup fetches a
-> published worker, and setup does. Deleting it cost a **54-reference sweep across
-> 18 files**, and that is the part worth reading: one was *shipped user copy*
-> telling people to run it (`provider_verify_runtime_missing`), one was *shipped
-> data* — the trusted manifest's own `limitations` still said "there is no GPU
-> Granite configuration in this catalog" — and the rest split into legitimate
-> history, which was left alone, and present-tense claims about a script that no
-> longer exists, which were not. Two counts changed as a consequence:
-> `--verify-provider`'s VRAM guard was "the second of two" and is now the only
-> one, and `running_beyond_record` went from a state a script produced on purpose
-> to one that takes a person copying a worker in by hand.
->
-> **`KNOWN_PROOF_ORPHANS` deliberately did *not* retire with it**, against its own
-> note saying the two would go together. That note assumed nobody would still have
-> `granite-worker.cpu.exe`, which is false for every machine the script ran on.
-> Dropping the entry would not leave the file — the second pass takes it either
-> way — it would move it into `removed_unrecognised` and put a question in front
-> of a user about a file this project's own tooling created.
->
-> **Item 18 is a data-loss defect found the hard way during this release**, and it
-> is in 1.6.0 because it was found before the tag. `--keep-user-data` was
-> discarded on the interactive uninstall path, so the page opened with every box
-> ticked and a real profile went — 4.28 GB of weights, the settings and the
-> vocabulary. Read it for the two lessons, one of which is that the first
-> regression test written for it could not have caught a revert.
+> **4. A clean clone of `main` still does not build the Rust workspace**, and it
+> has not been retried. See the entry below; the leading explanation is one
+> untested command away.
+
+## What is open
+
+| | |
+| --- | --- |
+| **Hardware tests unrun** | Five worker-touching proofs, `#[ignore]`d, not run against the last four commits. Inputs are staged; see the next-session prompt |
+| **Unpushed commits** | `git log --oneline origin/main..HEAD`. `origin/main` was at `a34adc3` when this was written |
+| **Clean clone does not build** | `llama-cpp-sys-2` CMake configure. Leading explanation untested — see the entry below |
+| **Model integrity is not execution-time** | The one digest pass runs desktop-side and the worker reopens by path. Item 21. Needs a threat-model decision, not code |
+| **GPU qualification cannot be proved** | `GpuQualificationCoordinator::record` is gone and `qualified` is permanently false. Restoring it needs an `inference_sample_count` nothing at warm time has. Item 24 |
+| **Auto-paste off leaves a history row** | Nothing inspects the foreground on a path that does not deliver, so dictate-then-paste-by-hand into a password field still records. Item 19 |
+
 
 ## Start here
 
