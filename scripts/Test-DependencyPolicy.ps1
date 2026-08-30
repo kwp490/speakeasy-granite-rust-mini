@@ -6,7 +6,12 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 foreach ($requiredFile in @(
     '.cargo/audit.toml', 'Cargo.lock', 'package-lock.json', 'deny.toml',
     'dependency-policy/advisory-allowlist.json', 'dependency-policy/tools.json',
-    'dependency-policy/build-scripts.json'
+    'dependency-policy/build-scripts.json',
+    # Asserted here rather than only in the script that reads it, because a
+    # deleted floors file makes `Test-CoverageFloors.ps1` throw a "missing" that
+    # reads like a broken checkout. This says what it is: a pinned policy file,
+    # in the directory the other pinned policy files live in.
+    'dependency-policy/coverage-floors.json'
 )) {
     if (-not (Test-Path (Join-Path $repositoryRoot $requiredFile))) {
         throw "Required dependency-policy file is missing: $requiredFile"

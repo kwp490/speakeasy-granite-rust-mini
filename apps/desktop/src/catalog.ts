@@ -394,6 +394,12 @@ export const messages = {
     "The last transcript's status could not be read, so it is not shown above. Nothing has been lost — reopen this window to try again.",
   profileUnavailable:
     "Your settings could not be read, so the controls below are showing their defaults rather than your choices. Nothing has been changed — reopen this window to try again.",
+  // The install poll stopped answering. Deliberately a statement about the
+  // *reading* rather than about the model: a poll that cannot be read says
+  // nothing about the pack, and the progress bar above it is now stale rather
+  // than wrong.
+  modelStatusPollUnavailable:
+    "The installation progress above could not be refreshed, so it may be out of date. Reopen this window to check.",
   personalizationSaved: "Personalization saved.",
   personalizationRejected: "The change was rejected. Check conflicts, limits, or forbidden action placeholders.",
   confirmInstall: "Confirm download and local installation",
@@ -652,6 +658,56 @@ export const messages = {
     session_transcript_unavailable: "This session's transcript list could not be read. The transcripts themselves are unaffected.",
     session_transcript_entry_unavailable: "That transcript is no longer in this session's list.",
     profile_recovery_required: "Settings need recovery. Use the local Repair shortcut before changing this profile.",
+    // Everything a settings *write* can refuse with. None of these had copy, so
+    // every one of them rendered "The operation stopped safely" -- and two of
+    // them, `history_delete_failed` and `history_export_failed`, had been
+    // reachable since the day those two buttons got a visible error state. The
+    // rest became reachable when the profile writes, the reset commit, the
+    // install cancel and the three personalization actions stopped dropping
+    // their rejections. A control that reports a failure without naming it is
+    // half the fix: the user knows something went wrong and not what to do.
+    //
+    // The `_state_unavailable` four are all the same startup race, said four
+    // ways because the user is looking at four different pages, and all four
+    // clear on their own: the coordinator is managed a moment later.
+    profile_state_unavailable:
+      "Settings are still starting, so the change was not saved. Try it again in a moment.",
+    history_state_unavailable:
+      "The transcript history is still starting, so the change was not saved. Try it again in a moment.",
+    personalization_state_unavailable:
+      "Personalization is still starting, so the change was not saved. Try it again in a moment.",
+    startup_write_failed:
+      "Windows refused the start-with-Windows setting. It is unchanged. Check whether a policy manages startup apps on this computer.",
+    startup_executable_unavailable:
+      "The app could not find its own program file, so start-with-Windows was not changed. Reinstall SpeakEasy Mini.",
+    // The disclosure gates. Both are the user's to clear, and saying which
+    // control clears them is the whole of the instruction.
+    history_consent_required:
+      "Keeping transcripts on disk needs the plaintext acknowledgement above. Tick it, then save again.",
+    history_export_disclosure_required:
+      "Exporting transcripts writes them in plain text, which needs the acknowledgement above.",
+    history_policy_invalid:
+      "That retention period is outside the allowed range. Choose between 1 and 365 days.",
+    history_delete_failed:
+      "The transcripts could not be deleted and are still on disk. Close any other copy of SpeakEasy Mini and try again.",
+    history_export_failed:
+      "The transcripts could not be written to a file. Check free space and permission on your documents folder.",
+    // The reset is nonce-guarded, so both of these mean the preview the user is
+    // looking at no longer describes what would be removed.
+    reset_preview_required: "Preview the reset again before confirming it.",
+    reset_nonce_invalid:
+      "This reset preview has expired, so nothing was removed. Preview the reset again.",
+    reset_remove_failed:
+      "Part of the reset could not be removed, so it is incomplete. Close any other copy of SpeakEasy Mini and reset again.",
+    personalization_delete_failed:
+      "That entry could not be removed and is still in your dictionary. Try again.",
+    personalization_kind_invalid: "That is not a kind of personalization entry this build knows.",
+    personalization_reset_confirmation_required:
+      "Clearing personalization needs an explicit confirmation.",
+    personalization_reset_failed:
+      "Personalization could not be cleared, so your entries are unchanged. Try again.",
+    personalization_export_failed:
+      "Personalization could not be written to a file. Check free space and permission on your documents folder.",
     history_recovery_required: "Optional history needs recovery. Dictation remains available without history.",
     // Warm states the dock's engine indicator can render. Every one of these is
     // reachable from `GraniteEngineCoordinator::warm_state`, and a code with no

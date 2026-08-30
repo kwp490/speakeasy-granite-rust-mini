@@ -28,4 +28,18 @@ export default tseslint.config(
       "react-hooks/exhaustive-deps": "error",
     },
   },
+  {
+    // The component-test harness declares the shape of the `invoke` it stands in
+    // for, and its default implementation answers every command the same way --
+    // so the parameters are part of the *type* and unused by the body. Scoped to
+    // the tests rather than loosened everywhere: an unused argument in `src/` is
+    // usually a parameter somebody forgot to wire up.
+    files: ["tests/**/*.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
 );

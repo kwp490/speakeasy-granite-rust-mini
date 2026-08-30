@@ -13,6 +13,7 @@ import {
   formatState,
 } from "./format";
 import { readWithRetry } from "./readWithRetry";
+import { useMutation } from "./useMutation";
 import type {
   DiagnosticsStatus,
   GpuStatus,
@@ -92,6 +93,19 @@ export function Transcription() {
   const [personalizationPreview, setPersonalizationPreview] =
     useState<PersonalizationImportPreview | null>(null);
   const [personalizationAction, setPersonalizationAction] = useState("");
+  /** The install poll stopped answering. See the poll's own comment. */
+  const [pollUnavailable, setPollUnavailable] = useState(false);
+  const cancelInstall = useMutation<void>();
+  // Three personalization actions had no rejection handler at all, and these are
+  // the three: an export whose file name went straight into the status line, and
+  // two destructive commands that announced what they had done without waiting
+  // to find out. `resetPersonalization` printed "Deleted" whether or not the
+  // dictionary had been touched -- the same shape as the history delete that was
+  // fixed on 2026-08-29, in the fieldset directly below it. The other four
+  // (`correction_record`, `snippet_save`, and the two import halves) already
+  // caught, and keep their own copy.
+  const exportPersonalization = useMutation<string>();
+  const personalizationWrite = useMutation<PersonalizationStatus>();
 
   useEffect(() => {
     void refreshCatalog();
@@ -153,7 +167,26 @@ export function Transcription() {
       return;
     }
     const timer = window.setInterval(() => {
-      void invoke<ModelInstallStatus>("model_install_status").then(setModelStatus);
+      // With a rejection handler, and a *separate* one. This poll had none: a
+      // refused read was an unhandled promise rejection and the page kept
+      // rendering the last status it got, so an install whose status stopped
+      // being readable sat on "Downloading" with a progress bar and disabled
+      // buttons for the life of the window.
+      //
+      // Deliberately not `setModelStatus({ state: "failed" })`. A poll that
+      // could not be read says nothing about the model, and condemning the pack
+      // on that evidence is the manufactured claim this repository keeps
+      // finding. It says the *status* is unreadable, and clears itself the
+      // moment one arrives.
+      void invoke<ModelInstallStatus>("model_install_status").then(
+        (status) => {
+          setModelStatus(status);
+          setPollUnavailable(false);
+        },
+        () => {
+          setPollUnavailable(true);
+        },
+      );
     }, 750);
     return () => {
       window.clearInterval(timer);
@@ -277,7 +310,11 @@ export function Transcription() {
   }
 
   async function deletePersonalization(kind: "dictionary" | "snippet", id: string) {
-    setPersonalization(await invoke<PersonalizationStatus>("personalization_delete", { kind, id }));
+    const next = await personalizationWrite.run(
+      () => invoke<PersonalizationStatus>("personalization_delete", { kind, id }),
+      () => messages.deleted,
+    );
+    if (next !== null) setPersonalization(next);
   }
 
   async function previewPersonalizationImport() {
@@ -311,11 +348,17 @@ export function Transcription() {
   }
 
   async function resetPersonalization() {
-    setPersonalization(
-      await invoke<PersonalizationStatus>("personalization_reset", { confirmed: true }),
+    const next = await personalizationWrite.run(
+      () => invoke<PersonalizationStatus>("personalization_reset", { confirmed: true }),
+      () => messages.deleted,
     );
+    // "Deleted" only if it was. This printed it unconditionally, over a command
+    // whose rejection it never caught, and cleared the import preview on the way
+    // -- so a refused reset looked identical to one that emptied the dictionary.
+    if (next === null) return;
+    setPersonalization(next);
     setPersonalizationPreview(null);
-    setPersonalizationAction(messages.deleted);
+    setPersonalizationAction("");
   }
 
   return (
@@ -548,11 +591,14 @@ export function Transcription() {
                 {messages.install}
               </button>
               <button
-                disabled={modelStatus.state !== "downloading" && modelStatus.state !== "installing"}
-                onClick={() => void invoke("model_install_cancel")}
+                disabled={
+                  (modelStatus.state !== "downloading" && modelStatus.state !== "installing") ||
+                  cancelInstall.pending
+                }
+                onClick={() => void cancelInstall.run(() => invoke("model_install_cancel"))}
                 type="button"
               >
-                {messages.cancel}
+                {cancelInstall.pending ? messages.working : messages.cancel}
               </button>
               <button
                 className="destructive"
@@ -576,6 +622,17 @@ export function Transcription() {
             {messages.installationFailed} {formatError(modelStatus.error)}
           </p>
         )}
+        {/*
+          A refused cancel, and a poll that stopped answering. Both were silent:
+          the cancel button had no rejection handler, so an install that refused
+          to stop looked exactly like one that did, and the poll dropped its
+          rejection and left the page frozen on the last progress it saw.
+
+          Separate from `installationFailed` above, which is a claim about the
+          *install*. Neither of these is.
+        */}
+        {cancelInstall.error !== null && <p role="alert">{cancelInstall.error}</p>}
+        {pollUnavailable && <p className="warning">{messages.modelStatusPollUnavailable}</p>}
       </section>
 
       <section aria-labelledby="transcription-personalization">
@@ -676,15 +733,29 @@ export function Transcription() {
               {messages.commitPersonalizationImport}
             </button>
             <button
+              disabled={exportPersonalization.pending}
               onClick={() => {
-                void invoke<string>("personalization_export").then(setPersonalizationAction);
+                // The file name is the success message, as it was -- but only
+                // when there is one. `.then(setPersonalizationAction)` with no
+                // rejection handler meant a refused export left whatever the
+                // last action had said standing, beside a button that appeared
+                // to have done nothing.
+                void exportPersonalization.run(
+                  () => invoke<string>("personalization_export"),
+                  (fileName) => fileName,
+                );
               }}
               type="button"
             >
-              {messages.exportPersonalization}
+              {exportPersonalization.pending ? messages.working : messages.exportPersonalization}
             </button>
-            <button className="destructive" onClick={() => void resetPersonalization()} type="button">
-              {messages.resetPersonalization}
+            <button
+              className="destructive"
+              disabled={personalizationWrite.pending}
+              onClick={() => void resetPersonalization()}
+              type="button"
+            >
+              {personalizationWrite.pending ? messages.working : messages.resetPersonalization}
             </button>
           </div>
           {personalizationPreview !== null && (
@@ -696,7 +767,13 @@ export function Transcription() {
               )}
             </p>
           )}
-          <output aria-live="polite">{personalizationAction}</output>
+          <output aria-live="polite">
+            {exportPersonalization.error ??
+              personalizationWrite.error ??
+              exportPersonalization.message ??
+              personalizationWrite.message ??
+              personalizationAction}
+          </output>
         </fieldset>
       </section>
     </>

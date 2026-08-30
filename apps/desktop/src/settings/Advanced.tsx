@@ -9,6 +9,7 @@ import type {
   CredentialStatus,
   DiagnosticsExport,
   DiagnosticsStatus,
+  ProfileStatus,
   ResetPreview,
 } from "./types";
 import type { ProfileController } from "./useProfile";
@@ -35,6 +36,13 @@ export function Advanced({ profile }: { profile: ProfileController }) {
   const [statusUnavailable, setStatusUnavailable] = useState(false);
   const exportDiagnostics = useMutation<DiagnosticsExport>();
   const previewReset = useMutation<ResetPreview>();
+  // The preview got a mutation on 2026-08-29 and the commit did not, which is
+  // the wrong way round: `reset_commit` is the destructive half. It was
+  // `profile.replace(await invoke(...))` with no rejection handler, on a button
+  // in a warning panel -- so a refused reset was an unhandled promise rejection
+  // and a panel that stayed open with nothing said, which reads as a button
+  // that does nothing rather than as a reset that did not happen.
+  const resetCommit = useMutation<ProfileStatus>();
   const [resetPreview, setResetPreview] = useState<ResetPreview | null>(null);
   const [engineAction, setEngineAction] = useState("");
 
@@ -72,8 +80,15 @@ export function Advanced({ profile }: { profile: ProfileController }) {
 
   async function commitReset() {
     if (resetPreview === null) return;
-    profile.replace(await invoke("reset_commit", { nonce: resetPreview.nonce }));
-    setResetPreview(null);
+    const nonce = resetPreview.nonce;
+    const next = await resetCommit.run(() => invoke<ProfileStatus>("reset_commit", { nonce }));
+    // The panel closes only if the reset happened. Closing it either way would
+    // be the `history_delete_all` defect again: the confirmation clears itself
+    // and the refusal looks exactly like a success.
+    if (next !== null) {
+      profile.replace(next);
+      setResetPreview(null);
+    }
   }
 
   const measured = (value: number | null, suffix = "") =>
@@ -310,13 +325,26 @@ export function Advanced({ profile }: { profile: ProfileController }) {
           <div className="warning-panel">
             <p>{resetPreview.categories.map(formatResetCategory).join(", ")}</p>
             <div className="actions">
-              <button className="destructive" onClick={() => void commitReset()} type="button">
-                {messages.resetNow}
+              <button
+                className="destructive"
+                disabled={resetCommit.pending}
+                onClick={() => void commitReset()}
+                type="button"
+              >
+                {resetCommit.pending ? messages.working : messages.resetNow}
               </button>
-              <button onClick={() => setResetPreview(null)} type="button">
+              <button
+                disabled={resetCommit.pending}
+                onClick={() => {
+                  resetCommit.reset();
+                  setResetPreview(null);
+                }}
+                type="button"
+              >
                 {messages.cancel}
               </button>
             </div>
+            <output aria-live="polite">{resetCommit.error}</output>
           </div>
         )}
       </section>

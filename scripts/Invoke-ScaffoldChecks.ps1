@@ -191,7 +191,13 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'cargo-llvm-cov failed.' }
     $coverage = Get-Content -Raw -LiteralPath $coveragePath | ConvertFrom-Json
     $totals = $coverage.data[0].totals
-    Write-Host ("Rust coverage (no threshold): lines {0:N2}% ({1}/{2}), functions {3:N2}% ({4}/{5}), regions {6:N2}% ({7}/{8})" -f `
+    # The workspace figure is reported and not enforced, deliberately: a single
+    # number over ninety-odd files moves for reasons unrelated to what this
+    # project promises, so it can only be set low enough to be meaningless or
+    # high enough to fail on unrelated work. What *is* enforced is a floor per
+    # file over the privacy, delivery and mutation modules -- see
+    # `Test-CoverageFloors.ps1`, below.
+    Write-Host ("Rust coverage (reported; the enforced floors are per file): lines {0:N2}% ({1}/{2}), functions {3:N2}% ({4}/{5}), regions {6:N2}% ({7}/{8})" -f `
         $totals.lines.percent, $totals.lines.covered, $totals.lines.count, `
         $totals.functions.percent, $totals.functions.covered, $totals.functions.count, `
         $totals.regions.percent, $totals.regions.covered, $totals.regions.count)
@@ -199,8 +205,21 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'frontend lint failed.' }
     & npm run typecheck
     if ($LASTEXITCODE -ne 0) { throw 'frontend typecheck failed.' }
+    # `npm test` is both suites: `node --test` over the reducers and the source
+    # scans, then `vitest` over the rendered components. The second one is where
+    # every rule about a control not claiming something it did not do can be
+    # observed at all -- none of it was, before 2026-08-30.
+    #
+    # The component half always runs with coverage: the floors below need a
+    # report, running the suite twice to produce one would double the slowest
+    # part of the frontend gate, and a coverage run that only happens in the
+    # gate is a number a developer cannot reproduce before pushing.
     & npm test
     if ($LASTEXITCODE -ne 0) { throw 'frontend tests failed.' }
+    # Both reports exist by here: `cargo llvm-cov` wrote its JSON above and the
+    # line before wrote vitest's.
+    & (Join-Path $PSScriptRoot 'Test-CoverageFloors.ps1')
+    if ($LASTEXITCODE -ne 0) { throw 'coverage floors failed.' }
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw 'frontend build failed.' }
     & (Join-Path $PSScriptRoot 'Test-DependencyPolicy.ps1')

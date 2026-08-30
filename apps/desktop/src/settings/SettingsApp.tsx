@@ -120,6 +120,20 @@ export function SettingsApp() {
             separate settings are off.
           */}
           {profile.unavailable && <p className="warning">{messages.profileUnavailable}</p>}
+          {/*
+            And a refused *write*, here for the same reason. Every control fed
+            from the profile renders the stored value, so a rejected toggle
+            snaps back and looks like a switch that will not move; before this,
+            nothing anywhere said why, and the rejection was unhandled. One
+            banner rather than six inline messages: it is one document, one
+            write at a time, and the user is looking at whichever page they
+            just touched.
+          */}
+          {profile.write.error !== null && (
+            <p className="warning" role="alert">
+              {profile.write.error}
+            </p>
+          )}
           <section
             aria-labelledby="settings-tab-general"
             hidden={activeGroup !== "general"}

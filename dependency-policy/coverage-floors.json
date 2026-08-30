@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "note": [
+    "Line-coverage floors for the modules that carry privacy, delivery and",
+    "mutation behaviour. A floor, not a target: it may only ever be raised, and",
+    "it is raised deliberately when a change earns it. Enforced by",
+    "scripts/Test-CoverageFloors.ps1, which the local quality gate runs.",
+    "",
+    "Why these files and not a workspace percentage. A single number over 96",
+    "files moves for reasons that have nothing to do with what this project",
+    "promises -- add a struct with a Debug impl and it drifts -- so it can only",
+    "ever be set low enough to be meaningless or high enough to fail on unrelated",
+    "work. These are the files where a regression is a broken promise: whether a",
+    "transcript reaches the right window, whether one into a password field is",
+    "stored, whether a control that refused says so, and whether the model's",
+    "bytes were checked.",
+    "",
+    "Each value is the measured figure at the time it was pinned, rounded down to",
+    "a whole percent. A file named here and absent from the report is a failure,",
+    "not a skip: a floor over something nobody measured guards nothing.",
+    "",
+    "The gate prints the headroom on every run, so raising a floor is a visible",
+    "act rather than something to remember. Raise it when the headroom is real."
+  ],
+  "rust": {
+    "source": "target/coverage/cargo-llvm-cov.json",
+    "pinned_utc": "2026-08-30",
+    "files": {
+      "crates/speakeasy-delivery/src/lib.rs": 96,
+      "crates/speakeasy-delivery/src/live.rs": 97,
+      "crates/speakeasy-storage/src/repository.rs": 93,
+      "crates/speakeasy-storage/src/settings.rs": 90,
+      "crates/speakeasy-worker/src/verdict.rs": 100,
+      "crates/speakeasy-models/src/verify.rs": 95
+    }
+  },
+  "frontend": {
+    "source": "target/coverage/frontend/coverage-summary.json",
+    "pinned_utc": "2026-08-30",
+    "files": {
+      "apps/desktop/src/settings/useMutation.ts": 87,
+      "apps/desktop/src/settings/useProfile.ts": 80,
+      "apps/desktop/src/settings/TranscriptLogPage.tsx": 62,
+      "apps/desktop/src/settings/OutputPrivacy.tsx": 44,
+      "apps/desktop/src/settings/Advanced.tsx": 66,
+      "apps/desktop/src/settings/Transcription.tsx": 43
+    }
+  }
+}

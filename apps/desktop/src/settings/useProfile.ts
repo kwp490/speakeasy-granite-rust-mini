@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { readWithRetry } from "./readWithRetry";
 import type { ProfileStatus, SafeDeliveryPreference } from "./types";
+import { useMutation, type Mutation } from "./useMutation";
 
 /**
  * The profile the General, Output & Privacy and Advanced pages all read.
@@ -23,6 +24,27 @@ export type ProfileController = {
    * are not the user's, presented as though they were.
    */
   unavailable: boolean;
+  /**
+   * The last profile write, so a refused one is *said* rather than merely not
+   * applied.
+   *
+   * Every mutator below was `setProfile(await invoke(...))` with no rejection
+   * handler. Two things followed. The refusal was an unhandled promise
+   * rejection; and because each control is rendered from `profile`, a refused
+   * toggle simply snapped back to its stored value with nothing on screen — the
+   * user sees a switch that will not move and no reason why. That is honest
+   * about the *state* and silent about the *event*, which is the half of the
+   * disclosure rule that is easy to miss: not claiming a success is not the
+   * same as reporting a failure.
+   *
+   * One mutation for all five writers rather than one each, because they write
+   * one document and `useMutation` refuses a second submission while one is in
+   * flight — which is what stops two toggles racing to replace the same
+   * `ProfileView`. `SettingsApp` renders the error once for the whole
+   * workspace, beside the `unavailable` banner and for the same reason: the
+   * profile feeds three pages.
+   */
+  write: Mutation<ProfileStatus>;
   reload: () => void;
   setStartup: (enabled: boolean) => Promise<void>;
   setRecordingFeedback: (enabled: boolean) => Promise<void>;
@@ -73,38 +95,69 @@ export function useProfile(): ProfileController {
 
   useEffect(reload, [reload]);
 
-  const setStartup = useCallback(async (enabled: boolean) => {
-    setProfile(await invoke<ProfileStatus>("startup_configure", { enabled }));
-  }, []);
+  const write = useMutation<ProfileStatus>();
 
-  const setRecordingFeedback = useCallback(async (enabled: boolean) => {
-    setProfile(await invoke<ProfileStatus>("recording_feedback_configure", { enabled }));
-  }, []);
+  /**
+   * Runs one profile write and adopts the result **only if it happened**.
+   *
+   * `run` resolves to `null` on a refusal, so the `!== null` is what keeps a
+   * failed write from replacing the local copy with anything. There is nothing
+   * optimistic to undo, because nothing is applied before the backend answers.
+   */
+  const { run } = write;
+  const configure = useCallback(
+    async (command: () => Promise<ProfileStatus>) => {
+      const next = await run(command);
+      if (next !== null) setProfile(next);
+    },
+    [run],
+  );
 
-  const setDiskLogging = useCallback(async (enabled: boolean) => {
-    setProfile(await invoke<ProfileStatus>("disk_logging_configure", { enabled }));
-  }, []);
+  const setStartup = useCallback(
+    async (enabled: boolean) => {
+      await configure(() => invoke<ProfileStatus>("startup_configure", { enabled }));
+    },
+    [configure],
+  );
 
-  const setDelivery = useCallback(async (preference: SafeDeliveryPreference) => {
-    setProfile(await invoke<ProfileStatus>("delivery_configure", { preference }));
-  }, []);
+  const setRecordingFeedback = useCallback(
+    async (enabled: boolean) => {
+      await configure(() => invoke<ProfileStatus>("recording_feedback_configure", { enabled }));
+    },
+    [configure],
+  );
+
+  const setDiskLogging = useCallback(
+    async (enabled: boolean) => {
+      await configure(() => invoke<ProfileStatus>("disk_logging_configure", { enabled }));
+    },
+    [configure],
+  );
+
+  const setDelivery = useCallback(
+    async (preference: SafeDeliveryPreference) => {
+      await configure(() => invoke<ProfileStatus>("delivery_configure", { preference }));
+    },
+    [configure],
+  );
 
   const setHistory = useCallback(
     async (options: { enabled: boolean; retentionDays: number; disclosureAccepted: boolean }) => {
-      setProfile(
-        await invoke<ProfileStatus>("history_configure", {
+      await configure(() =>
+        invoke<ProfileStatus>("history_configure", {
           enabled: options.enabled,
           retentionDays: options.retentionDays,
           plaintextDisclosureAccepted: options.disclosureAccepted,
         }),
       );
     },
-    [],
+    [configure],
   );
 
   return {
     profile,
     unavailable,
+    write,
     reload,
     setStartup,
     setRecordingFeedback,

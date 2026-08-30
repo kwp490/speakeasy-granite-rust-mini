@@ -3511,6 +3511,60 @@ because the settle read a shared field an unrelated pass had overwritten.
 in the desktop process and the worker reopens the model by path, so it is not an
 execution-time integrity check. Item 21. Needs a threat-model decision.
 
+### 27. Item 8 — the rest of `useMutation`, a component harness, and coverage floors — 2026-08-30
+
+**Ten more actions had no rejection handler**, and the sweep that gave four
+settings actions a visible failure state on 2026-08-29 stopped at four. The
+remaining ones, in the order they matter: the **five profile writers** in
+`useProfile`, each `setProfile(await invoke(...))`, so a refused toggle snapped
+back to its stored value with nothing on screen — honest about the *state* and
+silent about the *event*; **`reset_commit`**, the most destructive command in the
+product, whose preview beside it had had a mutation since that same day; the
+**install cancel**, a bare `void invoke(...)` over a 2.30 GB download the user
+was trying to stop; the **750 ms install poll**, which dropped its rejection and
+left the page frozen mid-download; and **three personalization actions**, one of
+which printed "Deleted" without waiting to find out.
+
+All ten go through `useMutation` now, except the poll — a poll is not a
+user-initiated mutation, and it reports that the *progress* is stale rather than
+that the model failed, because a read that did not arrive is not evidence about
+the bytes on disk.
+
+**Eighteen error codes had no catalog copy**, including `history_delete_failed`
+and `history_export_failed`, which had been reachable since the day those two
+buttons got a visible error state. Every one of them rendered "The operation
+stopped safely" over a control that had just refused. A failure reported without
+being named is half a fix.
+
+**There was no way to observe any of this.** The frontend suite is Node's runner
+over `.ts` modules and source text: it can assert a reducer and it cannot press a
+button, and every rule in this repository about a control not claiming what it
+did not do is a rule about what a *rendered* control does when a command rejects.
+`tests/components/` is vitest over jsdom — 15 tests, all of them proved able to
+fail by restoring the real defect. Two details worth knowing: the `invoke` double
+rejects with a **bare string**, because that is what Tauri hands back for a
+`Result<_, &'static str>` and an `Error` there maps to no catalog entry, so every
+assertion would silently become `errorUnknown`; and an *unanswered* read resolves
+to `undefined`, which a component stores and then dereferences, so a missing stub
+surfaces as a `TypeError` inside a render and reads like a component defect.
+
+**Coverage is now a floor per file**, in `dependency-policy/coverage-floors.json`,
+over the modules that carry privacy, delivery and mutation behaviour. The gate
+reported a workspace percentage and enforced nothing — "no threshold" — which is
+a measurement rather than a guarantee. A single number over ninety-odd files can
+only be set low enough to mean nothing or high enough to fail on unrelated work;
+these twelve files are the ones where a regression is a broken promise. **A file
+named there and absent from the report fails**, and that is the assertion that
+matters most: rename a file or narrow a runner's include list and every floor
+over it silently stops applying while the check goes on printing a pass. Both
+failure modes were proved.
+
+**Open, deliberately:** the floors are a floor, not a self-tightening ratchet.
+One that raises itself goes red on work that had nothing to do with it, and a
+check that fails for reasons the author cannot act on is a check that gets
+commented out. The headroom is printed on every run so raising one is a
+deliberate act with a number in front of it.
+
 ## Mistakes made this session, so they are not repeated
 
 - **A whole crate went red unnoticed.** The manifest trim broke

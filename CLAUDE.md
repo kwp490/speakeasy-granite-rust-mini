@@ -75,6 +75,26 @@ Frontend-only, from `apps/desktop`: `npm run typecheck`, `npm run lint`,
 `npm test`, `npm run build`. Rust: `cargo test -p <crate> --lib`,
 `cargo clippy --all-targets`.
 
+**`npm test` is two suites and they answer different questions.**
+`npm run test:unit` is Node's own runner over `tests/*.test.mjs` — the reducers,
+the level shaping, and the source scans that pin invariants review would miss.
+`npm run test:components` is **vitest over jsdom**, added 2026-08-30, and it is
+the only thing in this repository that can press a button: every rule about a
+control not claiming what it did not do is a rule about what a *rendered*
+control does when a command rejects, and none of it was observable before. Four
+settings actions had shipped with no rejection handler at all under a full green
+suite. Component tests live in `tests/components/*.test.tsx`; the `invoke` double
+is in `fixtures.tsx`, and it rejects with a **bare string** because that is what
+Tauri hands back for a `Result<_, &'static str>` — an `Error` there maps to no
+catalog entry and every assertion silently becomes `errorUnknown`.
+
+Coverage is a **floor per file** over the privacy, delivery and mutation
+modules, pinned in `dependency-policy/coverage-floors.json` and checked by
+`scripts/Test-CoverageFloors.ps1` (which the gate runs). A file named there and
+missing from the report **fails** rather than being skipped — that is how a
+coverage check silently stops guarding anything. The floors only ever go up, and
+the script prints the headroom so raising one is deliberate.
+
 Re-pinning NVIDIA's CUDA redistributables in `models/trusted-manifest.json`,
 which is the enforced requirement list rather than documentation:
 
