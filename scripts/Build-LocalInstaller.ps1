@@ -108,8 +108,11 @@ $payloadSpecs = @(
     @((Join-Path $installerBuild 'release\speakeasy-bootstrapper.exe'), 'speakeasy-bootstrapper.exe', 'bootstrapper'),
     # CPU-only, built with `speakeasy-granite-worker`'s default features -- see
     # Invoke-ProofPackage.ps1. Its GGUF model files are not bundled here, same
-    # as every other ASR pack: they are fetched on demand by Get-Granite.ps1
-    # after install, verified against models/trusted-manifest.json.
+    # as every other ASR pack: setup fetches them when no verified copy is
+    # already on disk, and verifies each against models/trusted-manifest.json.
+    # `Get-Granite.ps1` fetches the same files by the same pins, but it is a
+    # development convenience for staging a dev tree -- production setup uses
+    # the bootstrapper's own download path and never runs it.
     @((Join-Path $installerBuild 'release\speakeasy-granite-worker.exe'), 'proof/granite-worker.exe', 'granite-worker')
 )
 # What the payload actually carries, checked rather than assumed.

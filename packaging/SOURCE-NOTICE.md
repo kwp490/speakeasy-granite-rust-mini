@@ -16,8 +16,14 @@ sherpa-onnx's native runtime beside them; all three left with the streaming
 engine. `speakeasy-granite` compiles llama.cpp directly into the worker, so
 `granite-worker.exe` needs no native library beside it on a CPU install.
 
-Granite's GGUF model files and the CUDA runtime are fetched on demand after
-install and verified by digest, not bundled.
+Granite's GGUF model files are fetched during setup and verified by digest, not
+bundled — on a fresh install, or on any install without an already verified copy
+on disk. A user who chooses the graphics-card configuration also fetches a
+CUDA-built `granite-worker.exe` and the two NVIDIA CUDA redistributables it needs,
+likewise verified by digest and likewise not bundled.
+`packaging/THIRD-PARTY-NOTICES.txt` lists what is embedded and what is downloaded,
+separately.
 
-This artifact is unsigned (no Authenticode code-signing key) and not
-distributed publicly.
+This artifact is unsigned (no Authenticode code-signing key) and may trigger
+Windows SmartScreen. It is publicly distributed, from the project's GitHub
+Releases page, with a `SHA256SUMS` file beside it.

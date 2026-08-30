@@ -12,8 +12,9 @@ the streaming engine when this fork was created, and neither appears in
 
 ## Speech model: Granite Speech 4.1 2B (`granite-speech-4.1-2b-q4_k_m-cpu`)
 
-Not bundled with this installer — fetched on demand and verified against the
-pins below before every use. No model bytes ship inside the installer.
+Not bundled with this installer — fetched during setup when no verified copy
+is already on disk, and verified against the pins below before every use. No
+model bytes ship inside the installer.
 
 - upstream: `ibm-granite/granite-speech-4.1-2b-GGUF`;
 - upstream revision: `8267dad2adc84209b0efd2702ec68a98356125eb`;

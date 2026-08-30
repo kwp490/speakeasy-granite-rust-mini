@@ -394,7 +394,8 @@ impl InstallManager {
     /// made: against accidental corruption the second read is close to
     /// redundant, and against a live tamperer neither read is sufficient --
     /// that wants verification in the worker, or loading from already-verified
-    /// handles. See `CURRENT.md` item 21.
+    /// handles. Open in `docs/handoff/CURRENT.md`, "Model integrity is not an
+    /// execution-time check".
     ///
     /// # Errors
     ///

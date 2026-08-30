@@ -40,9 +40,10 @@ $trustedManifest = Get-Content -Raw -Encoding utf8 (Join-Path $repositoryRoot 'm
 # perfectly correct. Resolving it follows a future swap (Q8_0 to Q4_K_M already
 # happened once, on measurement) instead of pinning a name that goes stale.
 #
-# No model ships inside the installer: the GGUFs are fetched after install and
-# verified against this same manifest. What this build owes is compatibility --
-# the pack must admit the version being shipped, checked below.
+# No model ships inside the installer: setup fetches the GGUFs when no verified
+# copy is already on disk, and verifies them against this same manifest. What
+# this build owes is compatibility -- the pack must admit the version being
+# shipped, checked below.
 $pack = @($trustedManifest.packs | Where-Object { $_.role -eq 'final-asr' -and $_.install_eligible })
 if ($pack.Count -ne 1) {
     throw ("Expected exactly one install-eligible final-asr pack in the trusted " +

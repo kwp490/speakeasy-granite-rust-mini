@@ -2704,3 +2704,179 @@ test("every reason the shared dictation guard returns has catalog copy", async (
     );
   }
 });
+
+/**
+ * The distribution and retention claims the public documents make.
+ *
+ * Every one of these was false in a shipped document. `THIRD-PARTY-NOTICES.txt`
+ * -- which the installer carries -- said a CUDA-built worker had never shipped,
+ * four months after one was published and two months after setup began fetching
+ * it. `SECURITY.md` and `SOURCE-NOTICE.md` described a build made for personal
+ * use rather than public distribution, on a public GitHub Releases page.
+ * `PRIVACY.md` promised that secure targets are excluded from history without
+ * saying that the promise depends on the app having attempted the delivery.
+ *
+ * These are asserted as *source* because nothing else can see them: no build
+ * step compares a notice against the payload, and no test can observe what a
+ * user believes after reading a privacy page.
+ */
+test("the public documents describe the product that is actually distributed", async () => {
+  const read = (path) => readFile(fileURLToPath(new URL(path, import.meta.url)), "utf8");
+  const notices = await read("../../../packaging/THIRD-PARTY-NOTICES.txt");
+  const source = await read("../../../packaging/SOURCE-NOTICE.md");
+  const security = await read("../../../docs/SECURITY.md");
+  const privacy = await read("../../../docs/PRIVACY.md");
+  const userGuide = await read("../../../docs/USER-GUIDE.md");
+
+  // Instrument self-checks. Every assertion below is of the form "this string is
+  // absent", which is also what reading the wrong file returns.
+  for (const [name, text] of [
+    ["THIRD-PARTY-NOTICES.txt", notices],
+    ["SOURCE-NOTICE.md", source],
+    ["SECURITY.md", security],
+    ["PRIVACY.md", privacy],
+    ["USER-GUIDE.md", userGuide],
+  ]) {
+    assert.ok(text.length > 400, `self-check: ${name} is too short to be the real file`);
+  }
+
+  // 1. Nothing may claim the build is not publicly distributed. It is, from
+  //    GitHub Releases, and a reader who believes otherwise misjudges every
+  //    other risk the same document describes.
+  for (const [name, text] of [
+    ["THIRD-PARTY-NOTICES.txt", notices],
+    ["SOURCE-NOTICE.md", source],
+    ["SECURITY.md", security],
+  ]) {
+    assert.doesNotMatch(
+      text,
+      /not (?:public|publicly distributed|distributed publicly)|rather than public distribution|for (?:local, )?personal use, not public/i,
+      `${name} must not claim the build is unpublished`,
+    );
+  }
+
+  // 2. The notices must separate what ships inside the installer from what setup
+  //    fetches, and must not say a CUDA worker has never shipped.
+  assert.match(notices, /^Embedded in the installer$/m);
+  assert.match(notices, /^Downloaded by setup$/m);
+  assert.doesNotMatch(
+    notices,
+    /never shipped|CPU build only\)/i,
+    "the CUDA worker is published and fetched; the notices may not deny it",
+  );
+  assert.match(
+    notices,
+    /NVIDIA CUDA Toolkit EULA/,
+    "the downloaded CUDA components must name the terms they are published under",
+  );
+
+  // 3. The secure-target exclusion is real but conditional, and both halves have
+  //    to be stated. `NotAttempted` permits history by design, so a transcript
+  //    the user pastes somewhere sensitive by hand is kept.
+  for (const [name, text] of [
+    ["PRIVACY.md", privacy],
+    ["USER-GUIDE.md", userGuide],
+  ]) {
+    assert.match(
+      text,
+      /automatic paste|auto-paste/i,
+      `${name} must say that the history exclusion depends on delivery being attempted`,
+    );
+    assert.doesNotMatch(
+      text,
+      /secure targets are always excluded/i,
+      `${name} must not state the exclusion unconditionally`,
+    );
+  }
+
+  // 4. The recent-transcripts list is seeded from history, so it can outlive the
+  //    process that made its entries. A user cannot infer that.
+  assert.match(
+    privacy,
+    /earlier runs/,
+    "PRIVACY.md must say the transcript list can span earlier runs",
+  );
+
+  // 5. Turning history off is the recommendation, because it is the only setting
+  //    that holds on every path. Auto-paste is not the safer configuration in
+  //    general -- it hands the text to whatever holds the foreground when a
+  //    transcription finishes, which on a slow one is not necessarily the window
+  //    the user started in.
+  for (const [name, text] of [
+    ["PRIVACY.md", privacy],
+    ["USER-GUIDE.md", userGuide],
+  ]) {
+    assert.match(
+      text,
+      /turn persisted history off|turn.{0,40}history off/i,
+      `${name} must recommend turning history off for sensitive dictation`,
+    );
+    assert.doesNotMatch(
+      text,
+      /leave auto-paste on so|leave automatic paste on, or/i,
+      `${name} must not present auto-paste as the generally safer configuration`,
+    );
+  }
+
+  // 6. SmartScreen behaviour is not promised in either direction. "Will warn"
+  //    and "has no reputation" are both claims about Microsoft's telemetry that
+  //    this project cannot make and that go stale silently.
+  for (const [name, text] of [
+    ["THIRD-PARTY-NOTICES.txt", notices],
+    ["SOURCE-NOTICE.md", source],
+    ["SECURITY.md", security],
+    ["README.md", await read("../../../README.md")],
+    ["USER-GUIDE.md", userGuide],
+  ]) {
+    assert.doesNotMatch(
+      text,
+      /no SmartScreen reputation|SmartScreen will warn/i,
+      `${name} must say SmartScreen *may* warn, not assert what it will do`,
+    );
+  }
+
+  // 7. The desktop digest pass is not an execution-time check, and SECURITY.md
+  //    is where a reader goes to find that out. Both halves have to be there:
+  //    stating only what it protects against is the claim that was too strong.
+  assert.match(
+    security,
+    /reopens the files itself|checking presence rather than digests/,
+    "SECURITY.md must state that the worker reopens by path after the check",
+  );
+});
+
+/**
+ * The handoff does not state where the branch stands relative to the remote.
+ *
+ * It said `main` was pushed. That is true until the next commit, and a reader
+ * who believes it skips the one command that would have told them otherwise --
+ * which is how four commits sat unpushed behind a file claiming they were not.
+ * Push state is a question for git, not a sentence in a document.
+ */
+test("the handoff sends the reader to git for the branch state", async () => {
+  const read = (path) => readFile(fileURLToPath(new URL(path, import.meta.url)), "utf8");
+  const current = await read("../../../docs/handoff/CURRENT.md");
+  const prompt = await read("../../../docs/handoff/NEXT-SESSION-PROMPT.md");
+
+  for (const [name, text] of [
+    ["CURRENT.md", current],
+    ["NEXT-SESSION-PROMPT.md", prompt],
+  ]) {
+    assert.ok(text.length > 1_000, `self-check: ${name} is too short to be the real file`);
+    assert.doesNotMatch(
+      text,
+      /`main` is pushed|is pushed and|main, pushed to/i,
+      `${name} must not state a push state that goes stale on the next commit`,
+    );
+    assert.match(
+      text,
+      /git status -sb/,
+      `${name} must tell the reader to ask git instead`,
+    );
+    assert.match(
+      text,
+      /git log --oneline origin\/main\.\.HEAD/,
+      `${name} must show how to list unpushed commits`,
+    );
+  }
+});

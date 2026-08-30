@@ -657,7 +657,7 @@ Every one of these produced a plausible, wrong result rather than an error.
   `PRIVACY.md`. **When a test proves a guard works, check what production hands
   it.** The same line was also `history.record(...)?` ahead of delivery, so a
   `SQLite` error discarded the transcript: **optional persistence goes last.**
-  Fixed 2026-08-28; see `CURRENT.md` item 19. Two things that nearly shipped as
+  Fixed 2026-08-28. Two things that nearly shipped as
   fixes and were not: a regression test that broke the database at *open* time,
   which the buggy code survived by returning `Ok`, so it could never have caught
   the defect — **control against the real bug, not a plausible one** — and that
@@ -677,7 +677,9 @@ Every one of these produced a plausible, wrong result rather than an error.
   is 8 GB. It streams since 2026-08-28. **A launch still hashes the pack twice
   and that is an open question, not a settled design** — both hashes are
   desktop-side and the worker reopens by path, so neither is an execution-time
-  check. `CURRENT.md` item 21.
+  check. It is one hash now, taken immediately before the worker is handed the
+  model root, and it is still desktop-side -- an open finding in
+  `docs/handoff/CURRENT.md`, "Model integrity is not an execution-time check".
 - **A safety rule can outlive the danger it was written for, and then it only
   does harm.** `proof/` was emptied *selectively* — this installer's own files by
   name, everything else spared — on the recorded argument that an unrecognised
@@ -1275,11 +1277,13 @@ Every one of these produced a plausible, wrong result rather than an error.
     Where-Object { $_.Line -notmatch 'decision 20[0-9]{2}-' }
   ```
 
-  It scans 213 files and must return nothing but `CURRENT.md`'s own account of
-  the sweep. The `Where-Object` is load-bearing: a dated `owner decision
-  2026-08-12` is a fact rather than a pointer, and there are six of those now
-  against the one the class was first written up with — so "exactly one hit" has
-  stopped being a usable pass condition and the filter replaces it.
+  It scans 220 files and must return **nothing at all**. The `Where-Object` is
+  load-bearing: a dated `owner decision 2026-08-12` is a fact rather than a
+  pointer, and there are six of those now against the one the class was first
+  written up with — so "exactly one hit" was never a usable pass condition and
+  the filter replaces it. The sweep returned zero on 2026-08-30, after the
+  handoff was rewritten as a state document and the last `CURRENT.md item N`
+  pointers were absorbed into the facts they were carrying.
 - **Prefer naming the fact over citing where it was recorded.** Most of those
   citations were carrying a fact perfectly well stated inline: `Phase 9` meant
   `2026-08-04`, `Known risk #12` meant "the stale-clock deadline bug". Absorb it

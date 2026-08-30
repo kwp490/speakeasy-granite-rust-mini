@@ -1,7 +1,10 @@
 # Security
 
-This build is unsigned and has no SmartScreen reputation — it's built for
-local, personal use, not public distribution.
+This build is unsigned and may trigger Windows SmartScreen. It is nonetheless
+publicly distributed, from the project's GitHub Releases page, so the release
+carries a `SHA256SUMS` file: an unsigned download a stranger can verify by digest
+is the only assurance on offer, and signing is a settled decision not to, rather
+than something pending.
 
 ## Process and file integrity
 
@@ -11,10 +14,24 @@ local, personal use, not public distribution.
   and `%APPDATA%\ai.speakeasy.mini`. It never searches the current directory or
   `PATH` for a helper binary.
 - Model files are hashed against the trusted manifest's SHA-256 digests
-  immediately before the worker is started, so a partial or mismatched download
-  is never loaded. That check is desktop-side: the worker is handed a verified
-  path and checks presence rather than digests, deliberately, because the
-  manifest is the trust root either way.
+  immediately before the worker is started. **What that protects against:** a
+  partial or interrupted download, a corrupted file, a mismatched or substituted
+  model sitting on disk at the moment the check runs, and a manifest entry that
+  does not match the bytes it names. Any of those refuses the warm and reports
+  `granite_model_files_unverified` rather than loading.
+
+  **What it does not protect against, stated because the gap is real and open:**
+  the hash is computed in the desktop process, and the worker is then handed a
+  *path* and reopens the files itself, checking presence rather than digests. So
+  anything able to write to the model directory as the user — malware in the
+  session, another process running as you, a local administrator — can replace a
+  file in the window between the check and the worker's open, and nothing would
+  notice. Closing it means verifying inside the worker or handing it
+  already-verified handles; it is an open finding in `docs/handoff/CURRENT.md`
+  and needs a threat-model decision rather than more code. Note that an attacker
+  with that access already has the user's files, so this raises the bar on what a
+  local attacker can do rather than being the only thing standing between them
+  and your data.
 - The Granite worker runs as a supervised child process (Windows Job object,
   deadlines, crash-loop quarantine after repeated failures) so a native crash
   can't take down the desktop app or leave orphaned processes.

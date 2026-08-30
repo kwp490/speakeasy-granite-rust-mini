@@ -92,16 +92,25 @@ Settings has exactly six top-level groups:
 | Audio | Microphone selection, input level, microphone status. **No capture controls.** |
 | Transcription | Language, the engine and model behind a Technical details disclosure, personalization |
 | Output & Privacy | Delivery choice, diagnostic log, protected targets |
-| Transcript log | Every delivered transcript with Copy, the pin control, and retention |
+| Transcript log | Every completed transcript with Copy, the pin control, and retention |
 | Advanced | Runtime and performance, credentials as presence only, maintenance, About, and the Show raw values disclosure |
 
 The sixth group is the transcript log, promoted out of Output & Privacy where it
 used to be a section at the bottom. It earned its own page when the large HUD
 was removed: that window showed the last transcript with its own Copy button,
 and the result view behind it kept the text when a paste was refused. Both are
-gone, so this page is the only place a delivered transcript can be read back —
+gone, so this page is the only place a finished transcript can be read back —
 which makes it the thing people come to settings for most often, not a footnote
 under privacy.
+
+**"Delivered" is the wrong word for what it holds, and the difference is the
+point.** The list is written by `publish_successful_transcript`, which runs
+*before* delivery is attempted, so it carries every transcript the engine
+completed — including one the target refused, and one where no delivery was
+attempted at all because auto-paste is off or the user re-transcribed retained
+audio from Settings. That is the whole reason it is worth having: a refused paste
+must still leave the text somewhere reachable. A list of only the successful
+deliveries would be empty in exactly the cases someone opens it.
 
 The groups sit in a left navigation rail, which is a vertical `tablist`: exactly
 one page is visible at a time. The active group is represented in local UI state,

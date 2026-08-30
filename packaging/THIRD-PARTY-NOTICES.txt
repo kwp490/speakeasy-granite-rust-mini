@@ -3,24 +3,36 @@ SpeakEasy Mini - Third-Party Notices
 
 Artifact status
 ---------------
-This notice accompanies an unsigned Windows artifact, built for personal
-local use rather than public distribution. The exact Rust and npm
-dependency versions are recorded in Cargo.lock and package-lock.json.
+This notice accompanies an unsigned Windows artifact that is publicly
+distributed, as SpeakEasyMiniSetup.exe on the project's GitHub Releases page.
+It is not code-signed and may trigger Windows SmartScreen. The exact Rust and
+npm dependency versions are recorded in Cargo.lock and package-lock.json.
 
-Bundled native runtime
-----------------------
-No third-party native runtime is bundled. This section declared sherpa-onnx,
+Two things are distributed and they are not the same set. What the installer
+carries is listed under "Embedded in the installer" below; what setup fetches
+over the network after the user chooses a configuration is listed under
+"Downloaded by setup". Everything in the second list is verified by SHA-256
+against models/trusted-manifest.json before it is installed.
+
+Embedded in the installer
+-------------------------
+The payload appended to SpeakEasyMiniSetup.exe is three executables --
+speakeasy-bootstrapper.exe, ai-speakeasy-mini.exe and granite-worker.exe --
+with no native library beside them.
+
+No third-party native runtime is embedded. This section declared sherpa-onnx,
 ONNX Runtime and the NVIDIA CUDA redistributables until 2026-08-18; all three
-left with the streaming engine, and the installer payload is now three
-executables with no native library beside them. llama.cpp is compiled directly
-into granite-worker.exe and is covered below.
+left with the streaming engine. llama.cpp is compiled directly into
+granite-worker.exe and is covered below.
 
-The CUDA redistributables are still fetched on demand, by machines that
-qualify, and verified by digest against models/trusted-manifest.json. They are
-not redistributed in this artifact.
+The embedded granite-worker.exe is a CPU build: Invoke-ProofPackage.ps1 builds
+the worker with default features, which do not include CUDA. A graphics-card
+installation downloads a CUDA build of the same source instead, and setup stages
+it over this one -- see below.
 
-llama.cpp (statically linked into granite-worker.exe; CPU build only --
-a CUDA-built worker has never shipped)
+llama.cpp (statically linked into the embedded granite-worker.exe, a CPU build;
+the separately downloaded CUDA worker described below is built from the same
+source)
 Copyright 2023-2026 The ggml authors
 License: MIT
 Source: https://github.com/ggml-org/llama.cpp
@@ -75,13 +87,52 @@ which this build disables (LLAMA_BUILD_SERVER=OFF, LLAMA_BUILD_TESTS=OFF)
 is required for it.
 
 The Granite Speech 4.1 2B model itself (Apache-2.0, IBM Corporation) is
-not bundled with this installer -- see MODEL-NOTICES.md, and
+not embedded in this installer -- see MODEL-NOTICES.md, and
 models/trusted-manifest.json for the pack-level license record.
+
+Downloaded by setup
+-------------------
+None of the following is embedded in SpeakEasyMiniSetup.exe. Each is fetched
+after the user has chosen a configuration, from the URL pinned in
+models/trusted-manifest.json, and is verified by SHA-256 against that file
+before it is installed. The manifest records the licenses each entry is
+published under; it is the authoritative record and this list summarises it.
+
+A fresh install downloads, as does any install that does not already have a
+verified copy of the model on disk:
+
+  Granite Speech 4.1 2B weights (two GGUF files, 2.30 GB)
+  License: Apache-2.0, IBM Corporation
+  Host: Hugging Face, pinned at an immutable commit
+  See MODEL-NOTICES.md.
+
+A user who chooses the graphics-card configuration additionally downloads:
+
+  granite-worker-cuda-windows-x64.zip (42.2 MB, one granite-worker.exe of
+  57,052,672 bytes)
+  Host: Hugging Face, huggingface.co/orangeblue39/speakeasy-mini-runtime,
+  pinned at an immutable commit.
+  This archive is built and published by this project from the same llama.cpp
+  and llama-cpp-rs sources declared above, with CUDA enabled. It therefore
+  carries the MIT terms of llama.cpp/ggml and of the vendored C/C++ libraries
+  listed above, and it statically links the NVIDIA CUDA runtime, which is
+  distributed under the NVIDIA CUDA Toolkit EULA. That repository carries its
+  own NOTICE.md reproducing the MIT texts and naming the EULA. Unlike the two
+  NVIDIA archives below, these are bytes this project redistributes.
+
+  cuda_cudart-windows-x86_64-13.3.29-archive.zip (2.6 MB)
+  libcublas-windows-x86_64-13.6.0.2-archive.zip (393.7 MB)
+  License: NVIDIA CUDA Toolkit EULA
+  Host: NVIDIA's own redistributable CDN, developer.download.nvidia.com.
+  These are fetched directly from NVIDIA by the user's machine and are not
+  redistributed by this project or contained in any artifact it publishes.
+
+This file records what is distributed and under which stated terms. It is not
+a legal opinion and makes no claim about whether any particular use complies
+with those terms.
 
 Application dependencies
 ------------------------
 The application is an independent MIT-licensed Rust implementation. Direct
 and transitive application dependencies retain their upstream copyrights and
 licenses; their exact version inventory is Cargo.lock/package-lock.json.
-
-This artifact is unsigned and has no SmartScreen reputation.

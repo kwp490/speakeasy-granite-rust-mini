@@ -16,11 +16,14 @@ $graniteWorker = Join-Path $buildRoot 'release\speakeasy-granite-worker.exe'
 # llama.cpp straight into the worker, so `granite-worker.exe` needs nothing
 # beside it on a CPU install.
 #
-# The CUDA worker stays unbundled and that is still a distribution decision
-# rather than a capability one: anything that can be fetched at setup time is
-# fetched, and only what cannot be is bundled. The CPU worker IS bundled,
-# because it is the one thing that must exist before any download succeeds --
-# a machine with no network still has to be able to transcribe.
+# The CUDA worker stays unbundled: it is published, and setup fetches and stages
+# it when the user chooses the graphics card. What the payload carries is the
+# processor worker, and the reason is the build below -- it requests default
+# features, which do not include CUDA.
+#
+# Bundling it is not what makes downloading possible. The model weights are
+# fetched during setup too, so a machine with no network cannot transcribe
+# whether or not this binary is present.
 
 Push-Location $repositoryRoot
 $previousCargoTarget = $env:CARGO_TARGET_DIR
@@ -31,17 +34,11 @@ try {
     # produces the CPU worker regardless of what GPU hardware the packaging
     # machine happens to have.
     #
-    # That is a *distribution* decision now, not a capability one. It used to
-    # mean "the CUDA path is not something a user can reach"; it no longer does
-    # (owner decision 2026-08-14 -- both engines run on the GPU when the
-    # hardware supports it). What it means today is that the installer is kept
-    # deliberately minimal: anything that can be fetched at setup time is
-    # fetched, and only what cannot be is bundled. The CUDA worker can be
-    # published and fetched, so it is not bundled here.
-    #
-    # The CPU worker IS bundled, because it is the one thing that must exist
-    # before any download succeeds -- a machine with no network, or a user who
-    # declines the GPU, still has to be able to transcribe.
+    # That is a *distribution* decision, not a capability one: both providers
+    # are reachable by a user (owner decision 2026-08-14), and which worker the
+    # payload carries decides only what arrives without a download. The CUDA
+    # worker is published, so setup fetches it and stages it over this one when
+    # the user asks for the graphics card.
     & cargo build -p speakeasy-bootstrapper -p speakeasy-granite-worker --release --locked
     if ($LASTEXITCODE -ne 0) { throw 'Release worker/bootstrapper/granite-worker build failed.' }
 

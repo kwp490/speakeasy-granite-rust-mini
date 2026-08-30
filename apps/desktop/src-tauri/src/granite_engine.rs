@@ -2204,9 +2204,9 @@ mod tests {
 
     /// A warm reads the pack exactly once, and the count is of the warm.
     ///
-    /// This is the claim item 21 left behind: `readiness` used to hash, and it
-    /// runs twice on a configured launch, so with the warm's own pass a launch
-    /// read 2.30 GB three times before the app was usable. One survives, and it
+    /// `readiness` used to hash, and it runs twice on a configured launch, so
+    /// with the warm's own pass a launch read 2.30 GB three times before the app
+    /// was usable. One survives, and it
     /// is this one -- taken immediately before the worker is handed the
     /// `model_root`.
     ///

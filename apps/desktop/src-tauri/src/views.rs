@@ -1127,8 +1127,9 @@ fn process_finalization_job(app: &tauri::AppHandle, job: FinalAudioJob) {
     match outcome {
         Ok(finalized) => {
             let target = deliver_final_text(app, &finalized.text);
-            // After delivery, never before, and never able to affect it.
-            // Both halves are repairs -- `CURRENT.md` item 19.
+            // After delivery, never before, and never able to affect it: the
+            // target classification is an input to whether this may be written
+            // at all, and a persistence failure must not reach the dictation.
             persist_delivered_history(app, &finalized.pending_history, target);
         }
         Err(code) if is_no_speech(code) => {
@@ -1348,8 +1349,12 @@ fn deliver_final_text(app: &tauri::AppHandle, text: &str) -> DeliveryTarget {
 /// It exists for one decision -- whether the transcript may be written to
 /// plaintext history, which `historyDisclosure` and `PRIVACY.md` promise
 /// excludes secure targets. Every variant is a fact about what was observed;
-/// the policy is [`Self::permits_history`], in one place. `CURRENT.md` item 19
-/// has the defect this replaced.
+/// the policy is [`Self::permits_history`], in one place.
+///
+/// `NotAttempted` permits history and that is deliberate -- no application
+/// received the text, so there is nothing to classify. It is also the limit of
+/// the promise: with auto-paste off, a transcript the user later pastes
+/// somewhere sensitive themselves is kept, which `docs/PRIVACY.md` discloses.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DeliveryTarget {
     /// No application received the transcript: nothing to deliver, or auto-paste

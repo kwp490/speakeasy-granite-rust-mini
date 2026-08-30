@@ -250,8 +250,10 @@ pub fn perform(payload: &Path, install_root: &Path) -> Result<(), String> {
 /// Copy a directory tree over whatever is already there.
 ///
 /// **Merges**, and that is a deliberate trade rather than an oversight. It has
-/// to: `proof/` holds ~2.3 GB of CUDA runtime fetched on demand, and wiping the
-/// directory on every upgrade would re-download it every time.
+/// to: on a graphics-card installation `proof/` holds ~493 MiB of NVIDIA
+/// libraries and a 54 MiB CUDA worker that setup fetched, and wiping the
+/// directory on every upgrade would re-download all of it. The model weights are
+/// not here — they live under `%APPDATA%` — so this figure is the runtime only.
 ///
 /// The cost is orphans — a file from a previous layout that the current one does
 /// not include survives, and it is still loadable. Observed 2026-08-15 on a real

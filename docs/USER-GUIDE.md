@@ -12,9 +12,9 @@ the two never fight over one.
 
 1. Download `SpeakEasyMiniSetup.exe` from
    [Releases](https://github.com/kwp490/speakeasy-granite-rust-mini/releases) and
-   run it as your normal Windows user. Do not elevate it. Windows SmartScreen
-   will warn about it, because the build is not signed; the release page carries
-   a SHA-256 you can check the download against.
+   run it as your normal Windows user. Do not elevate it. The build is not
+   signed, so Windows SmartScreen may warn about it; the release page carries a
+   SHA-256 you can check the download against.
 2. It checks your hardware, downloads the transcription model (2.30 GB, or
    about 2.74 GB if you pick the graphics card) and verifies every file against
    a checksum fixed in advance.
@@ -98,9 +98,22 @@ enabled in this build.
 ## Privacy and local data
 
 Audio stays in memory for the active result/retry and isn't written to disk
-by default. Transcript history is off (session-only) unless you opt in; if
-enabled, it's stored in plaintext in your per-user app data, with retention,
-export, and delete controls, and secure targets are always excluded from it.
+by default. Transcript history is off unless you opt in; with it off, the
+recent-transcripts list covers the current run only. If you enable it, history
+is stored in plaintext in your per-user app data with retention, export and
+delete controls — and the recent-transcripts list is refilled from it at every
+launch, so it then spans earlier runs too.
+
+Transcripts SpeakEasy Mini pasted into a password field, the secure desktop or
+an elevated window are excluded from history. That exclusion depends on the app
+having attempted the paste and looked at where the text went: **if you turn
+automatic paste off and copy the transcript into such a field yourself, it is
+kept**, because nothing observed the destination.
+
+**Before dictating anything sensitive, turn persisted history off.** It is off by
+default, it is the one setting that holds however you move the text, and it
+leaves nothing on disk to exclude in the first place.
+
 Explicit Copy places text on the Windows clipboard, where other clipboard
 tools can read it until it's overwritten.
 

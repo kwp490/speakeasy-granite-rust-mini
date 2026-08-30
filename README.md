@@ -69,8 +69,8 @@ If any step fails, it says which one and stops rather than installing something
 that will not work — with one deliberate exception: a failed engine check offers
 Retry and lets you continue anyway, saying what continuing costs.
 
-Windows SmartScreen will warn about the download. The build is not code-signed
-and will not be; the release page carries a SHA-256 for the file so you can
+The build is not code-signed and will not be, so Windows SmartScreen may warn
+about the download. The release page carries a SHA-256 for the file so you can
 check you have the bytes that were published:
 
 ```powershell
@@ -190,6 +190,11 @@ default. Choosing to keep them writes them to disk and asks you to acknowledge
 that first. "Discarded when the app closes" is implemented by never writing
 them, not by deleting on exit — a delete-on-exit is a promise a crash cannot
 keep.
+
+Keeping them changes what the recent-transcripts list shows: it is refilled from
+the saved copy at every launch, so it spans earlier runs rather than the current
+one. Deleting the saved transcripts removes those restored entries and leaves
+the ones this run produced.
 
 The diagnostic log records error codes and counters, never transcript text,
 device names, or paths. See [docs/PRIVACY.md](docs/PRIVACY.md).
