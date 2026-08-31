@@ -46,11 +46,33 @@ if ($cargoVersion -notmatch [regex]::Escape($expectedToolchain)) {
 # Neither is needed by the rest of the workspace, so a miss is a warning rather
 # than a throw — only crates that bind native libraries care.
 
-$cmakeBin = Join-Path $toolsRoot 'cmake-4.4.0-windows-x86_64\bin'
-if (Test-Path (Join-Path $cmakeBin 'cmake.exe')) {
-    $env:PATH = $cmakeBin + ';' + $env:PATH
-} elseif (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
-    Write-Warning 'CMake not found. Crates that compile llama.cpp (speakeasy-granite) will fail with "is `cmake` not installed?". Stage it under .tools or install it.'
+# Any staged `cmake-<version>-windows-x86_64` wins, which is the directory
+# `docs/NEW-MACHINE.md` tells a reader to create. This matched `cmake-4.4.0`
+# alone, so a CMake staged exactly as that document describes at any other
+# version was ignored in silence and the ambient one used instead.
+#
+# The version is reported, not enforced. A clean clone was recorded as failing
+# here with `No CMAKE_C_COMPILER could be found`, and pinned-versus-ambient CMake
+# was the leading explanation. Measured 2026-08-30 from a fresh clone and a fresh
+# target directory, with nothing staged under `.tools`: ambient CMake 4.4.2
+# selects the `Visual Studio 17 2022` generator, finds the Build Tools toolset
+# without a developer shell, and compiles llama.cpp. Refusing an unpinned version
+# would break the only configuration this machine has proved. What was missing
+# was never a constraint — it was a line saying which CMake the shell is about to
+# use, so the next investigation reads the answer instead of guessing it.
+$stagedCmake = @(Get-ChildItem -LiteralPath $toolsRoot -Directory -Filter 'cmake-*-windows-x86_64' -ErrorAction SilentlyContinue |
+    Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'bin\cmake.exe') -PathType Leaf } |
+    Sort-Object -Property Name -Descending) | Select-Object -First 1
+if ($stagedCmake) {
+    $env:PATH = (Join-Path $stagedCmake.FullName 'bin') + ';' + $env:PATH
+}
+$cmakeCommand = Get-Command cmake -ErrorAction SilentlyContinue
+if ($cmakeCommand) {
+    $cmakeVersion = ((& $cmakeCommand.Source --version) | Select-Object -First 1).Trim()
+    $cmakeOrigin = if ($stagedCmake) { "staged, .tools\$($stagedCmake.Name)" } else { 'ambient, from PATH' }
+    Write-Host "  $cmakeVersion ($cmakeOrigin) at $($cmakeCommand.Source)"
+} else {
+    Write-Warning 'CMake not found. Crates that compile llama.cpp (speakeasy-granite) will fail with "is `cmake` not installed?". Stage it under .tools\cmake-<version>-windows-x86_64 or install it.'
 }
 
 # `.npmrc` sets `engine-strict=true` and `package.json` pins node and npm to
@@ -73,6 +95,11 @@ if (Test-Path (Join-Path $stagedNode 'node.exe')) {
 $libclangDirectory = & (Join-Path $PSScriptRoot 'Resolve-Libclang.ps1')
 if ($null -ne $libclangDirectory) {
     $env:LIBCLANG_PATH = $libclangDirectory
+    # Reported for the same reason as CMake above: bindgen's copy of libclang is
+    # a native build prerequisite resolved from several places, and a shell that
+    # says nothing on success leaves "which one did it pick" to be reconstructed
+    # later from a failure.
+    Write-Host "  libclang at $libclangDirectory"
 } else {
     Write-Warning 'libclang not found. Crates that run bindgen (speakeasy-granite, via llama-cpp-sys-2) will fail with "Unable to find libclang". Install LLVM or set LIBCLANG_PATH.'
 }

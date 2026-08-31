@@ -47,7 +47,12 @@ requirements and the last is optional.
 paths into the current shell, and **warns rather than throws** when CMake or
 libclang are missing — only crates that bind native libraries care, so a miss
 surfaces later as `is 'cmake' not installed?` or `Unable to find libclang`
-rather than at setup time. Read its output.
+rather than at setup time. Read its output: it now names the CMake it resolved,
+its version, and whether that came from `.tools` or from PATH, which is the
+question a failing native build asks first. Any staged
+`.tools\cmake-<version>-windows-x86_64` is preferred over the ambient one, at
+whatever version you staged; the script reports the choice rather than enforcing
+a particular version.
 
 ## 2. Clone and install
 

@@ -53,7 +53,7 @@ It must end `no leaks found` and exit 0.
 | | |
 | --- | --- |
 | **Hardware tests unrun against `HEAD`** | Five worker-touching proofs. Four commits changed the warm path since they last ran |
-| **A clean clone does not build** | `llama-cpp-sys-2`'s CMake configure. Blocks contributors, not releases |
+| **A clean clone builds; the recorded failure did not reproduce** | Kept as a watch item, not a defect. The environment it was proved in is below |
 | **Model integrity is not execution-time** | The digest pass is desktop-side and the worker reopens by path. Needs a threat-model decision, not code |
 | **`NotAttempted` transcripts are retained** | With auto-paste off nothing classifies the target, so history keeps the row. Disclosed rather than fixed |
 | **GPU qualification cannot be proved** | Nothing can promote a card to proven, so the claim left the UI and then the payload |
@@ -127,30 +127,42 @@ hive is unwritable. **Assert whole transcripts, never a prefix** — a
 `contains("ever tried")` assertion once passed on a transcript missing a third of
 the utterance.
 
-### A clean clone does not build
+### A clean clone builds
 
-`git clone` of `main` into an empty directory: the frontend half of the gate
-passes completely, and the Rust half fails at `speakeasy-granite` on
-`llama-cpp-sys-2`'s CMake configure with `No CMAKE_C_COMPILER could be found`,
-then the same for CXX. It reproduces with the sandbox off and inside an
-`Enter-VsDevShell` shell where `cl.exe` is on `PATH`, so the generator is not
-finding the toolset.
+The recorded failure — `llama-cpp-sys-2`'s CMake configure answering
+`No CMAKE_C_COMPILER could be found` — **did not reproduce**. Measured
+2026-08-30 from a `git clone` into an empty directory with a target directory
+that did not exist, twice, in PowerShell 7 with no developer shell and `cl.exe`
+not on `PATH`:
 
-**The leading explanation is the pinned CMake, and it is one untested command
-away.** `Enter-DevEnvironment.ps1` prefers
-`.tools\cmake-4.4.0-windows-x86_64\bin\cmake.exe` and falls back to `PATH` with a
-**warning rather than a failure**. That directory does not exist here, so every
-build on this machine has used the system CMake — 4.4.2. Stage 4.4.0 and re-run.
+| | |
+| --- | --- |
+| CMake | 4.4.2, ambient, `C:\Program Files\CMake\bin\cmake.exe`; nothing staged under `.tools` |
+| Generator | `Visual Studio 17 2022`, platform `x64`, selected by CMake itself |
+| Toolset | Build Tools 2022 17.14.37516.0, MSVC 19.44.35228.0, found without a developer shell |
+| libclang | `C:\Program Files\LLVM\bin` |
+| Rust | cargo/rustc 1.98.0 |
+| Result | `cargo build -p speakeasy-granite --locked` finished in ~1m35s and ~1m54s; `llama.lib`, `ggml.lib` and `ggml-base.lib` written under the fresh target |
 
-If that fixes it, the warning is the real defect: a build dependency that silently
-degrades to a different version is the same shape as `Stage-DevRuntime.ps1`
-reverting a staged CUDA worker. Decide whether the fallback should refuse. If it
-does not fix it, read the CMake error log and amend `docs/NEW-MACHINE.md`, which
-describes prerequisites this failure appears to contradict.
+That the build is incremental here is still true and still worth distrusting, so
+this is kept as a watch item rather than deleted: prove a clean checkout with a
+separate target directory before calling a release green. But **the pinned-CMake
+explanation is disproved** — 4.4.2 configures and compiles — so do not stage
+4.4.0 expecting it to fix anything, and do not make the version a requirement.
 
-**Why it stays invisible:** `target/` carries a successful llama.cpp build, so
-every incremental build skips configure. "The gate is green" is a statement about
-an incrementally built tree.
+What was real is one level down. `Enter-DevEnvironment.ps1` matched
+`cmake-4.4.0-windows-x86_64` **exactly**, while `docs/NEW-MACHINE.md` tells a
+reader to stage `.tools\cmake-<version>-windows-x86_64` — so a CMake staged
+precisely as documented, at any other version, was ignored without a word and the
+ambient one used instead. It now matches any staged version, prefers the highest,
+and **prints which CMake it resolved, its version, and whether that came from
+`.tools` or `PATH`**, along with the resolved libclang directory. The previous
+investigation spent itself on a hypothesis a line of output would have settled.
+
+If the failure ever returns, record the generator from
+`CMakeCache.txt`'s `CMAKE_GENERATOR:INTERNAL` before anything else: every
+reproduction attempt here selected the Visual Studio generator, and the reported
+error is what a Ninja or Makefile generator says when no `cc` is on `PATH`.
 
 ### Model integrity is not an execution-time check
 
