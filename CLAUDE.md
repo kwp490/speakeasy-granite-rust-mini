@@ -1,115 +1,88 @@
-# SpeakEasy Mini — working notes for Claude
+# SpeakEasy Mini — project guidance
 
-A local-only Windows dictation app: Rust + Tauri 2, React frontend, all
-inference on-device. Press a hotkey, speak, press again, the transcript is
-pasted into whatever has focus.
+SpeakEasy Mini is a local-only Windows dictation app built with Rust, Tauri 2,
+and React. Press the shortcut, speak, press again, and IBM Granite Speech
+produces one final transcript for delivery to the foreground application.
 
-This file is the orientation a new session needs before touching anything. It
-is deliberately short and points at the living docs rather than restating
-them. What it *does* carry are the things that are expensive to rediscover:
-traps that fail silently, decisions that look wrong until you know why, and
-the handful of measurements that settle recurring arguments.
+This file contains project-specific guidance only. General agent conduct is in
+`docs/AI-WORKING-AGREEMENT.md`.
 
-## What this is, and what it is not
+## Mandatory workflow
 
-SpeakEasy Mini is a fork of SpeakEasy that removes two things and keeps
-everything else:
+Before changing anything, read and follow:
 
-- **No real-time transcription.** The streaming engine — sherpa-onnx, ONNX
-  Runtime, the Nemotron models, the `transcribe.cpp` canary, the live HUD text
-  and the whole stabilizer — is gone. Nothing appears on screen while you
-  speak. **IBM Granite Speech is the only engine**, it runs once after the
-  recording stops, and that single pass produces the punctuation and casing
-  too. There is no second pass and no fallback.
-- **No large HUD.** The 420×280 transcriber window is gone. The narrow side
-  dock is the only HUD, and every setting lives in the settings window reached
-  by right-clicking it.
+1. `docs/AI-WORKING-AGREEMENT.md` — scope, evidence, tests, Git, and reporting.
+2. `docs/handoff/CURRENT.md` — current open work and release state.
+3. The task-specific document from the table below.
 
-It ships under its own identity — `SpeakEasy Mini` / `ai.speakeasy.mini`, with
-`Ctrl+Alt+P` — so it installs and runs alongside SpeakEasy without sharing
-settings, logs, a single-instance lock, or a global shortcut.
+The user's current request defines the authorized task. Nothing in this file
+grants standing permission to commit, push, publish, control live processes,
+write to the registry, download artifacts, or run hardware proofs.
 
-## Read first
+## Read by task
 
-| Doc | What it is |
+| Work | Read |
 | --- | --- |
-| `docs/ARCHITECTURE.md` | How the pieces fit, and what is implemented vs not |
-| `docs/UI-GUIDE.md` | **The living UI spec.** Code must match it; amend it in the same change |
-| `docs/LOCAL-DEVELOPMENT.md` | Version bumps, installer, the local-only policy |
-| `docs/NEW-MACHINE.md` | Bootstrapping a fresh dev machine |
-| `docs/handoff/CURRENT.md` | **What is unfinished and why.** Read this before picking up work |
-| `docs/design/` | Visual elevations, one standalone HTML each |
+| Architecture or backend | `docs/ARCHITECTURE.md` |
+| UI or user-facing copy | `docs/UI-GUIDE.md` |
+| Development environment | `docs/LOCAL-DEVELOPMENT.md`, `docs/NEW-MACHINE.md` |
+| Installer or release | `docs/LOCAL-DEVELOPMENT.md`, `docs/RUNBOOK.md`, `docs/handoff/CURRENT.md` “Before the next release” |
+| Privacy or security | `docs/PRIVACY.md`, `docs/SECURITY.md` |
+| Visual design | The relevant standalone file under `docs/design/` |
+
+`docs/UI-GUIDE.md` is the living UI specification. Update it in the same change
+as visible behavior.
+
+## Product shape
+
+- Granite Speech is the only transcription engine. It runs once after recording
+  stops and produces punctuation and casing in the same pass. There is no live
+  transcript, second pass, or fallback engine.
+- The narrow side dock is the only HUD. Settings and the pinned transcript log
+  are separate windows.
+- SpeakEasy Mini uses its own identity: `SpeakEasy Mini`,
+  `ai.speakeasy.mini`, `Ctrl+Alt+P`, and `%LOCALAPPDATA%\SpeakEasy Mini`. It can
+  coexist with the parent SpeakEasy application.
+- The shipped model is Granite Speech 4.1 2B Q4_K_M. A CPU worker is embedded;
+  setup can replace it with a separately downloaded CUDA worker and libraries.
+- Optional persisted transcript history is off by default. The in-memory log is
+  seeded from history when retention is enabled, so it can span earlier runs.
 
 ## Commands
 
-Cargo and rustc are **not on PATH**. Dot-source the environment first, in every
-new shell — neither the Bash nor the PowerShell tool inherits it:
+Dot-source the environment in every new PowerShell process:
 
 ```powershell
 . .\scripts\Enter-DevEnvironment.ps1
 ```
 
-The whole gate (fmt, clippy `-D warnings`, workspace tests, dependency policy,
-frontend test/lint/typecheck) does its own env setup:
+Run the whole gate, not a hand-picked `cargo test` subset:
 
 ```powershell
 .\scripts\Invoke-ScaffoldChecks.ps1 -SkipNpmInstall
 ```
 
-**`speakeasy-granite` compiles, and the gate runs.** Both were open questions
-until 2026-08-18: the crate had not been built since the fork, and the gate
-itself threw on its own second step, so every "green" claim came from running
-sub-commands by hand. `cargo build --release -p speakeasy-granite-worker` takes
-about two minutes cold. Two prerequisites are easy to miss —
-`git config --global core.longpaths true` (the llama.cpp fetch exceeds
-`MAX_PATH` without it) and CMake plus libclang, which
-`Enter-DevEnvironment.ps1` warns about rather than fails on.
+The gate covers formatting, clippy, Rust tests, private-item rustdoc links,
+dependency policy, frontend unit and component tests, lint, typecheck, coverage
+floors, secret scanning, and repository policy. `cargo test --workspace --lib`
+is not equivalent: it skips binary-target tests, including bootstrapper tests.
 
-**Run the gate, not `cargo test --workspace --lib`.** `--lib` builds no `--bin`
-targets, so it silently skips the bootstrapper's binary tests — one of which had
-been failing since the fork without anyone seeing it. That is the recorded
-"a whole crate went red unnoticed" lesson one level down: a target filter rather
-than a crate list.
-
-Frontend-only, from `apps/desktop`: `npm run typecheck`, `npm run lint`,
-`npm test`, `npm run build`. Rust: `cargo test -p <crate> --lib`,
-`cargo clippy --all-targets`.
-
-**`npm test` is two suites and they answer different questions.**
-`npm run test:unit` is Node's own runner over `tests/*.test.mjs` — the reducers,
-the level shaping, and the source scans that pin invariants review would miss.
-`npm run test:components` is **vitest over jsdom**, added 2026-08-30, and it is
-the only thing in this repository that can press a button: every rule about a
-control not claiming what it did not do is a rule about what a *rendered*
-control does when a command rejects, and none of it was observable before. Four
-settings actions had shipped with no rejection handler at all under a full green
-suite. Component tests live in `tests/components/*.test.tsx`; the `invoke` double
-is in `fixtures.tsx`, and it rejects with a **bare string** because that is what
-Tauri hands back for a `Result<_, &'static str>` — an `Error` there maps to no
-catalog entry and every assertion silently becomes `errorUnknown`.
-
-Coverage is a **floor per file** over the privacy, delivery and mutation
-modules, pinned in `dependency-policy/coverage-floors.json` and checked by
-`scripts/Test-CoverageFloors.ps1` (which the gate runs). A file named there and
-missing from the report **fails** rather than being skipped — that is how a
-coverage check silently stops guarding anything. The floors only ever go up, and
-the script prints the headroom so raising one is deliberate.
-
-Re-pinning NVIDIA's CUDA redistributables in `models/trusted-manifest.json`,
-which is the enforced requirement list rather than documentation:
+Frontend commands run from the workspace root through npm workspaces:
 
 ```powershell
-.\scripts\Get-CudaRuntime.ps1
+npm run typecheck
+npm run lint
+npm test
+npm run build
 ```
 
-Re-proving which provider an installed build runs on, without a reinstall:
+`npm test` contains two suites:
 
-```powershell
-& "$env:LOCALAPPDATA\SpeakEasy Mini\speakeasy-bootstrapper.exe" --verify-provider
-```
+- `test:unit` uses Node's runner for reducers and structural source policies.
+- `test:components` uses Vitest/jsdom for rendered mutation, rejection, and
+  duplicate-submission behavior.
 
-Building and proving the installer, which is a separate path the gate does not
-touch:
+Build and prove an installer separately from the default gate:
 
 ```powershell
 .\scripts\Build-LocalInstaller.ps1
@@ -117,1199 +90,193 @@ touch:
 .\scripts\Test-SetupWizard.ps1 -ArtifactRoot 'target\local-development\<version>' -Uninstall
 ```
 
-The build produces `SpeakEasyMiniSetup.exe` — one file, the payload appended to
-the bootstrapper past the end of its PE image — plus the bare bootstrapper and
-the `payload\` directory beside it, which is what the lifecycle test drives.
-`Test-SetupWizard.ps1` drives the file a user actually downloads, through all
-eight wizard pages to a launched app, and **asserts the page it is on before
-every click**: a driver that presses Next eight times passes on a wizard stuck
-on page one. It installs for real and leaves the app running unless you pass
-`-Uninstall`.
+Hardware and ignored-test commands belong in `docs/handoff/CURRENT.md`; verify
+filters with `--list` before relying on them.
 
-Kill any `ai-speakeasy-mini` first. An aborted lifecycle run leaves the app it
-launched for the running-app check alive, and the pre-flight guard then refuses
-every retry — correctly, it will not terminate a process it does not own, but
-the orphan is the script's own.
+## Current architectural invariants
 
-Most of the workspace is fast now. `speakeasy-worker` links no native
-libraries at all and checks in seconds; only `speakeasy-granite` compiles C++.
+### Transcription and failure
 
-## Running the app
+- `judge_granite_pass` returns either a transcript or a named
+  `FinalSourceReason`. A failed or implausible Granite pass ends the dictation;
+  it never substitutes a weaker result.
+- `is_plausible` is the only hallucination guard. It is intentionally one-sided:
+  truncation can still look plausible, so token-budget and full-transcript tests
+  are load-bearing.
+- Every failure code needs actionable catalog copy in the dock and at the top of
+  Settings → Transcription. Falling through to `errorUnknown` is not acceptable.
+- One dictation runs at a time. A second request is refused rather than queued.
+- The 8 GiB memory floor is checked before capturing audio.
 
-`npm run tauri -- dev` from `apps/desktop` stages the native runtime first
-(via `beforeDevCommand` → `scripts/Stage-DevRuntime.ps1`) and then launches.
+### Windows and delivery
 
-Three things about that will waste your afternoon if you do not know them:
+- All Tauri windows are declared statically and made non-focusable. Creating a
+  WebView from a command can deadlock IPC; letting an app-owned window take the
+  foreground makes it the delivery target.
+- Statically declared windows execute before `setup` manages state. Mount-time
+  commands must use `try_state` and tolerate the startup race.
+- Delivery inspects the foreground when transcription finishes, not when
+  recording starts. On a slow processor pass the user may have changed windows;
+  automatic paste therefore targets the window that is foreground at completion.
+- A password field or other protected target is excluded from persisted history
+  only when delivery was attempted and classified. `NotAttempted` transcripts
+  may be retained; public privacy documentation must keep that qualification.
+- The transcript log is updated before delivery so refused and non-delivered
+  transcripts remain recoverable. Deleting saved history removes only entries
+  seeded from that history.
 
-1. **Any already-running SpeakEasy Mini silently absorbs a dev launch.** The
-   app uses `tauri_plugin_single_instance`, so the new process exits, Vite
-   comes down with it, and you then test the *old* binary while everything
-   looks like a clean start. Check `Get-Process SpeakEasy*` first. You have
-   standing permission to stop and start SpeakEasy Mini's own processes for
-   testing without asking. SpeakEasy and SpeakEasy Mini have different
-   identifiers so they do *not* absorb each other — but that process filter
-   matches both, which is the point of using it.
-2. **Dev is not the installed build, and the difference has invalidated
-   measurements twice.** A debug build's SHA-256 dominates any timing that
-   verifies a model — the same rig reported a 17.5 s saving in debug and 2.36 s
-   in release. Time things in release, on an installed build. The *resident*
-   timing is the exception worth knowing: it is almost entirely the release
-   worker's own inference, so it survives a debug harness where the cold number
-   does not. Measured 2026-08-21 on an RTX 4070 Laptop GPU over a 6.42 s clip —
-   2,928 ms on the processor against 361 ms on CUDA, and the transcript
-   byte-identical on both.
-3. **Trust the disk log over the UI and over proof scrapers.**
-   `%APPDATA%\ai.speakeasy.mini\logs\speakeasy.log` carries a specific error
-   code where the UI often shows generic text.
+### Worker, model, and provider
 
-Driving the running app by selector, for measuring real layout:
+- Warm verification is returned per invocation; it is not shared mutable “last
+  warm” state. Pack identity is id plus revision, and a resident mismatch refuses
+  rather than executing the wrong adapter.
+- The desktop hashes model files immediately before worker load, but the worker
+  reopens them by path. This detects corrupt downloads, not execution-time file
+  replacement; keep that limitation explicit.
+- `engine=` describes why a pack was selected. `device=` describes where the
+  worker actually ran. UI provider reporting uses the device, never the pack.
+- A CPU installation running on CPU is normal. A recorded CUDA installation
+  that cannot load CUDA is a specific failure, not a silent CPU fallback.
+- GPU support is a worker build feature, not a model-pack preference. No setting
+  can turn a CPU worker into a CUDA worker.
 
-```powershell
-$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9222'
-.\scripts\Invoke-WebviewProbe.ps1 -Window settings -Expression '...'
-```
+### Persistence and frontend state
 
-`-Window` takes `settings`, `dock`, `log` or `notice`. A window declared
-`visible: false` still runs its React tree, so all four answer without being
-shown — which is how the notice window is measured without provoking a
-two-minute dictation.
+- History is written only after transcript publication and delivery
+  classification. Sensitive or unknown delivery targets do not reach SQLite.
+- A history failure must not destroy the in-memory transcript or retained audio.
+- Settings mutations use `useMutation`; callers update local state only on
+  success and duplicate submissions are refused while one is pending.
+- The transcript log is event-driven. Its event payload stays `()` so transcript
+  text cannot bypass the command's window authorization.
+- IPC polls that may outlive a request use self-scheduling timeouts so calls do
+  not overlap. Short UI animation and bounded retry timers may still use
+  intervals.
 
-**A release frontend needs `--features custom-protocol`, and without it the
-binary looks broken rather than misconfigured.** `cargo build --release -p
-speakeasy-desktop` alone embeds `devUrl`, so every window loads
-`http://localhost:1420`; with no Vite server running they all come up blank and
-the probe reports each one absent, which reads exactly like the app failing to
-start. Measured 2026-08-26: four CDP page targets, all at `localhost:1420`, no
-`data-testid` anywhere. With the feature they load `tauri.localhost` and carry
-the bundled `dist/`. This matters because **the startup race is only reproducible
-on a release frontend** — Vite is slow enough that `setup` always wins under
-`tauri dev`.
+## High-cost traps
 
-```powershell
-cargo build --release -p speakeasy-desktop --features custom-protocol
-```
+### Build and runtime
 
-## Failures are the product
+- `npm run tauri -- dev` stages a CPU worker over
+  `target/debug/proof/granite-worker.exe`. Stage a CUDA worker only after that
+  step, and do not launch Tauri dev again before the CUDA proof.
+- A stale staged worker can report `StaleEvent`, which looks like a protocol bug.
+  Re-stage before investigating worker-test failures.
+- A running installed SpeakEasy Mini absorbs a dev launch through the
+  single-instance plugin. When live-app testing is authorized, identify and stop
+  only the SpeakEasy Mini process owned by that test.
+- A release frontend requires `--features custom-protocol`. Without it, windows
+  load the Vite development URL and appear blank.
+- Debug model hashing distorts cold-start timing. Measure user-facing latency in
+  an installed release build and record the worker, device, clip, and build.
+- Incremental success does not prove a clean clone. Use a separate checkout or
+  target directory and record CMake, compiler, libclang, Rust, Node, and npm
+  versions.
 
-There is one engine and nothing to fall back to, so "it didn't work" is a
-first-class outcome rather than an edge case, and the app's honesty about it is
-most of what it offers over a silent degradation.
+### Granite correctness
 
-- **`judge_granite_pass` decides**, in `speakeasy-worker`'s `verdict.rs`. It
-  returns either a transcript to paste or a `FinalSourceReason` naming why not.
-  Exactly one of the two, by construction.
-- **`is_plausible` is the only guard left.** It catches Granite answering the
-  prompt instead of transcribing — a real failure mode for an instruction model
-  with an audio projector, and one that produces fluent, confident, entirely
-  invented text. There used to be a second instrument comparing against the
-  streaming transcript; there is no second transcript now, so what this misses
-  reaches the user.
-- **The gate is one-sided.** It bounds how much a transcript may say, never how
-  little. A *truncated* transcript is perfectly plausible and nothing catches
-  it — see the `max_new_tokens` trap below.
-- **Every reason code needs a real instruction.** A code that falls through to
-  `errorUnknown` fails the rule that errors report a specific, actionable
-  condition in the words used for everything else. Failures surface in two
-  places: the dock's action row, and a panel at the top of Settings →
-  Transcription carrying the reason and the fix. A Windows toast was specified
-  and rejected — the WinRT route needs an AUMID from an installed Start Menu
-  shortcut and otherwise displays nothing while reporting success, which is the
-  silent-success shape most of this file exists to avoid. `docs/UI-GUIDE.md`
-  records the trade.
-- **A CPU install running on CPU is normal; a GPU install that cannot load
-  CUDA is an error.** Setup records which configuration it installed precisely
-  so those two can be told apart — they were previously the same silent
-  outcome. The record is **proof**, not a preference: see the trap below.
+- Do not default llama.cpp to the logical processor count. The established
+  default is `(available_parallelism / 2).clamp(1, 8)`; higher counts have been
+  slower and can change greedy output.
+- `max_new_tokens` is a silent output ceiling. Budget it against the longest
+  allowed recording and assert the whole expected transcript, never a prefix or
+  substring.
+- Prompt text consumes the same context budget as transcript output. Treat prompt
+  additions as model-behavior changes and prove them on the longest fixture.
+- Personalization corrections are exact mappings, not fuzzy vocabulary support.
+  Do not claim a term is learned because one inflection was corrected.
+- `immediate_repetitions` and `self_corrections` remain disabled. The latter can
+  discard valid speech before “I mean”.
 
-## Traps that fail silently
+### Tests and tooling
 
-Every one of these produced a plausible, wrong result rather than an error.
+- Prove new regression tests with a faithful red control. Copy modified files
+  aside and restore them; never revert a working file to `HEAD`.
+- A fixture under `.tools/` is machine-local and cannot prove repository
+  behavior. Required test fixtures must be committed or the test must fail
+  clearly when prerequisites are absent.
+- Captured stdout is not a durable measurement. Write required proof output to a
+  named file and verify that the intended test produced it.
+- Enumerate repository scans from `git ls-files`, not remembered extensions.
+- Rustdoc link checking must include `--document-private-items` with
+  `-D rustdoc::broken_intra_doc_links`.
+- Scan tracked text for C0/C1 control characters. PowerShell interpolation and
+  heredocs can silently turn backslashes into control characters.
+- Source assertions are useful for structural policies, but a runtime invariant
+  needs a behavioral test at the production boundary.
 
-- **A window created on demand from a `#[tauri::command]` deadlocks the whole
-  app's IPC** — every window, every command, until the process is killed.
-  Declare windows statically in `tauri.conf.json` and only ever call
-  `get_webview_window`. All three windows (`main`, `hud-dock`, `log`) exist
-  from launch; commands only show and hide them.
-- **Those statically declared windows load before `setup` has managed the
-  coordinators**, so any command a window fires on mount can arrive while its
-  state is absent. `app.state::<T>()` **panics** there, inside a WebView
-  callback that cannot unwind, and the process aborts — `0xc0000409`. Use
-  `try_state` and return an error. This is structurally invisible to
-  `tauri dev`: Vite is slow enough that `setup` wins the race, and a bundled
-  release frontend is not. A `visible: false` window still runs its React tree
-  and still polls.
-- **Anything SpeakEasy Mini puts in the foreground becomes the delivery
-  target.** `deliver_final_text` inspects the foreground window to decide where
-  the transcript goes, so any window of its own that lands there silently
-  hijacks a dictation — it does not error, it refuses with
-  `target_inspect_refused` and falls back to the clipboard, which looks like a
-  delivery bug in some other subsystem. Three separate causes have done this: a
-  **hidden** window that declared `visible: false` but not `focus: false` held
-  the foreground indefinitely; a release binary with no `windows_subsystem`
-  attribute was a console app and its terminal window held it; and once that
-  console was gone the console-subsystem workers each got their own window, so
-  they need `CREATE_NO_WINDOW`. Every window here declares `focus: false` and is
-  made non-focusable at startup, and a scaffold test asserts it. Any new window
-  or spawned process is a candidate — check the foreground after launch, not
-  just that the app looks right.
+### Windows, PowerShell, and packaging
 
-  **The mirror image of this has no error code at all**, and it is the common
-  case on a CPU install. The foreground is read when the dictation *finishes*, so
-  the exposure is however long inference takes: measured 2026-08-25, **4.2 s on
-  the card and 44.5 s on the processor** for a full-length dictation. Any window
-  the user moves to inside that gap receives their transcript, with
-  `integrity=Equal result=committed` and nothing in the log to distinguish it
-  from a correct delivery. It caught the session that was measuring it — the
-  owner stopped speaking, switched windows to report back, and both processor
-  transcripts landed there rather than in the prepared target. On the processor
-  44 s is long enough that moving on is the *reasonable* thing to do, so treat a
-  "delivery went to the wrong application" report as a timing question first.
-- **A staged CUDA worker does not survive `npm run tauri -- dev`.**
-  `beforeDevCommand` runs `Stage-DevRuntime.ps1`, which copies the CPU worker
-  over `target/debug/proof/granite-worker.exe` — so a dev launch silently reverts
-  a worker staged there and the app then reports `device=cpu`, which reads as a
-  regression in whatever you were about to test. Measured 2026-08-21: 57,042,432
-  bytes became 4,333,568. It also breaks the three `granite_engine` hardware
-  tests, which read that same path, without failing them. Restore the worker and
-  start `npm run dev` and `target/debug/ai-speakeasy-mini.exe` separately when
-  the graphics-card path is what you are looking at. This is the same shape as
-  `Enable-GraniteCuda.ps1` reverting on reinstall, one directory over — and it is
-  the half that survived: setup re-stages the worker on every install now, so the
-  installed build no longer reverts, but `Stage-DevRuntime.ps1` still overwrites
-  the dev one.
-- **A *stale* staged worker fails as `StaleEvent`, which names the protocol
-  rather than the binary.** Nothing checks the freshness of
-  `target/debug/proof/granite-worker.exe`: it is a copy, put there by a separate
-  script, and the hardware tests read it without asking when it was made.
-  Measured 2026-08-28 — a copy from two days earlier produced
-  `DomainError { code: StaleEvent, recoverable: true }` on both transcription
-  tests, and `Stage-DevRuntime.ps1` plus an unchanged command made both pass.
-  `StaleEvent` is raised in `worker_process.rs` for a protocol-version *or*
-  request-id mismatch, and `WORKER_PROTOCOL_VERSION` had not moved, so the error
-  reads as "this build's protocol is broken" when the answer is "re-stage".
-  **Re-stage before believing a hardware-test failure**, and note that the
-  weights being present is not evidence: they were staged correctly the whole
-  time, which is what made the failure look like a code fault.
-- **The three CUDA libraries fail in three different ways, and one of them never
-  loads at all.** Measured 2026-08-21 with the toolkit stripped from `PATH`,
-  which is the only way to ask the question on a machine that can build the
-  worker: deleting `cublas64_13.dll` stops the process before `main`, deleting
-  `cublasLt64_13.dll` lets it start, load two gigabytes of weights and fail
-  **~36 s later** at the first matmul with `AdapterFailed`, and deleting
-  `cudart64_13.dll` does nothing at all — the worker transcribes and NVML
-  confirms the context, because ggml links the CUDA runtime statically on
-  Windows. So the catalog's requirement list is a deliberate superset, and the
-  late failure is why the check is a *precondition* rather than something
-  inferred from a worker that came up.
-- **Never default llama.cpp threads to the logical processor count.** On a
-  32-logical i9, 32 threads measured ~4x slower than 4. The default is
-  `(available_parallelism / 2).clamp(1, 8)`, and 16 threads reproducibly
-  changes Granite's greedy decode — every pinned transcript was recorded at 4
-  and is byte-identical at 8.
-- **A quality annotation that returns `Err` destroys the recording, and the
-  buffer's byte limit bound *inside* the capture ceiling.** Two bugs that only
-  showed up together, found 2026-08-25 from a user report of "long dictation
-  errored, short one worked". The retained utterance costs **36 bytes per
-  frame** — an `f32` plus a 32-byte `ProcessedSampleMetadata` — so a 64 MiB
-  `max_buffered_bytes` was 116.5 s at 16 kHz against a **120 s** ceiling. Every
-  maximum-length dictation therefore filled its buffer, rejected its last ~3.5 s,
-  raised `BYTE_LIMIT`, and `capture` turned that into `Err` — which discarded
-  the whole two minutes and logged `dictation_ceiling_stop result=no_audio`.
-  Deterministic, not intermittent, which is why the symptom was so clean. Only
-  `frames_buffered == 0` means there is nothing to transcribe; the other five
-  `issue_code` conditions annotate audio that exists and are delivered with a
-  warning now. The byte limit is 128 MiB.
-- **`the_ceiling_stays_inside_the_pipeline_byte_limit` compared against its own
-  copy of the constant.** It asserted the retained bytes were under
-  `128 * 1_024 * 1_024` while `pipeline_config` was built with **64 MiB**, so it
-  passed at 66.5 MiB with the real limit already exceeded — the exact
-  relationship it exists to protect, unprotected. A test holding a hand-written
-  copy of a value cannot see that value change; read it from the config the code
-  actually builds. Rewritten and then made to fail by restoring 64 MiB.
-- **Four of five capture reason codes had no catalog entry**, so a user who lost
-  a two-minute dictation was shown `errorUnknown` — "The operation stopped
-  safely". `every_capture_annotation_has_catalog_copy` now asserts every code
-  `issue_code` can produce has copy, against `catalog.ts` source.
-- **Malwarebytes quarantines Rust toolchain binaries as `Malware.AI.<number>`.**
-  On 2026-08-25 it silently deleted `clippy-driver.exe` and `rustdoc.exe` from
-  `1.97.1-x86_64-pc-windows-msvc` within ~16 s of each rustup extraction, three
-  times in a row, while leaving the byte-identical copies in the `stable`
-  toolchain alone. The gate then failed with `could not execute process
-  clippy-driver.exe ... (never executed)`, which reads as a broken checkout
-  rather than as an antivirus. Unsigned is normal for official Rust, so
-  `Get-AuthenticodeSignature` proves nothing here. Check the bin directory for a
-  missing `.exe` beside a surviving `.pdb` before believing anything else.
-- **Granite's `max_new_tokens` is a silent ceiling — and it is currently
-  unreachable, which is the trap.** The generation loop stops on reaching it with
-  no error, no end-of-generation token, and nothing that distinguishes "the model
-  finished" from "the model was cut off mid-clause". Nothing downstream catches a
-  truncation, because it is *precise* — the plausibility gate only looks for
-  transcripts that are too long.
+- `Start-Process -ArgumentList` does not reliably preserve argument quoting.
+  Use argument arrays only where the receiving command's parsing is proved.
+- `Set-Location` does not change a child process's native working directory in
+  every launch path. Pass an explicit working directory when it matters.
+- A `windows_subsystem = "windows"` binary is not a reliable CLI. Keep command
+  line tools and windowed applications as separate binaries.
+- The one-file installer stores its payload after the PE image. A truncated
+  download may still launch, so payload length and digest checks are mandatory.
+- Waiting for a file to exist is not waiting for it to finish writing. Installer
+  and download proofs must wait for a stable, verified file.
+- App, installer, uninstall, Start Menu, ARP, registry, and profile paths all use
+  the SpeakEasy Mini identity. Never copy a path literal from the parent app.
 
-  All of that is true and none of it can happen today. `max_new_tokens` is 2048;
-  `MAX_CAPTURE_SECONDS` is **120**, which is ~310 words, which is **~400
-  tokens**. A fifth of the budget. The longest utterance this product can make
-  does not come close, confirmed 2026-08-25 by a 120.183 s dictation that
-  transcribed complete with a six-word tripwire intact.
+### UI measurement
 
-  Two things follow. **The hazard is latent, not absent**: raising the capture
-  ceiling makes it reachable, and `capture_wizard.rs` already records wanting
-  thirty minutes — which is ~4,600 tokens and would truncate silently at about
-  nine minutes. **Raise `max_new_tokens` with any ceiling increase**, and since
-  2026-08-26 the gate makes you: `the token budget covers the longest dictation
-  the ceiling allows` compares the two as *source*, because they live in
-  `speakeasy-desktop` and `speakeasy-granite` and the desktop crate deliberately
-  does not depend on the one that compiles llama.cpp. It binds at ~410 s of
-  ceiling, at deliberately pessimistic rates (200 wpm, 1.5 tokens per word
-  against a measured 156 wpm and 1.29). And **do the division before
-  inheriting a risk**: the reasoning that carried this entry cited "a 4-minute
-  dictation would have lost roughly a third of itself" alongside the correct
-  ~400-tokens-per-120 s figure, and a four-minute dictation cannot be recorded.
-  Both numbers were right; nobody divided one by the other for months.
-- **Anything appended to `TRANSCRIBE_PROMPT` costs the whole transcript its
-  punctuation and casing.** Not keywords specifically — *anything*. Measured
-  2026-08-27 on a 55.04 s recording of real speech, release worker, greedy
-  decode, the unmodified instruction reproduced byte for byte on two separate
-  runs as the control. The instruction alone returned 8 sentence-final stops and
-  5 commas. Every one of these returned **zero** of both:
+- Measure the running WebView, not only CSS. For fixed-size windows verify
+  `scrollHeight - clientHeight == 0` and inspect control bounds.
+- Test Windows scaling with actual window coordinates; DPI virtualization can
+  make two coordinate systems look consistent while both are wrong.
+- `tauri.conf.json` changes may not invalidate a Cargo build. Rebuild the bundle
+  inputs before concluding a configuration edit had no effect.
+- Color is never the only status signal, and UI copy never claims delivery or
+  completion that did not happen.
 
-  | appended to the instruction | terms right (of 16) | periods | commas |
-  | --- | --- | --- | --- |
-  | *nothing* | 9 | **8** | **5** |
-  | ` The weather in Boston is fine today.` | 8 | 0 | 0 |
-  | ` Keywords: LogicMonitor` | 11 | 0 | 0 |
-  | ` Keywords: <3 terms>` | 13 | 0 | 0 |
-  | ` Keywords: <13 terms>` | 15 | 0 | 0 |
-  | ` Keywords: <13>. End every sentence with a full stop.` | 15 | 0 | 0 |
-  | `<13 terms>` placed *before* the instruction | 16 | 0 | 0 |
+## Settled product decisions
 
-  **The weather sentence is the whole finding.** It contains no keyword, biases
-  nothing, and destroys the punctuation exactly as completely as thirteen terms
-  do — so the cause is a second clause existing at all, not the terms, not the
-  list length, and not the position. Restating the instruction after the list
-  does not recover it, and ordering the model to punctuate is ignored. There is
-  no phrasing that gets both; the prompt is effectively single-purpose.
+Do not reopen these without new evidence or an explicit owner decision:
 
-  **Prompt bias was built, measured and reverted on this evidence** (`fcc6ea7`,
-  reverted same day). It worked — 16 of 16 terms against 9 unbiased — and cost
-  every sentence boundary in a 55 s dictation, which the one pass also produces
-  and nothing restores. `is_plausible` cannot see it: it bounds how much a
-  transcript says, never how it is punctuated, and a run-on is a perfectly
-  plausible transcript.
-
-  **A short clip cannot answer this question, and said the opposite.** The same
-  experiment on 6.42 s `smoke.wav` showed the prefix form preserving punctuation
-  byte for byte, which is what a single short sentence does rather than what the
-  model does. The conclusion survived one afternoon. Measure prompt changes on a
-  clip with several sentences in it.
-- **A correction table buys a specific string, not a term — and the microphone
-  decides which string.** Measured 2026-08-27, ten dictations of one sentence
-  containing five protected terms, on an installed release build.
-
-  | | array mic | close-talk headset |
-  | --- | --- | --- |
-  | terms correct | 19 of 25 | **21 of 25** |
-  | word-perfect runs | 1 of 5 | 2 of 5 |
-  | `Hellen` | 2/5 | 4/5 |
-  | `JIRA` | 4/5 | **2/5** |
-
-  `JIRA` went *down*, and that is the entry. `Jura` — added to
-  `MEASURED_MISHEARINGS` hours earlier from the array-mic runs — **did not
-  appear once** on the headset; the model had switched to `Gira`. A correction
-  cannot influence recognition, so nothing about the rule caused it: changing
-  the microphone changed which plausible word the model spells a
-  correctly-heard sound as. Across the first five runs there were six failures
-  in six *distinct* wrong forms, none of them a string the table predicted.
-
-  Two things follow. **Check the microphone before writing a rule** — the
-  headset moved four of five terms and no rule could have. And **rows come from
-  measurement, never from imagination**: a row is worth adding when the string
-  it rewrites is safe and the failure is common, but expecting the set to
-  converge is a different and wrong belief. `Ellen`, `Haley` and
-  `Project monitor` were refused for rewriting words somebody might legitimately
-  say, and a test pins the refusal so nobody re-adds them without re-reading
-  why.
-
-  **One term can mishear two ways, and the id scheme assumed it could not.**
-  `Jura` and `Gira` both target `JIRA`, and `installer-{index}-heard` generated
-  one id twice — a `DuplicateId` that rejects the *whole batch*, which is the
-  same all-or-nothing failure that once cost a user every word they had typed.
-  The row index is in the id now. It was fine right up to the first term that
-  had two, which is the shape of every id collision; it surfaced only because
-  the transcript test drives four terms rather than one.
-- **Assert whole transcripts for ASR, never a prefix or substring.** A
-  `contains("ever tried")` assertion went green here on a transcript missing a
-  third of the utterance. This is also why the installer's engine smoke test
-  compares the whole string against a bundled fixture's ground truth: "it
-  returned words" proves nothing about whether any audio was read at all, which
-  is exactly how a detached audio projector presents.
-- **A WASAPI output stream does not start when `play()` returns, and closing it
-  early plays nothing at all.** Measured on this rig's default output (a
-  SteelSeries Sonar virtual device, 8ch/96kHz): the callback took **zero**
-  samples for the first 400 ms and the whole 245 ms cue by 653 ms. Sleeping for
-  the sound's own duration and then dropping the stream — the obvious way to
-  write it — destroyed the stream before one sample left, silently, every time.
-  Nothing errors; the callback simply stops being called, which is
-  indistinguishable from a cue that finished. **Wait for the device to take the
-  last sample (`drained` in `cue.rs`), never for a clock**, then drain. Verify
-  with `cargo run -p speakeasy-audio --example cue_diagnostics`.
-- **A window is silently widened at creation, and `minWidth` does not stop it.**
-  Windows clamps a new window to the default minimum tracking size while it is
-  being created — `decorations: false` still leaves `WS_CAPTION` on — so a
-  declared width below it is quietly ignored. Measured at 250% scale: 60 came
-  back ~130, 96 came back ~130, and 96 with a matching `minWidth` came back
-  ~130. Nothing errors, and the stylesheet then describes a window that does not
-  exist. A `set_size` *after* creation is not subject to the clamp and holds
-  (`enforce_declared_size` in `composition.rs`). Measure the running window; the
-  declared size is a request.
-- **A DPI-unaware process is shown virtualized coordinates, so a window that is
-  exactly right and one that never scaled read the same.** `GetWindowRect` in a
-  process that has not declared awareness returns physical pixels divided by the
-  scale factor, silently. Measured 2026-08-15 on a 250% display, a window's
-  client area came back as exactly its declared *logical* size under
-  PerMonitorV2, under system-aware, and with no manifest at all — recorded as
-  "three declarations, one number, so the declaration does nothing", and wrong.
-  From a per-monitor-aware probe the same window is 1550x1150 physical, which is
-  620x460 at 240 dpi: correct, and correct under all three. Measure a native
-  window with `scripts/Measure-NativeWindow.ps1`, which declares awareness
-  before it reads anything and refuses to report if that did not take. It is the
-  WebView-free counterpart to `Invoke-WebviewProbe.ps1`, and `-Fit` additionally
-  says whether a control's text fits its box — a separate question with a
-  DPI-dependent answer, because a font cell is not linear in DPI.
-- **Editing `tauri.conf.json` does not invalidate the cargo build.** A full
-  `npm run tauri -- dev` restart after a config edit reported `Finished` in
-  0.65s without recompiling and ran the *old* config — which looks exactly like
-  a config change that had no effect. Touch `src-tauri/build.rs` to force the
-  build script to re-run. (`tauri dev`'s file watcher did not pick up `.rs`
-  edits reliably here either; restart rather than trust it.) The same shape
-  bites a `cargo:rerun-if-changed` file restored from a copy: `Copy-Item`
-  preserves the source's mtime, so cargo sees nothing newer, reports `Finished`
-  in 0.4s and leaves the *previous* file embedded. Touch the file, then confirm
-  what actually shipped by searching the built `.exe` for a *declaration* only
-  one version contains — the linker strips manifest comments, so a comment is
-  not a usable marker.
-- **`GetForegroundWindow` and `WM_GETICON` both lie in ways that read as
-  facts.** `WM_GETICON` with `SMTO_ABORTIFHUNG` returns 0 from a window that is
-  merely still starting up, which is indistinguishable from "no icon"; and a
-  window that cannot take the foreground looks identical to a caller that lacks
-  foreground activation rights. Both cost a wrong conclusion here. **Run a
-  control** — the same probe against a known-good window, or the same action
-  with the app stopped — before believing either.
-- **A `windows_subsystem = "windows"` binary cannot also be a usable CLI**, and
-  it fails in the shape that looks like a working one. Measured 2026-08-15 on
-  the bootstrapper: with the attribute set, `$out = & bootstrapper verify X`
-  captured **nothing** and returned in milliseconds — PowerShell does not wait
-  for a GUI-subsystem process — while the process itself was still alive behind
-  a modal message box, because it correctly found no writable stdout and fell
-  back to a dialog nobody was looking at. Two blocked windows were sitting on
-  screen. Either half alone silently breaks `Test-InstallerLifecycle.ps1`, which
-  parses `backup_manifest=` out of exactly that capture. A binary that must both
-  draw a window and answer a script stays **console**-subsystem and re-launches
-  itself with `DETACHED_PROCESS` for the window half (`relaunch_detached` in
-  `apps/bootstrapper/src/main.rs`); the parent exits in ~37 ms, so the console
-  flash is a flicker. Verify a `DETACHED_PROCESS` child is console-free by its
-  lack of a child `conhost.exe`, not by looking at the screen — but **that test
-  does not generalise to `CREATE_NO_WINDOW`**, which is what every worker gets
-  (`process_worker.rs`). `CREATE_NO_WINDOW` still creates a console object and
-  still gets a `conhost.exe`; it only declines to display one. Checked
-  2026-08-18 after a conhost child of `granite-worker` was briefly mistaken for
-  the delivery-target trap returning. The test that distinguishes them is
-  whether the process owns a **visible top-level window**, which neither the
-  worker nor its conhost does.
-- **`Start-Process -ArgumentList` quotes nothing, and this repository's own path
-  has a space in it.** The array is joined with spaces and handed over as one
-  string, so `@('--install-root', 'C:\Coding Projects\...')` arrives at the
-  child as **two** arguments — and no program can distinguish that from a caller
-  who meant two. Measured 2026-08-15: `Test-InstallerLifecycle.ps1` drove the
-  bootstrapper this way, the installer took `C:\Coding` as its destination,
-  **created that directory, wrote 45 MB into it, reported success and exited
-  0**, and the only symptom was the next assertion failing to find a file. Use
-  the call operator (`& $exe --install-root $path`), which quotes correctly, and
-  read `$LASTEXITCODE`. The receiving side is the other half: a program taking a
-  path should refuse an argument list it cannot consume whole rather than use
-  the first fragment — see `Mode::classify` in `apps/bootstrapper/src/main.rs`.
-- **A menu item built with an id nothing dispatches is a control that reports
-  success by not erroring.** The dock's "Return to default HUD" was built with
-  `hud_dock_return`; `dispatch_menu_action` matched `"settings"` and `"quit"` and
-  fell through to `_ => {}`, so clicking it did nothing at all, silently, from
-  the fork until 2026-08-27. **The `_ => {}` arm is correct and stays** — an
-  unrecognised id arriving at runtime must not panic — and that is the whole
-  difficulty: the arm that makes the app robust is the same arm that makes a dead
-  id invisible, so the only place the two can be told apart is against the
-  source. `every_menu_id_that_is_built_has_a_handler` does that, and was proved
-  able to fail by restoring the real item. Note that it checks one direction
-  only: a *handled* id nobody builds is harmless dead code, a *built* id nobody
-  handles is a lie.
-
-  Nothing tests a native popup's **contents**, so verify a menu change by
-  enumerating the running `HMENU` rather than by eye, and read a control build
-  first — every assertion is a count, and a probe that cannot see popups reports
-  a low count too. Three instruments failed before one worked on 2026-08-27:
-  `Add-Type -MemberDefinition` defaults to `CharSet.Ansi` and returns a **single
-  character** from `GetMenuStringW`; a no-activate window's popup never takes
-  keyboard focus, so synthesized Down/Enter go to whatever the user is actually
-  using; and a cursor-restore in one script raced the click in another. All three
-  present as "the item did nothing", which is indistinguishable from the bug
-  above.
-- **`cargo doc` does not check the doc links on private items, so a broken one
-  passes.** Almost every doc comment in `apps/desktop/src-tauri` is on a private
-  item, so `RUSTDOCFLAGS='-D rustdoc::broken_intra_doc_links' cargo doc` exits
-  **0** over all of them — it never parses them at all. Add
-  `--document-private-items` and the same command exits 101. Verified both ways
-  on 2026-08-19 by restoring a known-broken link as a control: without the flag
-  the check passed with the broken link in place, which is the shape of a
-  verification that cannot fail. `HEAD` at `cf9c434` had three real ones
-  (`StreamingPackAdapter`, `speakeasy_asr::FinalSourceReason`,
-  `resident_retained_pass`), all pointing at things deleted by the fork.
-
-  **The gate runs this now** (2026-08-27), so the trap is the flag rather than
-  the check. Run it alone with:
-
-  ```powershell
-  $env:RUSTDOCFLAGS = '-D rustdoc::broken_intra_doc_links'
-  cargo doc --no-deps --document-private-items --workspace
-  ```
-
-  Two warnings are expected and pre-existing (`Self::INSPECT_DEADLINE`, and a
-  `///`-indented CLI example in `apps/bootstrapper/src/main.rs` that rustdoc
-  reads as Rust); neither is a broken link, which is why adopting the check
-  needed no allowlist.
-
-  **It guards less than it looks.** It resolves ``[`Linked`]`` citations, and
-  this repository's convention is the bare backtick, which rustdoc never parses
-  — so the two dead citations Phase 2 found (`hud_placement_configure`,
-  `clamp_to_bounds`) would both have passed it. See the fourth citation class
-  under Conventions. Worth running regardless: it is the only citation check a
-  tool can do at all, and it costs nothing.
-- **Invisible C1 control characters survive review and every test.** Eight
-  U+009D bytes sat in comments across five files from the first commit, each one
-  immediately after an em-dash from some encoding round-trip. They render as
-  nothing, `git diff` shows nothing, and no check in the gate looks. They were
-  found only because a scripted replacement refused to match a line that was
-  identical on screen. **Scan C0 as well as C1** — the recorded detector
-  looked only at `0x80..=0x9f`, so it could not see the other half of the same
-  problem: a `U+0007` BEL had been sitting in `docs/handoff/CURRENT.md` since
-  2026-08-18 (commit `281ce35`), where a Windows path had lost the letter after
-  its separator and rendered as nothing. Widen the range to reject every C0
-  control except tab, newline and carriage return, plus DEL and C1 — at zero
-  across all 306 tracked files as of 2026-08-21.
-
-  **The cause is a backslash escape interpreted one layer too early**, and it
-  bites whoever is fixing it. Writing that very paragraph reintroduced two fresh
-  BELs, from `\a` in a Windows path inside a shell heredoc: one level of escaping
-  is consumed before the interpreter sees it, so a doubled backslash arrives
-  single and `\a`, `\n`, `\t` become control characters. The same run also put a
-  literal newline and tab inside a Rust string literal, and a ten-space gap into
-  three catalog sentences where a line continuation should have been. **Write
-  content containing backslashes with the file-editing tools rather than through
-  a heredoc**, and re-scan after each such edit rather than once at the end.
-  Related: the
-  console here renders U+2014 as `?`, so **check codepoints numerically** rather
-  than believing terminal output — a real em-dash and a corrupted one look the
-  same in this shell.
-- **A truncated download of the installer still runs.** The payload is appended
-  past the end of `SpeakEasyMiniSetup.exe`'s PE image, and Windows' loader does
-  not read that far — so a file that arrived 90% complete launches, draws the
-  wizard, and would install whatever fragment of the archive parsed. Every entry
-  carries a SHA-256 for exactly this, not for tampering: the whole executable is
-  untrusted until someone runs it. `payload.rs`'s truncation test cuts from the
-  *middle* and keeps the trailer, because a clean cut takes the magic with it and
-  is the easy case.
-- **`FindWindow($null, $title)` from PowerShell finds nothing, ever.** `$null`
-  for a `string` parameter marshals as an empty string, so it searches for a
-  window whose class name is `""`. It reported the setup wizard missing with the
-  wizard on screen — a broken instrument reading exactly like the failure it was
-  written to detect. Go through `Get-Process`'s `MainWindowTitle` instead.
-- **`, @(...)` around a returned list defeats the next `Where-Object`.** The
-  usual PowerShell guard against a one-element array unrolling hands the *whole*
-  list downstream as a single object, and `$_.Property -eq 'x'` against an array
-  filters rather than compares — so it comes back non-empty and truthy. A page
-  heading came back as the entire window's text.
-- **`Set-Location` does not move the process working directory.**
-  `[IO.Path]::GetFullPath('target\...')` resolves against wherever PowerShell was
-  started, not against the current location, so a relative path threw naming a
-  directory nobody had typed. Resolve against `$repositoryRoot`.
-- **`Start-Process notepad` does not open an empty document.** Windows 11
-  Notepad restores its previous tabs, so it surfaces whatever was last open, and
-  a proof that pastes into "a Notepad window" can write into someone's real
-  unsaved note. It happened. A delivery target must be a file the script created
-  and verified by name in the window title, never just a window owned by the
-  right process.
-
-  **And the pid you launch is not the pid that owns the window.** Notepad is a
-  packaged app: `Start-Process notepad.exe -PassThru` returned pid 68176, which
-  **exited immediately** after handing off to pid 44992, so
-  `$np.MainWindowTitle` read empty and `$np.MainWindowHandle` read 0 — which is
-  indistinguishable from a window that failed to open, and defeats the title
-  check the rule above depends on. Enumerate `Get-Process notepad` and match on
-  the title instead. Two related details from 2026-08-25: create the file with
-  `[IO.File]::WriteAllText($p, '')` rather than `Set-Content -Value ''`, which
-  writes a newline and leaves a leading CRLF that reads as the app prepending
-  one to the transcript; and check the foreground **before** synthesising
-  `Ctrl+S`, because `SetForegroundWindow` fails silently from a background
-  process and the keystroke then lands in whatever the user is actually using.
-
-- **A guard whose input is a literal is not a guard.**
-  `HistoryRepository::record` refuses a transcript whose `secure_target` is true
-  and a test proves it, but the only production caller passed `false` — before
-  any window had been inspected — so a dictation into a password field was
-  refused delivery and stored in plaintext, against both `historyDisclosure` and
-  `PRIVACY.md`. **When a test proves a guard works, check what production hands
-  it.** The same line was also `history.record(...)?` ahead of delivery, so a
-  `SQLite` error discarded the transcript: **optional persistence goes last.**
-  Fixed 2026-08-28. Two things that nearly shipped as
-  fixes and were not: a regression test that broke the database at *open* time,
-  which the buggy code survived by returning `Ok`, so it could never have caught
-  the defect — **control against the real bug, not a plausible one** — and that
-  same test asserting on `HistoryCoordinator.session`, a list production wrote
-  and never read, which would have kept dead state alive to satisfy a test.
-- **A comment stating a performance constraint is not enforcement, and the
-  violation can be four lines away.** `capture_hud_status` says device
-  enumeration is "far too expensive to do at 10 Hz" — correctly, about
-  `preferred_device_id` — while `setup_requirement`, called from the line above,
-  enumerated on every tick. Cached since 2026-08-28, and the test **counts**
-  enumerations and **advances an injected clock**: a burst-only test passes
-  against a cache that never expires, and a timing assertion on a
-  one-microphone machine passes with the enumeration still in place.
-- **`fs::read` over a required-file list is a whole-pack allocation.**
-  `InstallManager::reverify` collected every buffer before verifying any — 2.30 GB
-  for the Granite pack, inside `ModelCoordinator::new`, on a product whose floor
-  is 8 GB. It streams since 2026-08-28. **A launch still hashes the pack twice
-  and that is an open question, not a settled design** — both hashes are
-  desktop-side and the worker reopens by path, so neither is an execution-time
-  check. It is one hash now, taken immediately before the worker is handed the
-  model root, and it is still desktop-side -- an open finding in
-  `docs/handoff/CURRENT.md`, "Model integrity is not an execution-time check".
-- **A safety rule can outlive the danger it was written for, and then it only
-  does harm.** `proof/` was emptied *selectively* — this installer's own files by
-  name, everything else spared — on the recorded argument that an unrecognised
-  file there was more likely 500 MB of fetched CUDA runtime than anything of ours,
-  and that "leaving a file costs a few megabytes, deleting one costs a 2.97 GB
-  download". Every word of that was true when written and none of it was true by
-  2026-08-21: **this fork has no runtime download at all**. It left with the
-  streaming engine. Nothing in the tree creates `.cuda-runtime-download` or
-  `.cuda-runtime-stage`, the weights live under `%APPDATA%`, and the only thing
-  the rule still spared was `Enable-GraniteCuda.ps1`'s 493 MB of staged libraries
-  — through every uninstall, forever, on a machine the user believed was clean.
-  The rule read as careful right up to the moment somebody checked whether its
-  premise still existed. When a subsystem is deleted, grep the *safety rules* that
-  mention it, not just the code that called it.
-- **A pinned requirement nothing reads is not a fact, it is a plan — and it
-  becomes a refusal the day something reads it.** The catalog pinned CUDA
-  **12.9** (`cudart64_12.dll`, `cublas64_12.dll`, `cublasLt64_12.dll`) while
-  `Enable-GraniteCuda.ps1` staged **13** and the only toolkit any machine here
-  has is 13.3. Harmless for months, because no code compared the two. On
-  2026-08-20 `speakeasy_models::required_cuda_runtime_files` began reading those
-  `proof_files` as the enforced list, and a locally built CUDA worker was then
-  refused as `RuntimeFilesMissing(cublas64_12.dll, cublasLt64_12.dll,
-  cudart64_12.dll)` with three perfectly good CUDA 13 libraries sitting beside it
-  under their real names. Re-pinned to 13.3.1 on 2026-08-21. Two things about
-  doing that:
-  - **CUDA 13 moved the libraries from `bin/` to `bin/x64/`.** A re-pin is not the
-    old paths with a digit changed, and the first attempt refused for exactly
-    that reason. `required_cuda_runtime_files` survived it only because it
-    reduces `proof_files` to *base names* rather than stripping a known prefix.
-  - **`scripts/Get-CudaRuntime.ps1` produces the entries.** Its predecessor was
-    deleted with the streaming engine, which is how the 12.9 numbers came to sit
-    in the catalog as constants nobody could re-derive. It cross-checks each
-    archive against NVIDIA's own `redistrib_<version>.json`, takes the per-file
-    digests from the verified archive (NVIDIA publishes none), and reports whether
-    the installed toolkit's libraries are the *same bytes* — which is the only
-    thing that makes `Enable-GraniteCuda.ps1` staging from the toolkit sound. All
-    three matched on 2026-08-21; version strings agreeing would not have been
-    that claim.
-- **`--nocapture` delivered nothing from `speakeasy-desktop`'s test binary, and
-  `--show-output` reported the test's stdout as empty.** Both hardware tests that
-  exist partly to *measure* something were printing their numbers into a void,
-  and passing, so nothing said the measurement was missing. Cause not found;
-  the fix is that the resident-run timing is now written to
-  `target/debug/granite-resident-timing.txt` as well as printed. **A measurement
-  that only exists in captured stdout is not a measurement.** Also: an edit meant
-  for one hardware test landed in a sibling with a similar name, and because the
-  test filter selected the other one, everything passed while producing nothing —
-  check *which* test ran, not just that one did.
-- **Proving a test can fail destroys uncommitted work, if the control undoes
-  itself with `git checkout`.** A control is: break the thing, confirm the test
-  goes red, put it back. Putting it back with `git checkout -- <file>` reverts
-  the file to **HEAD**, not to the state before the patch — so on 2026-08-28 two
-  files that had just gained a new function and a new test were controlled, and
-  both lost everything uncommitted in them. The gate then passed, because **a
-  test that is absent cannot fail**, and the commit that followed shipped a
-  comment citing a test that no longer existed — the exact defect it was written
-  to fix. Commit first and control against the commit, or copy the file aside and
-  copy it back; never revert to HEAD.
-
-  **The tell was a count, and "0 failed" is not one.** The bootstrapper's binary
-  tests ran 76 with the new test and 75 without it, and both runs said `0 failed`.
-  A suite that silently got smaller reads exactly like a suite that passed. Read
-  the total, not the verdict — this is the same lesson as `--lib` skipping the
-  `--bin` targets, one level in: there, a target filter hid a whole crate; here,
-  a revert hid one test.
-
-  Also worth knowing: **a weak control proves nothing and looks identical to a
-  strong one.** Two controls that day passed while the invariant was genuinely
-  broken — adding a delivery call *inside* the one function allowed to deliver
-  does not violate "only that function delivers", and restoring `"hud" |
-  "hud-dock"` leaves `"hud-dock" =>` still matching a regex that reads one label
-  per arm. A control that does not go red has verified nothing, so treat a
-  passing control as a bug in the control until proven otherwise.
-- **A fixture under `.tools/` is a test with a deletion date.** The three
-  granite_engine hardware tests read `.tools/fixtures/beckett.wav`, which is
-  gitignored, existed only on the machine that made it, and **was gone** by
-  2026-08-21 — so all three had been unrunnable for some unknown stretch while
-  reading as merely `#[ignore]`d. This is the *second* time; the first is recorded
-  in `.gitignore` beside the `!apps/bootstrapper/fixtures/smoke.wav` exception
-  that was added for it. All three now use that committed clip, and its ground
-  truth was **discovered by running the model**, not typed — the same rule that
-  caught "Granit" and "dog. And Monday".
-- **A claim assembled out of an intention is indistinguishable from a fact, and
-  outlives every layer that would have checked it.** A support log read
-  `engine=cpu_gpu_runtime_missing device=cpu installed=cuda`. Three correct
-  fields; an impossible combination; nothing anywhere compared them. The install
-  marker came from the wizard's provider radio button — which `UI-GUIDE.md` said
-  to disable and nothing ever did — so a user on a CUDA-capable machine selected
-  "Use the graphics card", setup installed the only configuration it carries, and
-  wrote `cuda`. Fixed 2026-08-20, and the shape of the fix is the lesson:
-  - **`speakeasy_models::granite_gpu` is the one place the question is answered**,
-    and it separates *published* (a `native-runtime` artifact
-    `granite-worker-cuda-windows-x64` in the trusted manifest), *present* (that
-    worker plus every library its `proof_files` pin, beside it), and *operational*
-    (NVML lists the worker's **own pid** as holding a compute context).
-  - **The old check asked the manifest for a CUDA `final-asr` pack**, which
-    answers none of the three. There is one GGUF and a CUDA worker offloads that
-    same file, so a pack entry would be a duplicate of the CPU one.
-  - **Compiled-in is not running-on.** `compiled_accelerators` at `Hello` says
-    what the binary could do. A refusing driver, a claimed card or exhausted VRAM
-    runs that same binary on the processor and llama.cpp notes it in *its own
-    stderr*. `device=` reads `cuda` only where NVML confirmed it,
-    `cuda_unverified` where it could not be asked, `cpu` otherwise.
-  - **The marker is written after the engine check, from its verdict, and
-    nowhere else.** A check that never ran writes nothing, which reads as
-    `unrecorded` — guessing `cpu` would be a claim about a configuration nobody
-    verified.
-  - **Both sides are compared, once, by name.** `ProviderIntegrity` at warm:
-    `ok`, `unrecorded`, `gpu_install_not_operational` (the actionable fault), or
-    `running_beyond_record` (what `Enable-GraniteCuda.ps1` produces on purpose).
-    It is in `granite_warm` as `provider=`.
-- **A fix scoped to the page somebody was looking at is not a rule, and the
-  second surface reads as the bug returning.** "The active provider is reported
-  as the device, never as the pack" was settled on 2026-08-21 and applied to
-  Settings → Transcription. `diagnostics_status` kept filling Advanced's
-  `PROVIDER` from `selection.capabilities.provider` — `cpu` on every machine,
-  because there is one GGUF — so on 2026-08-28 Advanced read `PROVIDER: Processor
-  (CPU)` on a machine whose worker held **2,365 MiB of VRAM** and had just
-  transcribed 24 s of speech in **1,424 ms** (RTF 0.059, against ~0.37 for this
-  rig's processor). The owner read that page and concluded dictation had fallen
-  back to the CPU, which is exactly the wrong belief the settled decision exists
-  to prevent. **When a rule about how something is reported is settled, grep
-  every command that emits a field of that name**, not just the one whose
-  rendering was being read.
-
-  Two measurement notes from proving it, because both readings mislead on their
-  own. `nvidia-smi --query-compute-apps=used_memory` returns **`[N/A]`** under
-  the WDDM driver model on Windows — that is a per-process reporting limit, not a
-  CPU fallback, and it is easy to read as evidence of one. The reading that works
-  is total `memory.used` **with a control**: 2,365 MiB with the worker resident,
-  **0 MiB** with it stopped. And NVML listing the worker's pid proves a *context*,
-  not offloaded layers; RTF against the recorded per-device figures is what
-  separates those two.
-- **A premise that expires does not announce itself, and the code that depended
-  on it keeps running.** `GpuQualificationCoordinator::record` — the only
-  promotion from "admissible" to "proven" — was deleted on 2026-08-21 with a note
-  saying its GPU smoke had nothing to smoke and that it "comes back with the CUDA
-  worker, not before". The CUDA worker shipped **2026-08-26**; nothing brought it
-  back. So `qualified` became permanently false, and Settings told every
-  graphics-card user the engine "has not passed its local execution check yet",
-  beside a device line saying it was running on the card, with a Re-test button
-  implying a remedy that could not reach it. Found 2026-08-28, sentence removed.
-  This is the same shape as the `proof/` cleanup rule that outlived its download,
-  one layer in: there the premise was in a *safety rule*, here it was in a
-  **deletion note that named its own trigger**. A comment saying "restore this
-  when X ships" is a task nothing tracks — when X ships, grep for the notes that
-  named it.
-
-  **Restoring it was refused rather than faked.** `Qualified` carries an
-  `ExecutionEvidence` whose `inference_sample_count` exists precisely so a caller
-  cannot assert success without having inferred anything, and nothing at warm time
-  has that number — `device=cuda` proves a held context and loaded weights, not
-  samples pushed through. Inventing one would have been the manufactured claim
-  this whole area was built to remove. Recorded as an open gap instead.
-- **An answer can reach disk and never reach the screen, and the screen is what
-  the user judges.** Setup collects a vocabulary; it was in
-  `personalization.json`, correct, three words — and Settings showed an empty
-  dictionary list. The read is `personalization_status`, fired **once on mount
-  with no rejection handler**. Every window's webview loads while `setup` is
-  still managing coordinators, so it can be refused with "state not managed for
-  field `state` on command …", and the page then shows an empty list for the life
-  of the process. An empty list is not a blank page anyone reports: it says "you
-  have no protected terms". `useProfile.ts` had carried a retry for that race
-  since the day it was found and **nothing else did**. Status reads that can lose
-  it now go through `readWithRetry` (2026-08-20). When an answer "did not
-  arrive", check the disk *and* the window; they are two different failures with
-  one symptom.
-
-  **The sweep stopped at one file, and the next occurrence was worse.** Only
-  `Transcription.tsx` was converted, so `readWithRetry.ts` had exactly one
-  importer — and `General.tsx` read `hotkey_status` with a bare `invoke`, no
-  rejection handler, rendering `hotkey?.registration ?? "pending"`. Found
-  2026-08-25: Settings reported **"Shortcut not registered yet"** for the life of
-  the process while `hotkey_status`, invoked directly against that same window,
-  returned `registration: "registered"` and dictation worked twice. An empty list
-  is a passive wrong answer; this one tells the user a working feature is broken,
-  in the panel they opened *because* it seemed broken, and the remedy it implies
-  — press "Save hotkey" to re-register — fixes a problem they do not have. When
-  fixing a race in one reader, grep for every other reader of the same shape.
-
-  **And that symptom had a second cause, which is the one that reproduced.** A
-  refusal is not the only way to lose this race: a read can **succeed** and
-  return a value that is only true for the first moment of the process.
-  `HotkeyCoordinator` starts at `registration: "pending"` and
-  `register_activation_hotkey` runs at the **end** of `setup`, after the tray is
-  built — while all three eagerly mounted settings pages have already read. So
-  the fix implied by the diagnosis above would have shipped without fixing the
-  reported symptom. **Three causes, one appearance**: the backend is wrong, the
-  read was refused, or the answer arrived before it was true. The rendered string
-  separates none of them, and neither does the page's own state — `null` from a
-  refusal and a transient value both render the fallback. Reload the window
-  (`-Cdp 'Page.reload'`) and read the same page against the same backend: correct
-  after a reload is a transient, and cannot be a refusal. `readWithRetry` takes a
-  `settled` predicate for this, and an unsettled answer that survives all 20
-  attempts is *returned* rather than thrown, because a startup value still there
-  after five seconds has stopped being transient (2026-08-26).
-
-  **Which pages can lose this race is decided by `SettingsApp.tsx`, and by
-  accident.** General, Transcription and Advanced mount eagerly; Audio, Output &
-  Privacy and the transcript log mount only while their tab is active, so their
-  reads land long after `setup`. The three eager pages are exactly the three that
-  had the defect — a correlation nobody chose, since Audio's conditional mount
-  exists so a hidden page does not sample the microphone. Making one of the lazy
-  pages eager brings the race back with it, which is why the guarantee lives in
-  `no effect can read a race-prone command without retrying or polling` and not
-  in the mounting.
-
-  **The test written to prevent the recurrence is what let it happen.** It named
-  `personalization_status` in `Transcription.tsx` and was green on the day the
-  same defect was found in a second file with a second command: a record of where
-  the bug had been seen, not a rule about where it can happen. The replacement
-  derives the hazard from the Rust signatures — every `#[tauri::command]` taking
-  a `tauri::State`, 41 of the 56 — and finds the readers by scanning every
-  `useEffect` in `src/`, following one level of local function calls, which is
-  what reaches `refreshCatalog`. **Every assertion in it is of the form "nothing
-  was found", which is also what a broken scanner reports**, so it carries
-  instrument self-checks and was proved able to fail by restoring the original
-  defect in two files.
-- **A merge keyed on positional ids fails closed on the whole batch.** Setup's
-  words become dictionary entries named `installer-0`, `installer-1`, … *by
-  position*, and an uninstall run with `--keep-user-data` keeps
-  `personalization.json` — which is what both proof scripts pass, so this is
-  still exactly the path they take. (A production uninstall removes it now; the
-  default inverted on 2026-08-21.) So
-  a second install merged a shorter list over the old ids, left one behind, and
-  where the survivor held a word the new list also held the two were a
-  `ConflictingRule` — which rejects **every entry in the merge**, not the
-  duplicate. The user got none of their words and kept the previous install's.
-  Two words differing only in case (`Ken, ken`) did it on a first install.
-  Fixed three ways, all of them needed: the parse de-duplicates
-  case-insensitively, `replace_user_entry_terms` replaces setup's entries rather
-  than merging, and the outcome is logged (`installer_vocabulary count= result=`)
-  instead of vanishing into a `let _ =`.
-- **Waiting for a file to exist is not waiting for it to be written.**
-  `Test-SetupWizard.ps1` waited for `personalization.json` to appear and then
-  asserted its contents. An uninstall run with `--keep-user-data` keeps that
-  file — and that is what the script passes — so on a reinstall
-  the wait returned instantly and the assertion read the **previous** install's
-  words — reporting the new ones lost against an app that had applied them
-  correctly seconds later. Poll for the content you are asserting, with a
-  deadline, so the instrument can still fail.
-- **`WM_SETTEXT` does not raise `EN_CHANGE` on a multi-line edit**, so a driver
-  that stuffs a box and reads back what the page says about it gets the answer
-  from before the stuffing. Measured 2026-08-20: the vocabulary page reported "No
-  words yet" with three words in the box. `Test-SetupWizard.ps1` presses Back and
-  Next to force the recompute, which also proves Back does not lose what was
-  typed.
-- **The fork updated every path it executed and left every path it did not**,
-  and those paths fail fast, so each one hides the next. Six were found this
-  way on 2026-08-18 — the dev launcher, the quality gate, the dependency
-  policy, the packager, the installer builder and the install proof — each
-  still naming `speakeasy-inference-worker`, a sherpa runtime, or a script the
-  fork deleted. All six had been dead since the fork and none of them was
-  covered by a test, because they *are* the tests. **Before trusting anything a
-  script asserts, confirm the script runs to the end.**
-- **A check that asserts the presence of something deliberately deleted reports
-  a bug in the thing it is checking.** `Test-LocalInstall.ps1` demanded a
-  `nemotron-3.5-streaming-en-cpu` entry in the trusted manifest and threw
-  against a manifest that was entirely correct. It resolves the pack by
-  `install_eligible` now. When something is removed, grep the *proofs* for it,
-  not just the code.
-- **PowerShell turns a native command's redirected stderr into ErrorRecords,
-  and under `$ErrorActionPreference = 'Stop'` those are terminating.** Every
-  refusal `Test-InstallerLifecycle.ps1` exists to assert is written to stderr,
-  so each one threw at the `2>&1` before its exit code could be read, and
-  surfaced as a `NativeCommandError` quoting the refusal text — indistinguishable
-  from the installer being broken rather than correctly refusing. `Assert-Refused`
-  could never have passed. Leave the stream alone where the output is not needed
-  (`Stage-DevRuntime.ps1`), or lower the preference for the duration of the call
-  where it is (`Invoke-Installer`).
-- **Anything the installer hardcodes is a chance to write into SpeakEasy's
-  state, and none of it errors.** `%APPDATA%\<identifier>`, the ARP key, the
-  version stamp under `Software\<name>`, the install root under
-  `%LOCALAPPDATA%\<name>`, and the Start Menu folder were each inherited from
-  the parent product. The install root was the worst: setup would have written
-  over an existing SpeakEasy installation, and because uninstall removes the
-  install directory whole — more completely since 2026-08-21, when the last
-  spared thing in it stopped being spared — uninstalling this app would have
-  deleted that one.
-  Reachable only by building an installer and running it.
-- **A window measured during startup is not the window.** `configure_hud` sets
-  non-focusable, shows the dock and applies `enforce_declared_size` after the
-  windows already exist, so a reading taken too early shows a hidden, focusable
-  dock at the creation-time clamp width — identical to a real regression. Wait
-  for `granite-worker` to appear, then measure.
-- **`GetWindowRect` includes a resize border that `set_size` does not.** The
-  pinned log declares 340x460 and its outer rect measures 882x1169 at 250%,
-  which looks like `enforce_declared_size` failing. It is not: the log is
-  `resizable: true` and keeps `WS_THICKFRAME`, while the dock is not and so
-  measures exactly. `Measure-NativeWindow.ps1` reports the **client** rect —
-  850x1150 physical, exactly 340x460 logical — and the webview independently
-  agrees at 340x460 CSS px.
-
-## Settled decisions — do not re-open without new evidence
-
-- **Granite is the only engine, and its transcript is delivered
-  unconditionally.** Punctuation and casing come from the same single pass, so
-  a latency argument cannot be used to remove it — there is nothing left to
-  fall back to.
-- **No fallback, ever.** A pass that fails, returns nothing, or fails the
-  plausibility gate ends the dictation with a named reason. Silently
-  substituting a weaker result is the behaviour this fork exists to remove.
-- **The dock never takes keyboard focus**, so it is deliberately not keyboard
-  operable. Every action it offers must have a keyboard path elsewhere — the
-  shortcut, or the settings window.
-- **One dictation at a time, refused rather than queued.** Owner decision
-  2026-08-26. A press between a recording ending and its transcript landing is
-  the second press of a toggle for a dictation that is already over — commonly
-  after a ceiling stop, where the recording ended without being asked to and the
-  user was by definition still talking. It used to open a second dictation that
-  queued behind the first and pasted up to a minute later, wherever the user had
-  moved on to; nothing errored, because everything was working as built. The
-  guard is in `start_dictation`, the single implementation behind both the
-  shortcut and the dock's button, and `hud_session_with_delivery` is the one
-  statement of when a dictation is over — the dock's `can_start` had refused this
-  press all along while the shortcut accepted it, and the cause was a second copy
-  of that rule. It **fails open**: a poisoned lock or an absent coordinator must
-  never be able to suppress a dictation the user wanted.
-- **Granite's GPU support is a build feature, not a downloadable pack**, so
-  there is no provider-override setting: no setting can conjure a CUDA-capable
-  worker binary. The installer fetches one when the user asks for it on hardware
-  that warrants it; without it the app runs on CPU and says so. **The declaration
-  lives in the trusted manifest**: the CUDA worker is the `native-runtime`
-  artifact `granite-worker-cuda-windows-x64`, and its presence is what enables
-  the wizard's option and permits an installation to record `cuda`.
-
-  **Published 2026-08-26** to
-  `orangeblue39/speakeasy-mini-runtime` on Hugging Face, pinned at an immutable
-  commit, 42,162,465 bytes of zip around a 57,052,672-byte worker. Hugging Face
-  carries the worker only; the three CUDA redistributables still come from
-  NVIDIA's own CDN, which the manifest already pinned. Before that date the
-  declaration was made *by absence* and seven tests asserted it — they inverted
-  together, which is what said the change had landed everywhere it needed to.
-  Two things that did not change and are the point: publishing is not
-  installing (`inspect_gpu_payload` still answers `WorkerNotInstalled` on a
-  machine without the files), and the recorded provider still comes from
-  `smoke::verify_engine`'s verdict rather than from the option the user picked.
-- **The whole workspace targets CUDA 13.x**, pinned at cudart 13.3.29 and
-  libcublas 13.6.0.2 from `redistrib_13.3.1.json` — the versions whose bytes are
-  byte-identical to this workspace's CUDA Toolkit, proved by digest. Accepting
-  `cudart64_*.dll` by pattern was considered and rejected: presence would stop
-  implying provenance, and every required file in this catalog is a file the
-  catalog pins.
-- **`install-provider.txt` has exactly one writer and two callers.** The writer is
-  `seed::record_installed_provider`, fed from `smoke::verify_engine`'s verdict.
-  The callers are the wizard's last page and the bootstrapper's
-  `--verify-provider` verb. A third caller, `scripts/Enable-GraniteCuda.ps1`,
-  invoked that verb after staging a CUDA worker by hand and after `-Revert`; it
-  was **retired on 2026-08-26** when setup began fetching a published worker. It
-  read no NVML, classified nothing and wrote no marker — a second implementation
-  of the three-gate proof would have been a second source of truth for the same
-  claim, which is the shape of the defect the 2026-08-20 work removed, and the
-  reason retiring the script changed nothing about this rule. Anyone staging a
-  worker by hand now inherits its obligation: **skipping the re-prove is not
-  neutral in either direction.** Staging without re-proving reports
-  `running_beyond_record`; putting the processor worker back without re-proving
-  manufactures `gpu_install_not_operational`.
-- **The NVML probe is a parameter threaded through `GraniteEnvironment`, not an
-  environment variable.** A production switch whose only purpose is to make the
-  app misreport its own provider is the same shape as the radio button that
-  started all this. Threading it is what made `device=cuda_unverified` reachable:
-  a working card always answers and always takes the worker, so "the driver would
-  not answer" and "the driver said no" are precisely the two answers no real
-  machine can be asked for.
-- **The active provider is reported as the device, never as the pack.** The pack
-  reason (`engine=`) and the device (`device=`) are different facts that disagree
-  on any machine running a CUDA worker against the single CPU-named pack. Settings
-  reads the device; the disclosure used to read the pack. Measured on an RTX 5090: Granite
-  Q4 resident run 1,571.9 ms on CPU versus 156.4 ms on CUDA, RTF 0.158 versus
-  0.0157, holding ~3.27 GiB of VRAM.
-- **On real speech the card is 9.34x the processor, and inference is 98% of the
-  latency.** The first non-harness numbers this product has, measured 2026-08-25
-  on an installed release build, RTX 4070 Laptop: a 105.2 s dictation was
-  **4,171 ms** of inference (RTF 0.0396) and **4,246 ms** press-to-paste, against
-  **44,493 ms** (RTF 0.3702) for a 120.2 s dictation on the processor. The 6.42 s
-  fixture predicted 8.1x, so it is a fair guide and errs optimistically about the
-  processor. Press-to-paste is 54 ms of queueing, then inference, then 21 ms to
-  inspect the foreground and paste — so **no latency argument that is not about
-  inference is worth having**. Two caveats that keep this honest: the two runs are
-  different recordings, so only RTF compares across them, and this says nothing
-  about the byte-identical claim, which needs one WAV through both workers.
-- **Q4_K_M is the shipped quantization**, chosen on measurement rather than by
-  decision: ~21% faster than Q8_0 on a 120 s utterance with an identical
-  transcript but for one punctuation choice. Q8_0 stays in the catalog as the
-  recorded alternative, not as a second thing to keep working.
-
-  **The rigs that produced this and the thread-count table are gone**, deleted
-  2026-08-27 with `speakeasy-granite`'s whole `granite_smoke` module. All nine
-  read fixtures from gitignored `.tools/` — `beckett.wav` and a two-minute
-  `Obama.wav` slice — that had not existed in any checkout for months, so they
-  reported nothing while reading as merely `#[ignore]`d, and they could never
-  join the gate anyway: they need 2.1 GB of weights no checkout carries. The
-  *numbers* survive here because they are what the defaults are for. Revising
-  one means building a new rig and saying so, not editing the table. Correctness
-  is unaffected — `granite_final_pass_transcribes_the_fixture_through_the_real_worker_process`
-  asserts a whole transcript against a **committed** clip, through more of the
-  stack than any of the deleted proofs reached.
-- **Two destructive cleanup rules never run.** `immediate_repetitions` and
-  `self_corrections` are forced off in `apply_final_personalization` and have no
-  settings toggles. `resolve_self_correction` discards everything before
-  `" I mean "`, which is live data loss, and it fires more often on Granite's
-  fluent output than on a transducer's. A test pins this precisely because the
-  rules are now unreachable from the UI.
-- **The setup wizard sets its own type, and it is the only crate in the
-  workspace allowed `unsafe`.** Owner decision 2026-08-26, inverting "colour and
-  no bold". `winsafe` builds one `HFONT` per process from `lfMenuFont` and offers
-  nothing that changes a control's font afterwards — that is `WM_SETFONT` through
-  `SendMessage`, which it marks `unsafe`. So both wizard windows drew everything
-  at Segoe UI 9pt, the size Windows uses for *menu bars*, on a ~105-character
-  measure with the heading, step counter, key line and body all identical.
-  Correctly scaled and too small to read, which is not a bug a measurement finds.
-
-  `apps/bootstrapper/Cargo.toml` declares `[lints.rust] unsafe_code = "deny"`
-  instead of inheriting; `src/typeface.rs` holds the only two `#[allow]`s under
-  it. **The root stays `forbid`** — it is load-bearing beyond style, because
-  under edition 2024 it is what makes `std::env::set_var` unreachable from a
-  test. Two rules for anyone touching this: sizes are a **ratio** of
-  `SPI_GETNONCLIENTMETRICS` (four thirds for body, five thirds semibold for the
-  heading), never absolute points, because a reader who raised Windows' own text
-  size is the person the change is for and "12pt" would shrink the wizard for
-  them; and **every control that carries words gets one of the two**, buttons and
-  check-box labels included — `apply_typeface` lists them by hand rather than
-  enumerating children, so a control added later is a control someone must
-  remember. Colour is unchanged and still never the only signal.
-- **Every wizard page is a question, one key line, and at most two short
-  sentences.** Rewritten 2026-08-20 from four-sentence paragraphs that were
-  correct and unread. Nobody reads an installer, so an honesty obligation
-  discharged in the third paragraph is discharged on paper only. `catalog::Step`
-  holds the three parts separately so a page cannot drift back into prose.
-- **The vocabulary box takes a comma-separated list**, and reports back how many
-  words it read and which. Newlines still separate — the old one-per-line form
-  means the same thing and losing a word to punctuation would be indefensible —
-  and the count comes from the same parse that writes the seed, so it cannot
-  describe a list the file disagrees with.
-- **The uninstall page is the confirmation, and its Remove button is focused.**
-  Owner decision 2026-08-21, and it inverts the earlier reading. One page, a
-  check box per `Removable`, every box checked, no dialog behind it — a second
-  prompt re-asking what the page just asked teaches people to press Enter twice.
-  `BS::DEFPUSHBUTTON` makes a button the *default* and does not focus it:
-  measured here, removing the explicit `SetFocus` puts the focus on the heading
-  static. Only the models entry names a size, and `uninstall::measure` walks the
-  same path table the deletion does, so the figure cannot describe one set of
-  files while another is removed.
-- **An uninstall leaves nothing, and keeping things is a testing flag.** Owner
-  decision 2026-08-21, inverting the inherited `/SD IDYES` default. `--uninstall`
-  removes the program directory whole *and* the profile — settings, transcript
-  history, the 2.14 GB of weights, recovery backups, logs — and removes the
-  directories themselves, not just their contents. `--keep-user-data` is the
-  opt-out, and exists so an install/uninstall cycle does not re-download the
-  weights; both proof scripts pass it. The interactive path **asks first**, on the
-  page described above, with any unrecognised files in `proof/` listed.
-  `--remove-all` is gone and is deliberately
-  not accepted as an alias: it named the thorough behaviour, that behaviour is now
-  the default, and a flag meaning "do what you were going to do anyway" lets a
-  caller keep believing it is choosing. `Removals::default()` still selects
-  nothing, because a *caller* that forgets to ask must delete nothing; the
-  inversion is at the command line, where somebody has actually been asked.
-
-  **`--keep-user-data` seeds the page's check boxes, and until 2026-08-26 it did
-  not.** `remove()` computed the `Removals` and then discarded it on the
-  interactive path, because `uninstall_page::ask` took no argument and hardcoded
-  every box checked — so `--uninstall --keep-user-data` *without* `--silent` drew
-  a page primed to delete the profile, and one did go: 4.28 GB of weights, the
-  settings and the vocabulary. The flag worked only alongside `/S`, which is the
-  one combination both proof scripts pass, so nothing had ever run the other. A
-  flag that states an intention has to reach the control that acts on it.
-- **Local-only.** No GitHub Actions, no Dependabot, no hosted runners.
-  `scripts/Test-LocalOnlyPolicy.ps1` fails if `.github` config reappears. A
-  GitHub *Release* is not automation and is how the installer is published; the
-  build, the proofs and the upload are all run by hand from this machine.
-- **Setup asks eight questions and every answer reaches the app**, through
-  one-shot seed files under `%APPDATA%\ai.speakeasy.mini\config\` that the app
-  reads and deletes on first launch. The deletion is the contract: a seed is a
-  starting value, never a policy, so a setting the user changes afterwards must
-  never revert. `install-provider.txt` is the one exception and persists,
-  because it records what was *installed* rather than what to start with.
-- **Setup launches the app, and says so if it could not.** Ending by closing its
-  own window leaves someone who watched every step succeed looking at an empty
-  desktop.
-- **The dictation floor is Granite's floor** (8 GiB), raised from 4 GiB on
-  2026-08-18. The two were split so a machine that could not host Granite still
-  dictated through the streaming path; with one engine that only let someone
-  speak into a guaranteed `GraniteUnavailable`. Refusing at `begin`, before a
-  sample is captured, is the same answer at the only useful moment.
-- **The app installs beside SpeakEasy, never into it.** Identifier
-  `ai.speakeasy.mini`, binary `ai-speakeasy-mini.exe`, install root
-  `%LOCALAPPDATA%\SpeakEasy Mini`, version stamp under
-  `Software\SpeakEasy Mini`, its own ARP key and its own Start Menu folder.
-  Every one of those was inherited from the parent until 2026-08-18. The Rust
-  **crate** names stay `speakeasy-*` deliberately, and the IPC schema `$id`s
-  keep the old string, because neither is user-visible or a filesystem path.
+- One Granite pass, no streaming engine and no fallback.
+- The dock never takes focus and is not a second keyboard-access surface;
+  equivalent controls live in Settings.
+- No in-app setup wizard and no provider override. The installer provisions the
+  supported worker.
+- Q4_K_M is install-eligible; Q8_0 remains catalogued but does not ship.
+- Retention defaults off and is implemented by never writing transcript text.
+- Uninstall removes program and user data by default. `--keep-user-data` is the
+  testing opt-out and must reach the interactive controls as well as silent mode.
+- The build is unsigned by decision. Public releases include `SHA256SUMS`.
+- Builds and releases are local-only: no GitHub Actions, Dependabot, or hosted
+  runners.
+- Setup records what it proved was installed, not what the user selected.
+- Setup launches the app on success and reports when it cannot.
+- Wizard pages use the system-derived type scale and concise question/key/body
+  copy; color is not the only signal.
 
 ## Conventions
 
-- **`docs/UI-GUIDE.md` is a living spec**, not a record. A UI change that does
-  not amend it is incomplete. Superseded briefs get a `> **Superseded.**` note
-  rather than a rewrite.
-- **Design drawings go in `docs/design/`** as single standalone HTML files —
-  inlined CSS, `data:` URIs, nothing fetched — plus a row in that directory's
-  contents table. Not chat artifacts. Read geometry from the real stylesheet,
-  and say what a drawing is and when it was true.
-- **Measure the running window, not the stylesheet.**
-  `getBoundingClientRect()` accounts for the cascade you did not know was
-  there; several layout bugs here were invisible in the CSS and obvious in the
-  window. **`height: 100vh` with `justify-content: space-between` is the worst
-  case**, because it describes a box that always looks correctly filled no matter
-  how much content is in it — the `notice` window read fine in CSS while needing
-  188 px in a 172 px window, and its only control sat 16 px below the fold from
-  the day it shipped. `scrollHeight - clientHeight` is the reading; anything
-  above zero is a clip. Do it for any window that is `resizable: false`, which is
-  all of them but the log.
-
-  **Do it after the fix as well, because an estimate of the requirement is still
-  an estimate.** The notice was raised to 192 on the recorded finding that its
-  content needed 188 and that 192 would leave 4 px spare. Measured on the running
-  window: overflow 0, and the button **2 px** clear, not 4 — the real box needs
-  190. Both readings were taken the same way, the earlier one was taken with the
-  scrollbar suppressed, and it was optimistic by exactly that difference. A
-  measurement of the *problem* does not carry over to the *fix*.
-- **UI copy is honest about what happened.** Delivery is never claimed unless
-  insertion succeeded; colour is never the only signal. New error codes get
-  their own catalog entry with a real instruction.
-- **Comments state the current invariant, concisely.** What must hold, and the
-  constraint that makes the obvious alternative wrong. That is what a reader
-  changing the code needs, and it is what stays true.
-
-  **No dated defect narratives and no session diaries**, in production source or
-  in `docs/handoff/CURRENT.md`. The old rule was "record the failure that
-  motivated the code", and followed literally it produced comments that are
-  mostly history: a date, a symptom, what was measured, what the first fix got
-  wrong. Three costs, all of them paid. The invariant gets buried in the
-  narrative, so the sentence a reader needs is the hardest one to find. The
-  narrative rots independently of the code — every stale claim corrected on
-  2026-08-30 was a *story* about a function, not a statement of what it
-  guarantees. And it grows without bound, because each fix appends.
-
-  Where a past failure genuinely changes what a reader should do, compress it to
-  the rule it produced: "a bare string, not an `Error`: Tauri rejects with the
-  code itself" rather than a paragraph about the day that was discovered.
-  `CLAUDE.md`'s own trap list is the exception and the right home for the long
-  form — it is read as a list of hazards, not as documentation of a function.
-
-  Existing long-form comments are not being swept; they are corrected as they are
-  touched. The rule is about what gets written from here.
-- **Assert invariants against source.** The scaffold suite reads config and
-  source files to pin things review would otherwise have to catch — the window
-  allowlist, the IPC schema, and the non-focusable rule among them.
-- **Every citation in a comment must resolve, and must not be a number.** Cite a
-  doc by heading — `UI-GUIDE "Information architecture"` — never by section
-  number. The fork inherited ~96 `§N` references pointing at a deleted doc's
-  numbering plus 35 naming deleted files, and all of them read as authoritative
-  while pointing at nothing; they were cleared on 2026-08-19. A heading survives
-  a renumber, and it can be checked. **Four** citation classes exist and a sweep
-  that misses one looks complete: the **filename** (`granite-final-pass.md`),
-  the **bare number** (`§9.4`, `Phase 6`, **`decision 6`**), the **prose**
-  ("the handoff", "the brief", "the GPU migration handoff, item 14") — that last
-  one matches no grep for a path or a `§` — and the **backticked identifier**
-  (`` `choose_asr_pack` ``, `` `granite_smoke` ``), which is the one this
-  repository actually writes and the one the rustdoc check below **cannot see**.
-  Rustdoc resolves ``[`Linked`]`` citations only; a backtick is not a link, so a
-  comment citing `` `TotallyDeadThing` `` documents at exit 0. Measured
-  2026-08-27: 2,451 backticked spans in Rust comments, 1,158 item-shaped, 241
-  resolving to nothing — of which the great majority are correctly not items
-  (`SpeakEasy`, `SQLite`, `WebView2`, `TokenElevation`, `cudart64_13`, the
-  reason-code string `cuda_unverified`, and the dictionary's own `Hellen` and
-  `Jura`). **That ratio is the finding**: the class is real, and it is not
-  automatable without an allowlist that would rot faster than the citations do.
-  Audit it by hand.
-
-  **A class has spellings, and the 2026-08-19 sweep grepped for two of the
-  bare number's three.** It searched `§` and `Phase N` and reported itself
-  finished; twenty-four `decision N` citations pointing at a numbered list that
-  has never existed in this repository walked straight through, and were cleared
-  on 2026-08-28. The lesson is not that the comments were wrong — it is that a
-  class list is not a pattern list, so a sweep has to enumerate the *spellings*
-  it greps for and say which ones it did not.
-
-  **Then the 2026-08-28 sweep hit the extension trap this file already records,
-  in its own first pass.** It globbed `apps\**\*.rs`, `*.ts`, `*.tsx`,
-  `crates\**\*.rs`, `workers\**\*.rs`, found thirteen, declared itself finished
-  and wrote that glob down as the artefact — while twelve more sat in
-  `scaffold.test.mjs`, `scripts\Invoke-TranscriberProof.ps1` and
-  `docs\UI-GUIDE.md`. `.mjs` is the *same* extension that hid 21 citations from
-  the sweep before it. **Enumerate from `git ls-files`, never from a glob you
-  wrote from memory** — a hand-written extension list is a claim about the
-  repository that nothing checks, and it fails silently by returning a clean
-  answer about the files it happened to name. Two spellings a partial glob also
-  hid: `owner decision 1` (a *numbered* owner decision, not the dated form), and
-  the prose `item 17 in the handoff`.
-
-  ```powershell
-  $files = git ls-files apps crates workers scripts docs models |
-    Where-Object { $_ -notmatch '\.(png|wav|svg|ico|icns)$' }
-  Select-String -Path $files -Pattern 'decision [0-9]|Known risk #[0-9]|item [0-9]+ in the' |
-    Where-Object { $_.Line -notmatch 'decision 20[0-9]{2}-' }
-  ```
-
-  It scans 220 files and must return **nothing at all**. The `Where-Object` is
-  load-bearing: a dated `owner decision 2026-08-12` is a fact rather than a
-  pointer, and there are six of those now against the one the class was first
-  written up with — so "exactly one hit" was never a usable pass condition and
-  the filter replaces it. The sweep returned zero on 2026-08-30, after the
-  handoff was rewritten as a state document and the last `CURRENT.md item N`
-  pointers were absorbed into the facts they were carrying.
-- **Prefer naming the fact over citing where it was recorded.** Most of those
-  citations were carrying a fact perfectly well stated inline: `Phase 9` meant
-  `2026-08-04`, `Known risk #12` meant "the stale-clock deadline bug". Absorb it
-  and the comment stops depending on a document surviving.
-- **A comment about something deleted is only allowed to be history**, and has
-  to read as history. `speakeasy-asr`, `streaming_engine.rs` and
-  `inference-worker.exe` are still named in 12 places on purpose — "It was
-  `speakeasy-asr`, and it did link one", "were listed here until the fork
-  removed the engine". Those are load-bearing and rewriting them would make them
-  false. A *present-tense* claim about the same thing is a bug: that is the other
-  ~39, and one of them had the crate doc of `speakeasy-granite` asserting that
-  the delivered transcript came from the streaming model.
+- Production comments state the current invariant and the constraint that makes
+  an obvious alternative wrong. No dated incident narratives or session diaries.
+- Durable technical hazards belong here; current open work belongs in
+  `docs/handoff/CURRENT.md`; resolved history belongs in Git.
+- Cite documents by filename and heading, never numbered handoff items or stale
+  phase numbers. Prefer stating the fact directly.
+- Every comment citation must resolve. Audit all tracked text, not a hand-written
+  extension list.
+- Design drawings are standalone HTML files under `docs/design/`, with inlined
+  assets and an entry in that directory's contents table.
+- Preserve user changes and repository line-ending conventions. Do not use a
+  destructive Git command to restore a test control.
 
 ## Layout
 
-```
-apps/desktop/src            React frontend (hud/ is the dock + pinned log)
-apps/desktop/src-tauri/src  Tauri commands, coordinators, composition root
-apps/bootstrapper           The one-exe installer, and the backup/restore tool
-crates/speakeasy-*          Domain, audio, worker boundary, delivery, storage, models
-workers/granite-worker      The supervised llama.cpp inference child process
-scripts/                    Every build, proof and packaging step (PowerShell)
+```text
+apps/desktop/src            React frontend and window UIs
+apps/desktop/src-tauri/src  Tauri commands, coordinators, and composition root
+apps/bootstrapper           Installer, uninstall, backup, and restore
+crates/speakeasy-*          Domain, audio, delivery, storage, models, worker boundary
+workers/granite-worker      Supervised llama.cpp inference process
+scripts/                    Build, staging, verification, and packaging commands
 ```
 
-`apps/desktop/src-tauri/src/lib.rs` `include!`s its sibling modules, so those
-files share one namespace and need no imports between them. One consequence
-worth knowing before you write a header: an inner doc comment (`//!`) at the top
-of an included file is a compile error, because it would be documenting
-`lib.rs`.
+Files included from `apps/desktop/src-tauri/src/lib.rs` share its namespace.
+Do not put an inner `//!` comment at the top of an included sibling module.
