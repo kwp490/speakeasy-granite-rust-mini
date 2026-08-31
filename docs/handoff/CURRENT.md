@@ -15,8 +15,8 @@ that closed it, and any hazard general enough to bite again lives in
 | --- | --- |
 | Branch | `main`, on `kwp490/speakeasy-granite-rust-mini` (public) |
 | Latest release | `v1.8.0`, 2026-08-28, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
-| Workspace version | `1.8.0` — the same number the tag already carries |
-| Full gate | passed at the last commit; `cargo deny` clean, no secrets found |
+| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — ahead of the newest tag while a release is being prepared |
+| Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
 | Ignored tests | seven, all hardware or real-registry. See below |
 
 **Ask git where the branch stands rather than trusting a sentence here.** Whether
@@ -224,14 +224,17 @@ worker. Nothing here can test it from one country.
 
 Not blockers for the tree; blockers for cutting a build from it.
 
-1. **The version must move.** `v1.8.0` is already tagged and
-   `install::decide_now` returns `RefuseSameVersion` on an equal stamp, so a
-   rebuilt 1.8.0 cannot install over the one already published.
+1. **The version must move**, before anything is built. `install::decide_now`
+   returns `RefuseSameVersion` on an equal stamp, so a rebuilt version cannot
+   install over the one already published.
    `Increment-ProductVersion.ps1` moves the version, the `HKCU` stamp and the
    install manifest together — **read its whole output**, because a run that fails
    to refresh `Cargo.lock` surfaces later as a `--locked` gate failure that reads
-   as a broken checkout.
-2. **`CHANGELOG.md` stops at 1.8.0** and has nothing for the commits since.
+   as a broken checkout. Its default is `-Bump Minor`; pass the one you mean.
+2. **`CHANGELOG.md` must carry the new version.**
+   `Build-LocalInstaller.ps1` copies it into the artifact root alongside the
+   privacy, security and third-party notices, so it is shipped and not merely
+   published.
 3. **Run the three proofs against the new build**, not a previous one:
 
    ```powershell

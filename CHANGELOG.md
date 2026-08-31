@@ -1,5 +1,92 @@
 # Changelog
 
+## 1.8.1 — 2026-08-30
+
+With persisted history enabled, a transcript delivered into a password field was
+stored anyway — the exclusion that was supposed to stop it could never fire. A
+history that failed to save also took the transcript down with it. Plus an
+engine that could warm up as the wrong model, a launch that read 6.90 GB before
+the app was usable, and a notice that announced a delivery before the
+transcription had started.
+
+### A transcript delivered to a protected target was stored — 2026-08-29
+
+**If you have persisted history enabled, review it.** The rule that keeps a
+password field's transcript out of history was never able to refuse: the row was
+written with the protected-target flag set to a fixed `false`, and it was written
+*before* anything had looked at where the text went. The guard behind it was
+real, and nothing had ever reached it.
+
+The order is now a data dependency rather than a convention — the history row
+cannot be built until the delivery has been classified — so the flag describes
+the delivery it belongs to. Persisted history remains **off by default**, and
+that remains the only setting that holds on every path.
+
+### A failed save no longer costs you the transcript — 2026-08-29
+
+Writing the history row was also the first thing that happened, ahead of the
+transcript reaching the screen, so any database error discarded a good
+transcript and left the dock stuck on *finalizing* for the rest of the session.
+The transcript is published first now and a storage failure is reported without
+touching it. Deleting saved history likewise removes only what came from that
+history and leaves what the current run produced.
+
+### The engine can no longer warm up as the wrong model — 2026-08-29
+
+Several faults in how the app decides a model is ready and which one is loaded.
+A warm-up that had finished could still report itself as verifying; a second
+warm-up could settle using the first one's verdict; and a model already in
+memory could be handed back while a *different* pack was marked verified on
+digests nobody had taken for it. A model in memory that does not match the one
+being asked for is now refused with a named reason instead of transcribing with
+the wrong adapter.
+
+### The shortcut refuses what the dock refuses — 2026-08-29
+
+The dock's Start button and the keyboard shortcut disagreed about when a
+dictation could begin, and the shortcut was the permissive one — so a machine
+below the 8 GB memory floor had a disabled button and a working hotkey, and
+would record for two minutes before reporting that the engine could not start.
+Both go through one rule now, applied before any audio is captured.
+
+### Startup stopped reading the model three times — 2026-08-29
+
+A configured launch verified the same 2.30 GB of weights on three separate
+paths — about 6.90 GB of reading before the app was usable, on a product whose
+advertised floor is 8 GB of memory. It is read once now, immediately before the
+worker is handed it.
+
+### The recording-limit notice no longer claims a delivery — 2026-08-29
+
+When a dictation hit the length ceiling, the notice said the transcript had been
+delivered — and it said so *before* transcription began. The pass that followed
+could still find no speech, time out, or be refused. On a processor install that
+claim could arrive up to 44 seconds before any text landed.
+
+### Settings tells you when an action was refused — 2026-08-29
+
+Ten more Settings controls can report a rejection, four of which previously had
+no failure handling at all: the control would look as though the change had been
+made. Every control now updates only after the change actually succeeded, and
+refuses a second submission while one is still in flight.
+
+### The transcript log updates when something changes — 2026-08-29
+
+The pinned log polled on a timer; it is driven by the change itself now, which
+is quicker and quieter. The recent-transcripts list also stops describing itself
+as covering only the current session — with history enabled it spans earlier
+runs, which is what it always did.
+
+### The notices describe what is actually shipped — 2026-08-30
+
+The privacy, security, distribution and third-party notices were checked against
+the real payload and the real behaviour. The distribution notes described a
+product that had not been distributed, and the privacy note promised more about
+delivery than the app can observe: a transcript is excluded from history only
+when a delivery was attempted and classified, so with automatic pasting turned
+off there is no target to judge and the transcript may be retained. That
+limitation is now stated beside the protection instead of left out.
+
 ## 1.8.0 — 2026-08-28
 
 The dock can start a dictation, not only end one, and it has a settings button.
