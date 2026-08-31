@@ -14,7 +14,7 @@ that closed it, and any hazard general enough to bite again lives in
 | | |
 | --- | --- |
 | Branch | `main`, on `kwp490/speakeasy-granite-rust-mini` (public) |
-| Latest release | `v1.8.0`, 2026-08-28, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
+| Latest release | `v1.8.1`, 2026-08-30, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
 | Workspace version | `& .\scripts\Get-ProductVersion.ps1` — ahead of the newest tag while a release is being prepared |
 | Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
 | Ignored tests | seven, all hardware or real-registry. See below |
@@ -28,10 +28,10 @@ git status -sb
 git log --oneline origin/main..HEAD
 ```
 
-**There are commits on `main` that are in no release**, whatever the push state:
-`git log --oneline v1.8.0..main`. Four changed the engine warm path and two are
-privacy fixes. Cutting a release from them is a decision, not a formality — see
-"Before the next release".
+**Whether `main` carries commits in no release is a question for git**, not for
+this file: `git log --oneline $(git describe --tags --abbrev=0)..main`. Cutting a
+release from whatever it lists is a decision, not a formality — see "Before the
+next release".
 
 Test counts are deliberately not listed: they move with every commit, and a
 stale number in a handoff reads as a target to hit. Run the gate for the current
@@ -52,27 +52,31 @@ It must end `no leaks found` and exit 0.
 
 | | |
 | --- | --- |
-| **Hardware tests unrun against `HEAD`** | Five worker-touching proofs. Four commits changed the warm path since they last ran |
+| **`Test-SetupWizard.ps1` rewrites the profile's vocabulary** | It installs for real and is not idempotent. Details below |
 | **A clean clone builds; the recorded failure did not reproduce** | Kept as a watch item, not a defect. The environment it was proved in is below |
 | **Model integrity is not execution-time** | The digest pass is desktop-side and the worker reopens by path. Needs a threat-model decision, not code |
 | **`NotAttempted` transcripts are retained** | With auto-paste off nothing classifies the target, so history keeps the row. Disclosed rather than fixed |
 | **GPU qualification cannot be proved** | Nothing can promote a card to proven, so the claim left the UI and then the payload |
 | **The Hugging Face CDN host may be regional** | One host is allowed and it looks US-specific. Affects any install that fetches the model, not only the graphics-card one |
 
-Four of those five are **deliberate residuals of 1.8.1**, not code left out by
+Four of the last five are **deliberate residuals of 1.8.1**, not code left out by
 accident: the integrity gap and the `NotAttempted` retention are documented
 limitations awaiting a threat-model decision, the GPU claim stays out of the UI
 until a real inference sample can support it, and the CDN allowlist is not
 widened by guesswork. Each is disclosed where a user would look. The clean-clone
 failure is contributor-only and blocks no release.
 
-### Hardware tests unrun against `HEAD`
+### The seven ignored tests, and how to run them
 
 Seven tests are `#[ignore]`d, and five of them are the only proofs here that
-drive a real worker process. They last ran on 2026-08-28. Since then
-`GraniteEngineCoordinator::ensure_ready` changed signature twice and the resident
-pack began refusing a mismatch. **A signature change that compiles is not a
-signature change that works.**
+drive a real worker process. **All seven ran against `v1.8.1`** on an RTX 4070
+Laptop: the three processor desktop passes (including the 300 s idle gap), the
+bootstrapper engine smoke, the real-`HKCU` registry test, the pinned NVIDIA
+archive, and the CUDA proof, which reported `device=cuda` from NVML placing the
+worker's own pid on the card.
+
+That is a statement about one commit. Re-run them whenever the warm path moves:
+a signature change that compiles is not a signature change that works.
 
 `target/debug/proof/granite-worker.exe` goes stale between sessions, and a stale
 worker fails as `StaleEvent`, which names the protocol rather than the binary.
@@ -100,8 +104,8 @@ rather than skips when the staged worker is not a CUDA build — so running it
 after `Stage-DevRuntime.ps1`, which stages the processor worker, produces a
 failure that means "wrong binary" and reads like a broken engine.
 
-**The seventh needs a CUDA worker staged by hand, and it is unrun as of this
-commit.** `Enable-GraniteCuda.ps1` did this and was retired on 2026-08-26 when
+**The seventh needs a CUDA worker staged by hand.**
+`Enable-GraniteCuda.ps1` did this and was retired on 2026-08-26 when
 setup learned to fetch a published worker, so there is no script for it. The
 three CUDA libraries are already in `target\debug\proof\`; only the worker has
 to be replaced, and it must be done **after** `Stage-DevRuntime.ps1` rather than
@@ -126,6 +130,32 @@ which is why it is out of the default gate; it fails rather than skips if the
 hive is unwritable. **Assert whole transcripts, never a prefix** — a
 `contains("ever tried")` assertion once passed on a transcript missing a third of
 the utterance.
+
+### `Test-SetupWizard.ps1` rewrites the profile's vocabulary
+
+It installs for real, into `%LOCALAPPDATA%\SpeakEasy Mini` against the real
+`%APPDATA%` profile, and says so. What it does not say is that page 6 **replaces
+the protected-word list** with its own three test terms, which the app then
+consumes on first start. Observed 2026-08-30 during the 1.8.1 release: a
+7,373-byte `personalization.json` became 1,057 bytes.
+
+Recoverable, because the app rotates the previous file to
+`personalization.json.bak` before writing — that copy was byte-identical to the
+original by SHA-256, and restoring it was enough. Recoverable is not the same as
+safe: a second run would rotate the *test* words into the backup and the real
+dictionary would be gone.
+
+**It is also not idempotent.** The vocabulary page asserts it arrived prefilled
+with at least ten words, and after one run the profile offers three — so running
+it twice in a row fails on its own precondition, mid-wizard, leaving a setup
+window open and the app installed but unconfigured. That is what the second run
+does, not a defect it found.
+
+Two options, neither taken during the release: redirect `APPDATA` for the run the
+way `Test-InstallerLifecycle.ps1` now does — which costs the proof its point,
+since it exists to drive a *real* install — or have it capture and restore the
+vocabulary itself. The second is the smaller change and keeps the proof honest.
+Until then, back up `personalization.json` before running it.
 
 ### A clean clone builds
 
