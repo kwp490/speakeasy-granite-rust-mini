@@ -271,14 +271,25 @@ try {
     if (-not $graphicsCard) { throw 'The provider page does not offer the graphics-card option at all.' }
     $graphicsCardOffered = [bool]$graphicsCard.Enabled
     if ($graphicsCardOffered) {
-        # Whether it is the *selected* one is deliberately not asserted here.
-        # `Get-Controls` reports `Visible` and `Enabled` and no check state, so
-        # `$graphicsCard.Checked` reads `$null`, inverts to true, and throws on
-        # every capable machine -- a broken instrument shaped exactly like the
-        # failure it would claim to have found. The property that actually
-        # matters is not which radio is filled in but whether the answer reached
-        # the plan, and the download page below states that in words.
-        Write-Host "  provider: graphics-card option offered; $($providerStatus.Split([Environment]::NewLine)[0])"
+        # **Chosen, not merely offered.** This clicked Next and accepted whatever
+        # the page arrived holding, so on a capable machine the whole
+        # graphics-card path rode on that option happening to be the *default*
+        # selection -- a property nothing asserts and any layout change could
+        # move. If it moved, the four-item plan below would begin failing on a
+        # machine where nothing was actually wrong, which is the least useful
+        # direction for a proof to break in.
+        #
+        # Clicking it makes the answer this script's own, so the plan asserted on
+        # the next page is evidence that a deliberate choice reached
+        # `download::plan` rather than evidence about a default.
+        #
+        # Still not asserted by reading the radio back: `Get-Controls` reports
+        # `Visible` and `Enabled` and no check state, so `$graphicsCard.Checked`
+        # is `$null`, inverts to true, and would throw on every capable machine
+        # -- a broken instrument shaped exactly like the failure it claims to
+        # find. What confirms the click is the wizard's own next page.
+        Invoke-Click -Handle $graphicsCard.Handle
+        Write-Host "  provider: graphics-card option offered and selected; $($providerStatus.Split([Environment]::NewLine)[0])"
     } else {
         # Disabled must come with the reason. A greyed control and no sentence is
         # the state this page exists to avoid.
