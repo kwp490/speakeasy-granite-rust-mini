@@ -58,7 +58,9 @@ the user asks otherwise. Report its SHA and whether it was pushed.
   the defect.
 - Prove each new regression test with a faithful red control that restores the
   real defect. A control that stays green is defective until explained. Restore
-  files from safe copies, then rerun green.
+  files from safe copies, then rerun green — and check that the restored file
+  was actually rebuilt, because a copy carries its original timestamp and a
+  build that fingerprints on timestamps will skip it.
 - Prefer behavioral tests. Source assertions are appropriate for structural
   policy—configuration, IPC allowlists, forbidden symbols, and public
   disclosures—but do not replace runtime behavior.

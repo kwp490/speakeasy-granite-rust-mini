@@ -192,6 +192,12 @@ filters with `--list` before relying on them.
 
 - Prove new regression tests with a faithful red control. Copy modified files
   aside and restore them; never revert a working file to `HEAD`.
+- Restoring a control with `Copy-Item` restores the timestamp too, and Cargo
+  fingerprints on it. A file copied back from a safe copy is *older* than the
+  binary built from the defective version, so the next build reports no work to
+  do and the "restored" proof runs the defect. Content compares clean and
+  `git diff` is empty throughout. Touch the file after restoring, and confirm the
+  crate appears in the build output before believing the green run.
 - A fixture under `.tools/` is machine-local and cannot prove repository
   behavior. Required test fixtures must be committed or the test must fail
   clearly when prerequisites are absent.
