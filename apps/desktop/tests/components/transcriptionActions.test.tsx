@@ -137,7 +137,28 @@ test("an unreadable install poll reports stale progress, not a failed install", 
     // page is genuinely mid-download rather than never started.
     await vi.advanceTimersByTimeAsync(0);
     double.reject("model_install_status", "model_state_unavailable");
-    await vi.advanceTimersByTimeAsync(800);
+
+    // Advanced in bounded steps rather than once. The poll is self-scheduling
+    // and the effect that starts it only runs *after* the mount read has landed
+    // and re-rendered, so "one gap has elapsed" is not the same statement as
+    // "the poll has been scheduled". `advanceTimersByTimeAsync` flushes a
+    // bounded number of microtask turns, and the mount chain needs more of them
+    // when the whole component suite runs under coverage instrumentation than
+    // it does when this file runs alone -- so a single 800 ms advance could fire
+    // no timer at all, and the page would never have been asked.
+    //
+    // Observed 2026-08-30: this failed once in a full gate run and passed every
+    // time in isolation, which is the shape of a test racing its own setup
+    // rather than of a defect. The loop cannot make a broken page pass -- it
+    // still has to render the warning -- it only stops the proof depending on
+    // how many turns the mount took.
+    for (
+      let attempt = 0;
+      attempt < 10 && screen.queryByText(messages.modelStatusPollUnavailable) === null;
+      attempt += 1
+    ) {
+      await vi.advanceTimersByTimeAsync(800);
+    }
 
     expect(screen.getByText(messages.modelStatusPollUnavailable)).toBeDefined();
     expect(screen.queryByText(new RegExp(messages.installationFailed, "u"))).toBeNull();
