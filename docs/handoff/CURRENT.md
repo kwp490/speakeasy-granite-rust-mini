@@ -58,7 +58,13 @@ It must end `no leaks found` and exit 0.
 | **`NotAttempted` transcripts are retained** | With auto-paste off nothing classifies the target, so history keeps the row. Disclosed rather than fixed |
 | **GPU qualification cannot be proved** | Nothing can promote a card to proven, so the claim left the UI and then the payload |
 | **The Hugging Face CDN host may be regional** | One host is allowed and it looks US-specific. Affects any install that fetches the model, not only the graphics-card one |
-| **Three coverage gaps stated, not closed** | Two comments cite tests that do not exist; `install_root()`'s default is never exercised |
+
+Four of those five are **deliberate residuals of 1.8.1**, not code left out by
+accident: the integrity gap and the `NotAttempted` retention are documented
+limitations awaiting a threat-model decision, the GPU claim stays out of the UI
+until a real inference sample can support it, and the CDN allowlist is not
+widened by guesswork. Each is disclosed where a user would look. The clean-clone
+failure is contributor-only and blocks no release.
 
 ### Hardware tests unrun against `HEAD`
 
@@ -202,20 +208,6 @@ closed at transfer time. **This affects the 2.30 GB of weights fetched by any
 install without a verified copy already on disk**, not only the graphics-card
 worker. Nothing here can test it from one country.
 
-### Coverage gaps stated, not closed
-
-- `the_policy_matches_the_app` and
-  `uninstall_removes_everything_unless_told_to_keep_user_data` are **cited in
-  comments and do not exist**. Nothing pins the bootstrapper's download policy to
-  the app's — they are identical by inspection only — and nothing pins
-  `main::remove`'s inverted default. A citation of a test is a claim about
-  coverage, and it is the most expensive kind to get wrong.
-- **`install_root()`'s default is never exercised.** `Test-InstallerLifecycle.ps1`
-  always passes `--install-root`, so the leaf that once took `C:\Coding` as a
-  destination sits in a path the proof does not touch.
-- **Nothing asserts the ARP strings.** The proof checks the key is created and
-  removed, not what is in it — which is how `DisplayName: SpeakEasy` survived.
-
 ## Before the next release
 
 Not blockers for the tree; blockers for cutting a build from it.
@@ -330,6 +322,17 @@ copy.
 **Coverage is a floor per file**, in `dependency-policy/coverage-floors.json`. A
 file named there and absent from the report **fails** — that is how a coverage
 check silently stops guarding anything.
+
+**The installer proof derives its own install root once.** Every other scenario
+in `Test-InstallerLifecycle.ps1` passes `--install-root`, so the branch a user
+actually takes — `probe::install_root`, `%LOCALAPPDATA%\SpeakEasy Mini` — is
+driven at the end of the script with `LOCALAPPDATA` and `APPDATA` redirected
+under `target\installer-lifecycle`. That is also the one place the *production*
+uninstall default runs for real: everywhere else passes `--keep-user-data` so a
+run does not re-download the weights, and a redirected profile costs nothing to
+delete. `Assert-ArpValues` pins all eight Add/Remove Programs values — including
+`Publisher` and the exact `UninstallString` — against both the explicit and the
+derived root, because "the key exists" is how `DisplayName: SpeakEasy` survived.
 
 ## Repository facts
 

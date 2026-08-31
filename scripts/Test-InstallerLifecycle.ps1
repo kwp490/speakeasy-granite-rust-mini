@@ -87,6 +87,50 @@ function Assert-Refused {
     Write-Host "${Scenario}: refused (exit code $($result.ExitCode)) -- $($result.Output)"
 }
 
+# Assert what is *in* the Add/Remove Programs entry, not merely that it exists.
+#
+# This script checked that the key was created and then removed, and nothing
+# else -- which is how `DisplayName: SpeakEasy` survived here. Every value below
+# is also an assertion about identity: the key is `ai.speakeasy.mini` and was
+# `ai.speakeasy.desktop` until 2026-08-18, when setup was registering Mini under
+# the *parent* product's entry and Mini's uninstaller then deleted it.
+#
+# Case-sensitive, including the three paths. The installer writes back the exact
+# string it was handed, so a difference in case is a difference in behaviour
+# rather than a Windows path equivalence.
+function Assert-ArpValues {
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string]$Version
+    )
+    $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ai.speakeasy.mini'
+    $entry = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+    if (-not $entry) {
+        throw "No Add/Remove Programs entry at ${key}; the install did not register."
+    }
+    $expected = [ordered]@{
+        DisplayName     = 'SpeakEasy Mini'
+        DisplayVersion  = $Version
+        Publisher       = 'SpeakEasy Mini'
+        InstallLocation = $Root
+        UninstallString = '"{0}\speakeasy-bootstrapper.exe" --uninstall' -f $Root
+        DisplayIcon     = "$Root\ai-speakeasy-mini.exe"
+        NoModify        = 1
+        NoRepair        = 1
+    }
+    foreach ($name in $expected.Keys) {
+        $actual = $entry.$name
+        if ($null -eq $actual) {
+            throw "Add/Remove Programs value ${name} is absent."
+        }
+        if ("$actual" -cne "$($expected[$name])") {
+            throw "Add/Remove Programs value ${name} is '${actual}'; expected '$($expected[$name])'."
+        }
+    }
+    Write-Host ("Add/Remove Programs: DisplayName, DisplayVersion, Publisher, InstallLocation, " +
+        "UninstallString, DisplayIcon, NoModify and NoRepair all match (root ${Root}).")
+}
+
 function Assert-ProcessStopped {
     param([Parameter(Mandatory)][System.Diagnostics.Process]$Process)
     if (-not $Process.HasExited) {
@@ -145,6 +189,8 @@ try {
         }
     }
 
+    Assert-ArpValues -Root $installRoot -Version $productVersion
+
     $desktopHashBeforeRefusal = (Get-FileHash -LiteralPath $installedDesktop -Algorithm SHA256).Hash
     $app = Start-Process -FilePath $installedDesktop -PassThru
     Start-Sleep -Seconds 5
@@ -195,10 +241,12 @@ try {
     # script must pass is the *opposite* one, and for a different reason: not
     # safety, but cost. Without it every lifecycle run re-downloads the weights.
     #
-    # The production default is therefore no longer exercised here. It is pinned
-    # in `apps/bootstrapper`'s own tests instead
+    # The production default is therefore not exercised by *this* uninstall. It is
+    # pinned in `apps/bootstrapper`'s own tests
     # (`removing_user_data_leaves_no_profile_directory_and_keeping_it_leaves_all_of_it`),
-    # which can stage a profile root rather than deleting this machine's.
+    # which can stage a profile root rather than deleting this machine's, and it
+    # is run for real by the default-install-root scenario at the end of this
+    # script, whose `APPDATA` is redirected somewhere it costs nothing to delete.
     $uninstallOutput = & $installedBootstrapper --uninstall /S --keep-user-data 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Silent uninstall failed with exit code ${LASTEXITCODE}: $($uninstallOutput -join ' ')"
@@ -297,11 +345,106 @@ try {
         }
     }
 
+    # Every install above was handed `--install-root`. The default is the branch a
+    # user actually takes -- `probe::install_root`, `%LOCALAPPDATA%\SpeakEasy Mini`
+    # -- and it is the branch with the worst history: it returned the *parent*
+    # product's directory before the fork was renamed, and `C:\` when
+    # `LOCALAPPDATA` was unset, either of which uninstall would then have removed
+    # whole. Its unit tests are pure and hand the variable in; nothing exercised
+    # the derivation through a real install.
+    #
+    # `LOCALAPPDATA` and `APPDATA` are redirected for this scenario, not changed
+    # on the machine: the first is what the install root is derived from, the
+    # second is the profile, the Start Menu folder and everything `--uninstall`
+    # removes. Both point under `target\installer-lifecycle`, so the default path
+    # is derived and exercised for real while every byte it writes is test-owned.
+    # Without the `APPDATA` half this would seed and then delete the profile of
+    # whoever is running it.
+    #
+    # It also uninstalls with the *production* default rather than
+    # `--keep-user-data`, which nothing else here can do: the flag is passed
+    # everywhere above so a lifecycle run does not re-download 2.14 GB of weights,
+    # and that leaves the default -- remove the profile too -- proven only in
+    # `apps/bootstrapper`'s own tests. A redirected `APPDATA` holding nothing but
+    # what this scenario seeded is the one place it costs nothing to run for real.
+    $defaultProfileRoot = Join-Path $lifecycleRoot "$PID-default"
+    if (Test-Path -LiteralPath $defaultProfileRoot) {
+        Remove-Item -LiteralPath $defaultProfileRoot -Recurse -Force
+    }
+    $defaultLocalAppData = Join-Path $defaultProfileRoot 'Local'
+    $defaultAppData = Join-Path $defaultProfileRoot 'Roaming'
+    New-Item -ItemType Directory -Path $defaultLocalAppData -Force | Out-Null
+    New-Item -ItemType Directory -Path $defaultAppData -Force | Out-Null
+    $defaultInstallRoot = Join-Path $defaultLocalAppData 'SpeakEasy Mini'
+    $realLocalAppData = $env:LOCALAPPDATA
+    $realAppData = $env:APPDATA
+    try {
+        $env:LOCALAPPDATA = $defaultLocalAppData
+        $env:APPDATA = $defaultAppData
+        $previousPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $defaultOutput = & $setupExecutable --install 2>&1
+        } finally {
+            $ErrorActionPreference = $previousPreference
+        }
+        if ($LASTEXITCODE -ne 0) {
+            throw "Default-root install failed with exit code ${LASTEXITCODE}: $($defaultOutput -join ' ')"
+        }
+        # The claim is the derivation, so this asserts the directory the installer
+        # chose for itself rather than one the script handed it.
+        foreach ($relative in @('ai-speakeasy-mini.exe', 'speakeasy-bootstrapper.exe')) {
+            $placed = Join-Path $defaultInstallRoot $relative
+            if (-not (Test-Path -LiteralPath $placed -PathType Leaf)) {
+                $chose = @(Get-ChildItem -LiteralPath $defaultLocalAppData -Force -ErrorAction SilentlyContinue |
+                    ForEach-Object { $_.Name } | Sort-Object)
+                throw ("Default-root install did not place ${relative} under ${defaultInstallRoot}; " +
+                    "LOCALAPPDATA holds: " + $(if ($chose.Count -gt 0) { $chose -join ', ' } else { '(nothing)' }))
+            }
+        }
+        # Registered under the derived root too. `InstallLocation` is what
+        # `install::installed_location` reads back, so a right-place install that
+        # recorded the wrong root would still uninstall the wrong directory.
+        Assert-ArpValues -Root $defaultInstallRoot -Version $productVersion
+
+        $defaultBootstrapper = Join-Path $defaultInstallRoot 'speakeasy-bootstrapper.exe'
+        $defaultUninstall = & $defaultBootstrapper --uninstall /S 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Default-root uninstall failed with exit code ${LASTEXITCODE}: $($defaultUninstall -join ' ')"
+        }
+        if (Test-Path -LiteralPath $defaultInstallRoot) {
+            $survivors = @(Get-ChildItem -LiteralPath $defaultInstallRoot -Force -Recurse -ErrorAction SilentlyContinue |
+                ForEach-Object { $_.FullName.Replace("$defaultInstallRoot\", '') } | Sort-Object)
+            throw ("Default-root uninstall left the install root behind: " +
+                $(if ($survivors.Count -gt 0) { $survivors -join ', ' } else { '(empty directory)' }))
+        }
+        $defaultProfile = Join-Path $defaultAppData 'ai.speakeasy.mini'
+        if (Test-Path -LiteralPath $defaultProfile) {
+            throw "Default-root uninstall kept the profile at ${defaultProfile} without being asked to."
+        }
+        if (Test-Path -LiteralPath $arpKey) {
+            throw 'Default-root uninstall left the Add/Remove Programs entry behind.'
+        }
+        if (Test-Path -LiteralPath 'HKCU:\Software\SpeakEasy Mini\LocalDevelopment') {
+            throw 'Default-root uninstall left the version stamp behind; the next install would refuse.'
+        }
+        Write-Host ("default install root: derived %LOCALAPPDATA%\SpeakEasy Mini, registered it, " +
+            'and removed the program directory and the profile with it')
+    } finally {
+        $env:LOCALAPPDATA = $realLocalAppData
+        $env:APPDATA = $realAppData
+        if (-not $KeepInstall -and (Test-Path -LiteralPath $defaultProfileRoot)) {
+            Remove-Item -LiteralPath $defaultProfileRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     [pscustomobject]@{
         schema_version = 1
         tested_utc = [DateTime]::UtcNow.ToString('o')
         fresh_install = 'passed'
         single_file_install = 'passed'
+        default_install_root = 'passed'
+        add_remove_programs_values = 'passed'
         launch = 'passed'
         running_app_install_refusal = 'passed'
         same_version_refusal = 'passed'
