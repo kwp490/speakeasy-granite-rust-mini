@@ -163,6 +163,31 @@ try {
             'ephemeral install below would be refused as a same-version reinstall. ' +
             'Uninstall SpeakEasy (or run the bootstrapper with --uninstall) and rerun this script.')
     }
+    # **The profile is redirected for the whole run, not only where it is being
+    # asserted about.** Every `--install` below goes to an ephemeral install
+    # root, which reads as isolated and is not: `place` also calls
+    # `seed::clear_installed_provider` and `seed::write_default_vocabulary`, and
+    # both resolve `%APPDATA%\ai.speakeasy.mini\config` from the environment
+    # rather than from the install root they were given.
+    #
+    # Measured 2026-08-30: a lifecycle run on this machine deleted the real
+    # `install-provider.txt` -- the record of which engine setup proved -- from
+    # the profile of the person running it, while every directory the script
+    # names stayed correctly inside `target\`. The app then reads `unrecorded`
+    # and reports a provisioning state that nothing was wrong with. It is the
+    # same defect `apps/bootstrapper`'s own tests were made hermetic for; the
+    # script driving the real binary kept it.
+    #
+    # `$env:` assignment is this process only -- it is inherited by the children
+    # this script launches and dies with the shell. Restored in the `finally`.
+    $profileRoot = Join-Path $lifecycleRoot "$PID-profile"
+    if (Test-Path -LiteralPath $profileRoot) {
+        Remove-Item -LiteralPath $profileRoot -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $profileRoot -Force | Out-Null
+    $callerAppData = $env:APPDATA
+    $env:APPDATA = $profileRoot
+
     # Keep the broad artifact assertions in the canonical script so the release
     # workflow and local validation cannot drift into two different contracts.
     & (Join-Path $PSScriptRoot 'Test-LocalInstall.ps1') `
@@ -458,7 +483,43 @@ try {
 }
 finally {
     Pop-Location
+    # Before the directory it points at is removed, and unconditionally: a throw
+    # anywhere above must not leave this shell pointed at a profile under
+    # `target\`, or every later command in the same session would read one.
+    if ($null -ne $callerAppData) {
+        $env:APPDATA = $callerAppData
+    }
     if (-not $KeepInstall -and (Test-Path -LiteralPath $installRoot)) {
         Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (-not $KeepInstall -and $profileRoot -and (Test-Path -LiteralPath $profileRoot)) {
+        Remove-Item -LiteralPath $profileRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    # **Registry wreckage from an aborted run, and only ever its own.** The
+    # directories above are cleaned on any exit, but the `HKCU` version stamp and
+    # the Add/Remove Programs entry are not written by this script -- they are
+    # written by the installer it drives -- so a throw between the first install
+    # and the uninstall used to leave both standing. The next run then refused at
+    # its own pre-flight as a same-version reinstall, naming a product nobody had
+    # installed, and the stamp had to be cleared by hand before the script would
+    # run again.
+    #
+    # The pre-flight deliberately refuses to delete a stamp it did not create,
+    # because it may belong to an installation the person running this actually
+    # uses. That reasoning does not apply here: `InstallLocation` is proof of
+    # authorship. It is read back and removed only when it points inside
+    # `target\installer-lifecycle`, so an entry describing a real installation --
+    # anywhere else on the disk -- is left exactly where it is.
+    $arpPath = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\ai.speakeasy.mini'
+    $arpKeyHandle = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($arpPath)
+    if ($null -ne $arpKeyHandle) {
+        $recordedRoot = $arpKeyHandle.GetValue('InstallLocation')
+        $arpKeyHandle.Close()
+        if ($recordedRoot -is [string] -and
+            $recordedRoot.StartsWith($lifecycleRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            Write-Warning "Removing the Add/Remove Programs entry and version stamp left by this run at $recordedRoot."
+            [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($arpPath, $false)
+            [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree('Software\SpeakEasy Mini', $false)
+        }
     }
 }
