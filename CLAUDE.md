@@ -62,10 +62,8 @@ Run the whole gate, not a hand-picked `cargo test` subset:
 .\scripts\Invoke-ScaffoldChecks.ps1 -SkipNpmInstall
 ```
 
-The gate covers formatting, clippy, Rust tests, private-item rustdoc links,
-dependency policy, frontend unit and component tests, lint, typecheck, coverage
-floors, secret scanning, and repository policy. `cargo test --workspace --lib`
-is not equivalent: it skips binary-target tests, including bootstrapper tests.
+`cargo test --workspace --lib` is not equivalent: it skips binary-target tests,
+including the bootstrapper's.
 
 Frontend commands run from the workspace root through npm workspaces:
 
@@ -76,22 +74,9 @@ npm test
 npm run build
 ```
 
-`npm test` contains two suites:
-
-- `test:unit` uses Node's runner for reducers and structural source policies.
-- `test:components` uses Vitest/jsdom for rendered mutation, rejection, and
-  duplicate-submission behavior.
-
-Build and prove an installer separately from the default gate:
-
-```powershell
-.\scripts\Build-LocalInstaller.ps1
-.\scripts\Test-InstallerLifecycle.ps1 -ArtifactRoot 'target\local-development\<version>'
-.\scripts\Test-SetupWizard.ps1 -ArtifactRoot 'target\local-development\<version>' -Uninstall
-```
-
-Hardware and ignored-test commands belong in `docs/handoff/CURRENT.md`; verify
-filters with `--list` before relying on them.
+Installer, hardware and ignored-test commands belong in
+`docs/handoff/CURRENT.md`, with the workflow controls and what each one needs;
+verify ambiguous test filters with `--list` before relying on them.
 
 ## Current architectural invariants
 
@@ -191,13 +176,31 @@ filters with `--list` before relying on them.
 ### Tests and tooling
 
 - Prove new regression tests with a faithful red control. Copy modified files
-  aside and restore them; never revert a working file to `HEAD`.
-- Restoring a control with `Copy-Item` restores the timestamp too, and Cargo
-  fingerprints on it. A file copied back from a safe copy is *older* than the
-  binary built from the defective version, so the next build reports no work to
-  do and the "restored" proof runs the defect. Content compares clean and
-  `git diff` is empty throughout. Touch the file after restoring, and confirm the
-  crate appears in the build output before believing the green run.
+  aside and restore them byte-exactly; never revert a working file to `HEAD`. A
+  control cleans up by hand rather than through the code it tests, removing only
+  the exact names it created. Never enumerate and pipe to `Remove-Item`.
+- A release proof may not depend on source timestamps or write to an operator's
+  live profile: `Build-LocalInstaller.ps1` requires
+  `Invoke-ProofPackage.ps1 -FreshBuild`; `Test-SetupWizard.ps1` captures and
+  restores what it changes, always uninstalls, and refuses any remnant it did not
+  create, claiming ownership at the successful capture. Cargo fingerprints on
+  mtime elsewhere, so a copy restored as a control needs its timestamp moved.
+- **Cleanup restores even when it fails**, returns its failures rather than
+  throwing or warning out of a `finally`, reads native exit codes, and returns
+  exactly one object. See `WizardCleanup.ps1`.
+- **A capture touches only ordinary files it captured or explicitly tracks**,
+  refuses reparse points anywhere on the path, and leaves unknown entries of any
+  kind as found. See `ProfileCapture.ps1`.
+- **A sandbox can alias host paths, and not always as a reparse point.** A
+  container's `LocalCache` and the real `%APPDATA%` can be one object under two
+  path strings, so equal names, sizes or hashes prove nothing and no check here
+  detects it. Establish identity with a write probe, never delete a suspected
+  mirror as cleanup, and run installer and profile proofs from a verified host.
+- **A new or changed recursive delete resolves through `DeleteContainment.ps1`**,
+  which walks the root and every component and refuses a reparse point, a file
+  where a directory belongs, and the root itself. `Test-InstallerLifecycle.ps1`
+  and `Test-StaleArtifactRefusal.ps1` are not migrated;
+  `Invoke-ProofPackage.ps1`'s build root has its own check.
 - A fixture under `.tools/` is machine-local and cannot prove repository
   behavior. Required test fixtures must be committed or the test must fail
   clearly when prerequisites are absent.
@@ -251,8 +254,7 @@ Do not reopen these without new evidence or an explicit owner decision:
 - Uninstall removes program and user data by default. `--keep-user-data` is the
   testing opt-out and must reach the interactive controls as well as silent mode.
 - The build is unsigned by decision. Public releases include `SHA256SUMS`.
-- Builds and releases are local-only: no GitHub Actions, Dependabot, or hosted
-  runners.
+- Builds and releases are local-only: no Actions, Dependabot, hosted runners.
 - Setup records what it proved was installed, not what the user selected.
 - Setup launches the app on success and reports when it cannot.
 - Wizard pages use the system-derived type scale and concise question/key/body
@@ -261,17 +263,15 @@ Do not reopen these without new evidence or an explicit owner decision:
 ## Conventions
 
 - Production comments state the current invariant and the constraint that makes
-  an obvious alternative wrong. No dated incident narratives or session diaries.
-- Durable technical hazards belong here; current open work belongs in
-  `docs/handoff/CURRENT.md`; resolved history belongs in Git.
+  an obvious alternative wrong. No incident narratives or session diaries.
+- Durable hazards belong here, open work in `docs/handoff/CURRENT.md`, resolved
+  history in Git.
 - Cite documents by filename and heading, never numbered handoff items or stale
-  phase numbers. Prefer stating the fact directly.
-- Every comment citation must resolve. Audit all tracked text, not a hand-written
-  extension list.
+  phase numbers, and make every citation resolve — audit all tracked text, not a
+  remembered extension list.
 - Design drawings are standalone HTML files under `docs/design/`, with inlined
   assets and an entry in that directory's contents table.
-- Preserve user changes and repository line-ending conventions. Do not use a
-  destructive Git command to restore a test control.
+- Preserve user changes and the repository's CRLF line endings.
 
 ## Layout
 

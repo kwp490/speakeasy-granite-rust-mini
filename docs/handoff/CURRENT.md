@@ -15,31 +15,23 @@ that closed it, and any hazard general enough to bite again lives in
 | --- | --- |
 | Branch | `main`, on `kwp490/speakeasy-granite-rust-mini` (public) |
 | Latest release | `v1.8.1`, 2026-08-30, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
-| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — ahead of the newest tag while a release is being prepared |
+| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently equal to `v1.8.1`; it moves ahead only once a release is being prepared |
 | Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
 | Ignored tests | seven, all hardware or real-registry. See below |
 
-**Ask git where the branch stands rather than trusting a sentence here.** Whether
-`main` is synchronised with `origin/main` changes with every push and every
-commit, so it cannot be stated in a file:
+**Ask git, not this file**, where the branch stands and whether it carries
+commits in no release — both change with every commit:
 
 ```powershell
 git status -sb
 git log --oneline origin/main..HEAD
+git log --oneline $(git describe --tags --abbrev=0)..main
 ```
 
-**Whether `main` carries commits in no release is a question for git**, not for
-this file: `git log --oneline $(git describe --tags --abbrev=0)..main`. Cutting a
-release from whatever it lists is a decision, not a formality — see "Before the
-next release".
-
-Test counts are deliberately not listed: they move with every commit, and a
-stale number in a handoff reads as a target to hit. Run the gate for the current
-ones — and read the totals, not the verdict, because a suite that silently got
-smaller also reports zero failures.
-
-**Prove the tree is where this file says it is** before believing anything else.
-About six minutes cold:
+Cutting a release from what the last one lists is a decision, not a formality —
+see "Before the next release". Test counts are deliberately not listed for the
+same reason; run the gate and read the totals, not the verdict, because a suite
+that silently got smaller also reports zero failures. About six minutes cold:
 
 ```powershell
 . .\scripts\Enter-DevEnvironment.ps1
@@ -52,19 +44,19 @@ It must end `no leaks found` and exit 0.
 
 | | |
 | --- | --- |
-| **`Test-SetupWizard.ps1` rewrites the profile's vocabulary** | It installs for real and is not idempotent. Details below |
+| **The wizard and profile machine proofs are inconclusive** | They ran where `%APPDATA%` was redirected, so what they touched was never established. Rerun on a host. Details below |
 | **A clean clone builds; the recorded failure did not reproduce** | Kept as a watch item, not a defect. The environment it was proved in is below |
 | **Model integrity is not execution-time** | The digest pass is desktop-side and the worker reopens by path. Needs a threat-model decision, not code |
 | **`NotAttempted` transcripts are retained** | With auto-paste off nothing classifies the target, so history keeps the row. Disclosed rather than fixed |
 | **GPU qualification cannot be proved** | Nothing can promote a card to proven, so the claim left the UI and then the payload |
 | **The Hugging Face CDN host may be regional** | One host is allowed and it looks US-specific. Affects any install that fetches the model, not only the graphics-card one |
 
-Four of the last five are **deliberate residuals of 1.8.1**, not code left out by
+Four of these six are **deliberate residuals of 1.8.1**, not code left out by
 accident: the integrity gap and the `NotAttempted` retention are documented
 limitations awaiting a threat-model decision, the GPU claim stays out of the UI
 until a real inference sample can support it, and the CDN allowlist is not
 widened by guesswork. Each is disclosed where a user would look. The clean-clone
-failure is contributor-only and blocks no release.
+failure is contributor-only; the first row is the only open work.
 
 ### The seven ignored tests, and how to run them
 
@@ -131,31 +123,24 @@ hive is unwritable. **Assert whole transcripts, never a prefix** — a
 `contains("ever tried")` assertion once passed on a transcript missing a third of
 the utterance.
 
-### `Test-SetupWizard.ps1` rewrites the profile's vocabulary
+### The wizard and profile machine proofs are inconclusive
 
-It installs for real, into `%LOCALAPPDATA%\SpeakEasy Mini` against the real
-`%APPDATA%` profile, and says so. What it does not say is that page 6 **replaces
-the protected-word list** with its own three test terms, which the app then
-consumes on first start. Observed 2026-08-30 during the 1.8.1 release: a
-7,373-byte `personalization.json` became 1,057 bytes.
+The four proofs below last ran where `%LOCALAPPDATA%` and `%APPDATA%` were
+redirected into a container, so which files they touched is unknown:
+**unverified, not failed**. `Test-PreflightRefusalIsInert.ps1`'s CASE 4 (an empty
+unregistered install directory) and CASE 5 (an orphan Add/Remove Programs key)
+have never executed anywhere; CASE 3 has, redirected.
 
-Recoverable, because the app rotates the previous file to
-`personalization.json.bak` before writing — that copy was byte-identical to the
-original by SHA-256, and restoring it was enough. Recoverable is not the same as
-safe: a second run would rotate the *test* words into the backup and the real
-dictionary would be gone.
+Pending on a host with nothing installed, write probe first — see `CLAUDE.md` on
+a sandbox aliasing host paths:
 
-**It is also not idempotent.** The vocabulary page asserts it arrived prefilled
-with at least ten words, and after one run the profile offers three — so running
-it twice in a row fails on its own precondition, mid-wizard, leaving a setup
-window open and the app installed but unconfigured. That is what the second run
-does, not a defect it found.
-
-Two options, neither taken during the release: redirect `APPDATA` for the run the
-way `Test-InstallerLifecycle.ps1` now does — which costs the proof its point,
-since it exists to drive a *real* install — or have it capture and restore the
-vocabulary itself. The second is the smaller change and keeps the proof honest.
-Until then, back up `personalization.json` before running it.
+```powershell
+$root = 'target\local-development\<version>'
+.\scripts\Test-PreflightRefusalIsInert.ps1 -ArtifactRoot $root
+.\scripts\Test-ProfileRestoreOnAbort.ps1 -ArtifactRoot $root
+.\scripts\Test-CleanupFailureRestoresConfig.ps1 -ArtifactRoot $root
+.\scripts\Test-SetupWizard.ps1 -ArtifactRoot $root
+```
 
 ### A clean clone builds
 
@@ -265,21 +250,36 @@ Not blockers for the tree; blockers for cutting a build from it.
    `Build-LocalInstaller.ps1` copies it into the artifact root alongside the
    privacy, security and third-party notices, so it is shipped and not merely
    published.
-3. **Run the three proofs against the new build**, not a previous one:
+3. **Run the proofs against the new build**, not a previous one. Kill any
+   `ai-speakeasy-mini` first. `Build-LocalInstaller.ps1` requires `-FreshBuild`,
+   so every release pays a cold build, about eight minutes here.
 
    ```powershell
    .\scripts\Build-LocalInstaller.ps1
    .\scripts\Test-InstallerLifecycle.ps1 -ArtifactRoot 'target\local-development\<version>'
-   .\scripts\Test-SetupWizard.ps1 -ArtifactRoot 'target\local-development\<version>' -Uninstall
+   .\scripts\Test-SetupWizard.ps1 -ArtifactRoot 'target\local-development\<version>'
    ```
 
-   Kill any `ai-speakeasy-mini` first: an aborted lifecycle run leaves the app it
-   launched alive, and the pre-flight guard then refuses every retry.
-4. **Publish `SHA256SUMS` with the artifact**, then download the published file
+4. **Run the workflow controls when the code they guard changes**, not every
+   release. The first four are repository-local and run anywhere; the last three
+   install for real and need a host with nothing installed. None replaces the
+   fresh build above.
+
+   | Control | Run it when | Needs |
+   | --- | --- | --- |
+   | `Test-StaleArtifactRefusal.ps1` | packaging or build-boundary logic changes | packages its own artifact |
+   | `Test-BuildRootContainment.ps1` | the build-root validation changes | nothing |
+   | `Test-DeleteContainment.ps1` | `DeleteContainment.ps1` or any recursive delete changes | nothing |
+   | `Test-ProfileCaptureIsScoped.ps1` | `ProfileCapture.ps1` changes | nothing |
+   | `Test-CleanupFailureRestoresConfig.ps1` | `WizardCleanup.ps1` or the wizard cleanup changes | artifact root for its end-to-end case only |
+   | `Test-PreflightRefusalIsInert.ps1` | the wizard pre-flight or cleanup changes | artifact root, host |
+   | `Test-ProfileRestoreOnAbort.ps1` | the config capture or restore changes | artifact root, host |
+
+5. **Publish `SHA256SUMS` with the artifact**, then download the published file
    back and re-hash it. The build is unsigned by decision, so a digest a stranger
    can compare is the only assurance on offer — and uploading the right bytes and
    publishing the right digest are two separate things to get wrong.
-5. **Re-read `packaging/THIRD-PARTY-NOTICES.txt` and `packaging/MODEL-NOTICES.md`
+6. **Re-read `packaging/THIRD-PARTY-NOTICES.txt` and `packaging/MODEL-NOTICES.md`
    whenever the payload changes.** Nothing checks them against
    `Build-LocalInstaller.ps1`'s actual output, and a notice describing a payload
    the installer does not have is worse than one that is merely terse.

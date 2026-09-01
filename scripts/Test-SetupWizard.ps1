@@ -1,4 +1,4 @@
-#Requires -Version 7
+﻿#Requires -Version 7
 <#
 .SYNOPSIS
     Drives the real setup wizard through every step and asserts what it did.
@@ -19,21 +19,46 @@
     recurring failure is exactly that: an instrument that cannot fail is
     indistinguishable from one that passes.
 
-    This installs SpeakEasy Mini for real, into `%LOCALAPPDATA%\SpeakEasy Mini`,
-    and leaves it installed and running. Pass `-Uninstall` to take it back off
-    afterwards.
+    **This installs SpeakEasy Mini for real** into `%LOCALAPPDATA%\SpeakEasy Mini`
+    and always takes it back off again: a proof, not an installation route. Run
+    `SpeakEasyMiniSetup.exe` to install.
+
+    **Any remnant this run did not create refuses it** -- a running app or setup
+    process, either SpeakEasy Mini registry key present at all, anything at the
+    install root including an empty directory or a file. Nothing is inspected to
+    decide whether it "really counts", and the refusal names it. Ownership is
+    claimed only once the configuration capture succeeds, and every cleanup step
+    is guarded by that, so a refusal mutates nothing.
+
+    **The operator's configuration comes back byte-identical**, including when
+    cleanup itself fails: `ProfileCapture.ps1` holds the capture and restore,
+    `WizardCleanup.ps1` the ordering, and each is proved without an installation.
+    `logs\speakeasy.log` is deliberately not restored -- the run turns logging on
+    and reads the warm line back as evidence -- and neither are SQLite's
+    `-shm`/`-wal` side files.
 
 .PARAMETER ArtifactRoot
     Where `Build-LocalInstaller.ps1` put `SpeakEasyMiniSetup.exe`.
 
-.PARAMETER Uninstall
-    Silently uninstall at the end, keeping user data, so the machine is left as
-    it was found.
+.PARAMETER AbortAfterProfileWrite
+    Throw deliberately once the operator's configuration has genuinely been
+    rewritten -- after the app has launched and consumed the seeds. Exists for
+    `Test-ProfileRestoreOnAbort.ps1`, which needs a real mid-run failure to prove
+    the restore runs on the failure path. Aborting earlier would leave nothing to
+    restore, so the control would pass vacuously.
+
+.PARAMETER InjectCleanupFailure
+    Fail one named cleanup step, for `Test-CleanupFailureRestoresConfig.ps1`'s
+    end-to-end case. Each injection throws *after* the step's real work, so the
+    control cannot strand an installation. The modes unreachable this way -- a
+    missing uninstaller, a nonzero exit code, an invocation that throws -- are
+    driven against `Invoke-WizardCleanup` directly by the same control.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$ArtifactRoot,
-    [switch]$Uninstall
+    [switch]$AbortAfterProfileWrite,
+    [ValidateSet('StopApp', 'StopSetup', 'Uninstall')][string]$InjectCleanupFailure
 )
 
 $ErrorActionPreference = 'Stop'
@@ -214,18 +239,99 @@ $installRoot = Join-Path $env:LOCALAPPDATA 'SpeakEasy Mini'
 $dataRoot = Join-Path $env:APPDATA 'ai.speakeasy.mini'
 $configRoot = Join-Path $dataRoot 'config'
 
+# The profile is captured and restored rather than redirected: `APPDATA` moves
+# setup but not the installed app, which resolves its own directory through
+# `SHGetKnownFolderPath`. `ProfileCapture.ps1` carries the scope, the tracked
+# names, and why an unrecognised file is left alone.
+. (Join-Path $PSScriptRoot 'ProfileCapture.ps1')
+# The five seeds setup writes, cleared on the way in; and every name a run can
+# create, tracked so one this run produced is removed again. Both lists live in
+# `ProfileCapture.ps1`, which `Test-ProfileCaptureIsScoped.ps1` drives against a
+# scratch directory -- so the restore is proved without a profile.
+$seedFiles = @(Get-InstallSeedFileNames)
+$trackedFiles = @(Get-TrackedConfigFileNames)
+
+. (Join-Path $PSScriptRoot 'WizardCleanup.ps1')
+
+# **Run ownership**, claimed at the last check before the first mutation and not
+# one line earlier. Passing the pre-flight says the machine is in a state this
+# run *may* take over; it does not say this run has taken it over. The capture is
+# what makes the difference, because until it succeeds there is nothing to put
+# back -- so a capture that throws must leave the `finally` with nothing to do,
+# rather than a `$true` flag and a `$null` capture.
+$runOwnsMachine = $false
+$configCapture = $null
+$wizardBodySucceeded = $false
+
 Push-Location $repositoryRoot
 try {
+    # 1. No SpeakEasy process this run does not own. Both names, because an
+    #    abandoned wizard holds the same single-instance claim the app does and
+    #    would make the install below fail for a reason nothing here reports.
     $running = @(Get-Process -Name 'ai-speakeasy-mini' -ErrorAction SilentlyContinue)
     if ($running.Count -gt 0) {
         throw 'SpeakEasy Mini is running; setup will refuse to install over it. Close it and rerun.'
     }
+    $setupRunning = @(Get-Process -Name 'SpeakEasyMiniSetup', 'speakeasy-bootstrapper' -ErrorAction SilentlyContinue)
+    if ($setupRunning.Count -gt 0) {
+        $where = @($setupRunning | ForEach-Object { $_.Path } | Where-Object { $_ } | Select-Object -Unique)
+        throw ('A SpeakEasy Mini setup process is running and this run did not start it: ' +
+            $(if ($where.Count -gt 0) { $where -join ', ' } else { 'path unavailable' }) +
+            '. Close it and rerun.')
+    }
+
+    # 2. No registered installation. The version stamp first, because that is the
+    #    one setup itself reads and the message names the version.
     $stamp = (Get-ItemProperty -Path 'HKCU:\Software\SpeakEasy Mini\LocalDevelopment' -Name Version -ErrorAction SilentlyContinue).Version
     if ($stamp) {
         throw "SpeakEasy Mini $stamp is already installed, so setup will refuse as a same-version reinstall. Uninstall it and rerun."
     }
-    # Cleared so that "the seed exists afterwards" means this run wrote it.
-    foreach ($seed in 'install-hotkey.txt', 'install-logging.txt', 'install-retention.txt', 'install-vocabulary.txt', 'install-provider.txt') {
+
+    # 3. Neither registry key present *at all*. A key with no `Version` under it
+    #    is not an absence: an uninstall that half-finished, or a key somebody
+    #    created, is a remnant this run did not make -- and the `finally` removes
+    #    what this run made. Presence is the test, not contents, because reading
+    #    contents to decide would be deciding whose it is.
+    foreach ($remnantKey in @(
+        'HKCU:\Software\SpeakEasy Mini\LocalDevelopment',
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ai.speakeasy.mini'
+    )) {
+        if (Test-Path -LiteralPath $remnantKey) {
+            throw ("$remnantKey exists with no installation registered behind it. This run did not " +
+                'create it and will not remove it. Delete the key by hand, or repair the installation, ' +
+                'and rerun.')
+        }
+    }
+
+    # 4. Nothing at the install root -- not a populated directory, not an empty
+    #    one, not a file. **Emptiness is not ownership.** An empty directory is as
+    #    much a remnant as a full one, and enumerating it to decide whether it
+    #    "counts" is the script granting itself permission over something it did
+    #    not create. Presence alone refuses, and the message names what is there.
+    if (Test-Path -LiteralPath $installRoot) {
+        $remnantKind = if (Test-Path -LiteralPath $installRoot -PathType Container) {
+            'a directory'
+        } else {
+            'a file'
+        }
+        throw ("$installRoot exists ($remnantKind) and nothing is registered as installed. This run " +
+            'did not put it there and will not remove it. Remove it by hand, or repair the ' +
+            'installation, and rerun.')
+    }
+
+    # 5. The capture. The last step before the first mutation, and the one that
+    #    decides ownership: a failure here leaves the machine untouched.
+    $configCapture = Get-ConfigCapture -ConfigRoot $configRoot -AlsoTrack $trackedFiles
+    $presentNames = @($configCapture.Keys | Where-Object { $configCapture[$_].Existed })
+    Write-Host ("  config: captured $($presentNames.Count) file(s)" +
+        $(if ($presentNames.Count -gt 0) { " ($($presentNames -join ', '))" } else { ' (none present)' }))
+
+    # 6. Ownership.
+    $runOwnsMachine = $true
+
+    # 7. The first mutation. Cleared so that "the seed exists afterwards" means
+    #    this run wrote it.
+    foreach ($seed in $seedFiles) {
         Remove-Item -LiteralPath (Join-Path $configRoot $seed) -Force -ErrorAction SilentlyContinue
     }
 
@@ -676,20 +782,110 @@ try {
     $installed = @($sources)
     Write-Host "  profile: shortcut, retention and $($installed.Count) protected words all arrived"
 
+    # The seam, here and nowhere earlier: by this line the app has consumed the
+    # seeds, so the operator's dictionary and settings really have been rewritten
+    # and the `finally` has something to put back. See -AbortAfterProfileWrite.
+    if ($AbortAfterProfileWrite) {
+        throw 'AbortAfterProfileWrite: deliberate failure after the profile was rewritten.'
+    }
+
     Write-Host 'SpeakEasy Mini setup wizard: passed'
+    # Read in the `finally` to decide whether a cleanup failure may be thrown.
+    # Throwing from a `finally` replaces whatever is already propagating, so a
+    # cleanup failure after a failed run would hide the failure that caused it.
+    $wizardBodySucceeded = $true
 }
 finally {
     Pop-Location
-    if ($Uninstall) {
-        Get-Process -Name 'ai-speakeasy-mini' -ErrorAction SilentlyContinue | Stop-Process -Force
-        Start-Sleep -Seconds 2
-        $uninstaller = Join-Path $installRoot 'speakeasy-bootstrapper.exe'
-        if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
-            # `--keep-user-data` so a wizard run does not delete the 2.14 GB of
-            # weights it just proved the engine against. The production default
-            # removes them (owner decision 2026-08-21); this script exists to be
-            # run repeatedly, which is exactly the case the flag is for.
-            & $uninstaller --uninstall /S --keep-user-data | Out-Null
+    if (-not $runOwnsMachine) {
+        # A pre-flight refusal, or a capture that failed. Nothing above it mutated
+        # anything, and nothing below may: the installation, the running app and
+        # the profile are all the operator's.
+        Write-Host '  pre-flight refused; nothing was changed and nothing is being cleaned up'
+    } else {
+        $installedApp = Join-Path $installRoot 'ai-speakeasy-mini.exe'
+        $cleanup = Invoke-WizardCleanup `
+            -StopInstalledApplication {
+                # The app holds `settings.json`, so it goes down before the
+                # restore -- otherwise the restore lands and the running app
+                # writes its own copy back over it.
+                #
+                # Matched by image path, not by name. The pre-flight proved no
+                # `ai-speakeasy-mini` was running, so a process here is this run's,
+                # but the path is what makes that provable rather than inferred.
+                Get-Process -Name 'ai-speakeasy-mini' -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Path -and $_.Path -eq $installedApp } |
+                    Stop-Process -Force
+                Start-Sleep -Seconds 2
+                if ($InjectCleanupFailure -eq 'StopApp') {
+                    throw 'InjectCleanupFailure=StopApp: deliberate failure after the application was stopped.'
+                }
+            } `
+            -StopSetupProgram {
+                # An aborted run leaves the wizard on screen waiting for a click
+                # nobody is going to make. Path-matched to the artifact this run
+                # was pointed at.
+                Get-Process -Name 'SpeakEasyMiniSetup', 'speakeasy-bootstrapper' -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Path -and $_.Path -eq $setup } |
+                    Stop-Process -Force
+                if ($InjectCleanupFailure -eq 'StopSetup') {
+                    throw 'InjectCleanupFailure=StopSetup: deliberate failure after the setup program was stopped.'
+                }
+            } `
+            -Uninstall {
+                $uninstaller = Join-Path $installRoot 'speakeasy-bootstrapper.exe'
+                if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
+                    throw ("the uninstaller is not at $uninstaller, so the installation this run " +
+                        'performed cannot be removed')
+                }
+                # `--keep-user-data` so a run does not delete the 2.14 GB of
+                # weights it just proved the engine against. The production default
+                # removes them (owner decision 2026-08-21); this script is meant to
+                # be run repeatedly, which is the case the flag is for.
+                & $uninstaller --uninstall /S --keep-user-data | Out-Null
+                $uninstallExit = $LASTEXITCODE
+                if ($InjectCleanupFailure -eq 'Uninstall') {
+                    # After the real uninstall, deliberately: the injection proves
+                    # the exit-code branch reaches the restore without leaving an
+                    # installation behind for the next run to refuse over.
+                    $uninstallExit = 3
+                }
+                if ($uninstallExit -ne 0) {
+                    throw "the uninstaller exited $uninstallExit rather than 0"
+                }
+            } `
+            -RestoreConfiguration {
+                # After the uninstall, which `--keep-user-data` leaves the profile
+                # in place for. A throw anywhere above -- in the run or in cleanup
+                # -- must still put the operator's config back, including the seeds
+                # this run wrote: left behind they would be consumed by the
+                # operator's next launch.
+                Restore-ConfigCapture -ConfigRoot $configRoot -Capture $configCapture
+            }
+
+        # Reported here and not by the helper. `Invoke-WizardCleanup` returns its
+        # failures instead of writing them, because `Write-Warning` throws under
+        # `$WarningPreference = 'Stop'` and a throw from inside it would replace
+        # whatever this `finally` is already carrying.
+        if ($cleanup.Failures.Count -gt 0) {
+            $summary = 'Cleanup after the wizard proof failed: ' + ($cleanup.Failures -join '; ')
+            if ($wizardBodySucceeded) {
+                # The run itself passed, so nothing else is propagating and this is
+                # the failure. Not downgraded to a warning: an uninstall that did
+                # not happen is a machine left dirty, and a green exit code would
+                # say the opposite.
+                throw $summary
+            }
+            # The run had already failed. That failure is the more informative one
+            # and is left to propagate; this is reported beside it.
+            #
+            # `-WarningAction Continue` for the same reason the helper writes
+            # nothing at all: this is the one branch where a throw would hide the
+            # failure that ended the run, and the ambient preference is the
+            # caller's to set.
+            Write-Warning $summary -WarningAction Continue
+            Write-Warning ('The run had already failed, so the cleanup failure above is reported ' +
+                'beside it rather than replacing it.') -WarningAction Continue
         }
     }
 }
