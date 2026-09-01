@@ -22,7 +22,8 @@
     - an entry of any kind already at the probe name is refused and not altered;
     - an entry of the wrong kind at the probe name when cleanup runs is left
       where it is and reported, never read as an absence;
-    - a path that cannot be classified throws rather than becoming `Missing`;
+    - a path that cannot be classified, and one whose parent is not a reachable
+      directory, throw rather than becoming `Missing`;
     - the drive is read from the path rather than assumed, and a path that cannot
       be mapped unambiguously is refused;
     - the four proofs that install for real call the guard before they first
@@ -263,7 +264,7 @@ try {
     $passed++
 
     Write-Host ''
-    Write-Host 'CASE: the classifier answers about the exact path and refuses what it cannot classify'
+    Write-Host 'CASE: the classifier answers about the exact path, and calls nothing Missing it cannot prove absent'
     $kinds = @(
         @{ Path = (Join-Path $viewA $canaryName); Expect = 'File' }
         @{ Path = $viewA; Expect = 'Directory' }
@@ -276,6 +277,27 @@ try {
             throw "CASE classifier: $($k.Path) classified $actual, expected $($k.Expect)."
         }
         Write-Host "  $($k.Expect.PadRight(12)) $($k.Path)"
+    }
+    # `Missing` has to mean absent from a view that is still there. A not-found
+    # does not say which of the two it is -- an administrative-share path that
+    # stops resolving raises the same exception -- so the parent is inspected
+    # before the answer is allowed to be `Missing`. The reachable-parent case is
+    # the `Missing` row above.
+    $unreachableParents = @(
+        @{ Name = 'a parent that does not exist'
+           Path = (Join-Path (Join-Path $viewA 'no-such-parent-directory') 'child.probe')
+           Because = 'is not reachable' }
+        @{ Name = 'a parent that is an ordinary file'
+           Path = (Join-Path (Join-Path $viewA $canaryName) 'child.probe')
+           Because = 'is not a directory' }
+    )
+    foreach ($u in $unreachableParents) {
+        $message = Assert-Refused -Name "unreachable parent -- $($u.Name)" -MessageContains @(
+            'Cannot classify', $u.Because
+        ) -Action {
+            Get-ExactEntryKind -Path $u.Path
+        }
+        Write-Host "  $($u.Name): $message"
     }
     # The defect this classifier replaces, stated as an assertion: a directory at
     # a probe-shaped name is a directory, and `File.Exists` calls it absent.

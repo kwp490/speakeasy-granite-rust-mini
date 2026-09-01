@@ -33,10 +33,11 @@
       classified before and after; only a `File` is deleted, anything else is left
       where it is and reported, and the path has to classify `Missing` afterwards.
       A cleanup that failed fails the whole check rather than being warned about.
-    - **Fail closed.** Every refusal names the root and the direction, an entry
-      that cannot be classified is a refusal rather than an absence, and there is
-      no switch that skips the check -- a caller that could skip it would skip it
-      on the machine where it mattered.
+    - **Fail closed.** Every refusal names the root and the direction; an entry
+      that cannot be classified, or whose parent is no longer a reachable
+      directory, is a refusal rather than an absence; and there is no switch that
+      skips the check -- a caller that could skip it would skip it on the machine
+      where it mattered.
 #>
 
 function New-PathIdentityProbeName {
@@ -52,6 +53,63 @@ function New-PathIdentityProbeName {
     'speakeasy-mini-path-identity-' + [Convert]::ToHexString($bytes).ToLowerInvariant() + '.probe'
 }
 
+function Get-PathIdentityCause {
+    # PowerShell wraps a failure thrown by a .NET method in a
+    # `MethodInvocationException`, and naming that says nothing about what went
+    # wrong. Typed catches already match the inner type; this is for messages.
+    param([Parameter(Mandatory)]$ErrorRecord)
+    if ($ErrorRecord.Exception -is [Management.Automation.MethodInvocationException] -and
+        $null -ne $ErrorRecord.Exception.InnerException) {
+        return $ErrorRecord.Exception.InnerException
+    }
+    $ErrorRecord.Exception
+}
+
+function Assert-ReachableParentDirectory {
+    <#
+    .DESCRIPTION
+        Reached only when the exact entry was not found, and it decides whether
+        that not-found is allowed to mean `Missing`.
+
+        **A not-found does not distinguish "the entry is gone" from "the view is
+        gone".** An administrative-share path that stops resolving raises
+        `DirectoryNotFoundException`, the same as a leaf below a directory that
+        was never there -- so accepting it unconditionally reports the probe
+        cleaned up at the moment nothing could be seen at all.
+
+        The parent is taken lexically, never through `GetFullPath` or
+        `Resolve-Path`, which resolve against the process working directory. Its
+        own attributes are read directly: not `File.Exists`, `Directory.Exists` or
+        `Test-Path`, each of which answers false for a path it could not inspect,
+        which is the failure being ruled out. Nothing is enumerated.
+
+        Limit worth knowing: attributes prove the parent is a directory, not that
+        a directory *link* still resolves. A parent that is a dangling junction is
+        accepted here.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)]$NotFound
+    )
+    $parent = [IO.Path]::GetDirectoryName($Path)
+    if ([string]::IsNullOrEmpty($parent)) {
+        throw ('Cannot classify ' + $Path + ': it has no parent directory whose reachability could be ' +
+            'established, so its absence cannot be proved -- ' + $NotFound.GetType().FullName)
+    }
+    try {
+        $parentAttributes = [IO.File]::GetAttributes($parent)
+    } catch {
+        $cause = Get-PathIdentityCause -ErrorRecord $_
+        throw ('Cannot classify ' + $Path + ': its parent ' + $parent + ' is not reachable, so the ' +
+            'entry cannot be shown absent rather than unreadable -- ' + $cause.GetType().FullName +
+            ': ' + $cause.Message + ' (the entry itself reported ' + $NotFound.GetType().FullName + ')')
+    }
+    if (-not ($parentAttributes -band [IO.FileAttributes]::Directory)) {
+        throw ('Cannot classify ' + $Path + ': its parent ' + $parent + ' is not a directory, so ' +
+            'nothing can be absent from it -- ' + $NotFound.GetType().FullName)
+    }
+}
+
 function Get-ExactEntryKind {
     <#
     .SYNOPSIS
@@ -59,43 +117,33 @@ function Get-ExactEntryKind {
         `ReparsePoint`. Anything unclassifiable throws.
 
     .DESCRIPTION
-        **`File.Exists` is not an absence test.** It answers false for a
-        directory, and false again for a path it could not inspect at all, so a
-        directory standing where the probe file was -- or a path that has become
-        unreadable -- would read as "successfully removed".
+        `Missing` means the exact entry is absent *and* its immediate parent is
+        reachable and is a directory. Nothing weaker: access denied, a malformed
+        path, an unreachable parent, a provider or I/O failure all throw, because
+        `Missing` is what licenses a delete or a "confirmed gone".
 
-        `File.GetAttributes` inspects the one path given and nothing else: no
-        parent enumeration, and no following of a reparse point, because
-        `GetFileAttributesEx` reports the link's own attributes. `Test-Path` is
-        not used because it resolves a link and answers about the *target*, so a
-        dangling link would read as Missing -- and Missing is what licenses a
-        delete or a "confirmed gone".
+        **`File.Exists` is not an absence test**, which is why it is not used
+        here: it answers false for a directory, and false again for a path it
+        could not inspect at all. `Test-Path` is not used either -- it resolves a
+        link and answers about the *target*, so a dangling link would read as
+        `Missing`. `File.GetAttributes` inspects the one path given and nothing
+        else, and reports a link's own attributes rather than following it.
 
-        **Only a genuine not-found is `Missing`.** Access denied, a malformed
-        path, a provider or I/O failure: those throw, naming the path and the
-        exception type. Folding them into `Missing` is the defect this exists to
-        remove.
-
-        `ProfileCapture.ps1` carries an equivalent classifier for `config\`, with
-        the same reasoning and a different call site; a change to either is worth
-        checking against the other.
+        `ProfileCapture.ps1` carries an equivalent classifier for `config\`; a
+        change to either is worth checking against the other.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Path)
     try {
         $attributes = [IO.File]::GetAttributes($Path)
     } catch [IO.FileNotFoundException] {
+        Assert-ReachableParentDirectory -Path $Path -NotFound (Get-PathIdentityCause -ErrorRecord $_)
         return 'Missing'
     } catch [IO.DirectoryNotFoundException] {
-        # A parent that is not there means this exact path holds nothing, which is
-        # the question being asked. It is not an inability to answer it.
+        Assert-ReachableParentDirectory -Path $Path -NotFound (Get-PathIdentityCause -ErrorRecord $_)
         return 'Missing'
     } catch {
-        # Unwrapped, because PowerShell wraps a failure thrown by a .NET method in
-        # a `MethodInvocationException` and naming that says nothing about what
-        # went wrong. The typed catches above match the inner type already.
-        $cause = if ($_.Exception -is [Management.Automation.MethodInvocationException] -and
-            $null -ne $_.Exception.InnerException) { $_.Exception.InnerException } else { $_.Exception }
+        $cause = Get-PathIdentityCause -ErrorRecord $_
         throw ('Cannot classify ' + $Path + ': ' + $cause.GetType().FullName + ' -- ' + $cause.Message)
     }
     # Reparse first: a junction is also a directory, and the attribute is what
