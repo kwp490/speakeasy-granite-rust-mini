@@ -19,7 +19,10 @@
     - a one-way mirror is refused in whichever direction is broken -- the case
       that makes each of the two comparisons load-bearing, and the reason the
       checker exposes a write-view seam;
-    - a probe name that is already present is refused and not overwritten;
+    - an entry of any kind already at the probe name is refused and not altered;
+    - an entry of the wrong kind at the probe name when cleanup runs is left
+      where it is and reported, never read as an absence;
+    - a path that cannot be classified throws rather than becoming `Missing`;
     - the drive is read from the path rather than assumed, and a path that cannot
       be mapped unambiguously is refused;
     - the four proofs that install for real call the guard before they first
@@ -30,10 +33,9 @@
     removing one name: the probe would be gone either way, and the canary would
     not be.
 
-    The last group is a source assertion, deliberately. The boundary it describes
-    is the real `%APPDATA%`, which cannot be exercised from a redirected shell --
-    and a proof that reached that boundary before the guard would already have
-    done the damage the guard exists to prevent.
+    The last group is a source assertion, deliberately: the boundary it describes
+    is the real `%APPDATA%`, and a proof that reached it before the guard would
+    already have done the damage the guard exists to prevent.
 #>
 [CmdletBinding()]
 param()
@@ -258,6 +260,103 @@ try {
     Write-Host '  the file it refused over is byte-identical and still there'
     Remove-Item -LiteralPath $planted -Force
     Assert-ViewsHoldOnlyTheirCanary -Stage 'CASE name-collision'
+    $passed++
+
+    Write-Host ''
+    Write-Host 'CASE: the classifier answers about the exact path and refuses what it cannot classify'
+    $kinds = @(
+        @{ Path = (Join-Path $viewA $canaryName); Expect = 'File' }
+        @{ Path = $viewA; Expect = 'Directory' }
+        @{ Path = $viewALink; Expect = 'ReparsePoint' }
+        @{ Path = (Join-Path $viewA 'nothing-has-ever-been-here.txt'); Expect = 'Missing' }
+    )
+    foreach ($k in $kinds) {
+        $actual = Get-ExactEntryKind -Path $k.Path
+        if ($actual -ne $k.Expect) {
+            throw "CASE classifier: $($k.Path) classified $actual, expected $($k.Expect)."
+        }
+        Write-Host "  $($k.Expect.PadRight(12)) $($k.Path)"
+    }
+    # The defect this classifier replaces, stated as an assertion: a directory at
+    # a probe-shaped name is a directory, and `File.Exists` calls it absent.
+    $probeShaped = Join-Path $viewA 'kind-check.probe'
+    New-Item -ItemType Directory -Path $probeShaped | Out-Null
+    if ((Get-ExactEntryKind -Path $probeShaped) -ne 'Directory') {
+        throw 'CASE classifier: a directory at a probe-shaped name did not classify as Directory.'
+    }
+    if ([IO.File]::Exists($probeShaped)) {
+        throw 'CASE classifier: File.Exists answered true for a directory; the premise of this case is wrong.'
+    }
+    Write-Host '  a directory at a probe-shaped name classifies Directory, where File.Exists answers false'
+    [IO.Directory]::Delete($probeShaped)
+    # Unclassifiable rather than absent. An embedded NUL cannot be normalised into
+    # a path, so the filesystem is never asked and "not found" was never the
+    # answer -- exactly the case that must not be folded into Missing.
+    $malformed = $viewA + [IO.Path]::DirectorySeparatorChar + 'bad' + [char]0 + 'name.probe'
+    $message = Assert-Refused -Name 'unclassifiable path' -MessageContains @('Cannot classify') -Action {
+        Get-ExactEntryKind -Path $malformed
+    }
+    Write-Host "  refused: $message"
+    Assert-ViewsHoldOnlyTheirCanary -Stage 'CASE classifier'
+    $passed++
+
+    Write-Host ''
+    Write-Host 'CASE: an entry of the wrong kind at the probe name is refused, not overwritten'
+    $plantedDirectory = Join-Path $viewA 'planted-probe-name.probe'
+    $insideName = 'operator-put-this-here.txt'
+    $insideText = 'this file is inside the substituted directory'
+    New-Item -ItemType Directory -Path $plantedDirectory | Out-Null
+    Set-Content -LiteralPath (Join-Path $plantedDirectory $insideName) -Value $insideText -NoNewline -Encoding utf8
+    $message = Assert-Refused -Name 'directory-collision' -MessageContains @(
+        'already exists', 'as a Directory'
+    ) -Action {
+        Test-DirectoryViewIdentity -Label 'directory-collision' `
+            -OrdinaryView $viewA -IndependentView $viewALink `
+            -TestOnlyProbeName 'planted-probe-name.probe'
+    }
+    Write-Host "  refused: $message"
+    if ((Get-ExactEntryKind -Path $plantedDirectory) -ne 'Directory') {
+        throw 'CASE directory-collision: the refusal did not leave the directory it refused over.'
+    }
+    if ([IO.File]::ReadAllText((Join-Path $plantedDirectory $insideName)) -ne $insideText) {
+        throw 'CASE directory-collision: the file inside the directory changed.'
+    }
+    Write-Host '  the directory and the file inside it are exactly as they were'
+    # By hand, by exact name, and not through the code under test.
+    Remove-Item -LiteralPath (Join-Path $plantedDirectory $insideName) -Force
+    [IO.Directory]::Delete($plantedDirectory)
+    Assert-ViewsHoldOnlyTheirCanary -Stage 'CASE directory-collision'
+    $passed++
+
+    Write-Host ''
+    Write-Host 'CASE: a directory stands at the probe name when cleanup runs'
+    # The probe itself succeeds -- the two views are the same storage -- so the
+    # refusal below is the cleanup's alone. `File.Exists` answered false for the
+    # substituted directory and reported the probe removed; that is the defect.
+    $message = Assert-Refused -Name 'directory-at-cleanup' -MessageContains @(
+        'cleanup:', 'is a Directory and was left in place', 'cannot be accounted for'
+    ) -Action {
+        Test-DirectoryViewIdentity -Label 'directory-at-cleanup' `
+            -OrdinaryView $viewA -IndependentView $viewALink `
+            -TestOnlyProbeName 'planted-probe-name.probe' `
+            -TestOnlyBeforeCleanup {
+                param($ProbePath)
+                [IO.File]::Delete($ProbePath)
+                New-Item -ItemType Directory -Path $ProbePath | Out-Null
+                Set-Content -LiteralPath (Join-Path $ProbePath $insideName) -Value $insideText -NoNewline -Encoding utf8
+            }
+    }
+    Write-Host "  refused: $message"
+    if ((Get-ExactEntryKind -Path $plantedDirectory) -ne 'Directory') {
+        throw 'CASE directory-at-cleanup: cleanup did not leave the substituted directory in place.'
+    }
+    if ([IO.File]::ReadAllText((Join-Path $plantedDirectory $insideName)) -ne $insideText) {
+        throw 'CASE directory-at-cleanup: the file inside the substituted directory changed.'
+    }
+    Write-Host '  the substituted directory and the file inside it survive untouched'
+    Remove-Item -LiteralPath (Join-Path $plantedDirectory $insideName) -Force
+    [IO.Directory]::Delete($plantedDirectory)
+    Assert-ViewsHoldOnlyTheirCanary -Stage 'CASE directory-at-cleanup'
     $passed++
 
     Write-Host ''

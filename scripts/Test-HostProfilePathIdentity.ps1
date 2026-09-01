@@ -12,9 +12,9 @@
 
     A pass means each profile root carried a token out to the drive's
     administrative share and a different token back, and that the probe file was
-    removed and confirmed gone. A failure means this shell's profile paths are
-    redirected, or that host identity cannot be proved from here; either way the
-    live-profile proofs must not be run in it.
+    removed and every probe path then classified as absent. A failure means this
+    shell's profile paths are redirected, or that host identity cannot be proved
+    from here; either way the live-profile proofs must not be run in it.
 
     `HostProfilePathIdentity.ps1` carries the algorithm and the reasoning.
     `Test-HostProfilePathIdentityIsScoped.ps1` proves the behaviour against
@@ -42,8 +42,8 @@ foreach ($result in $results) {
     Write-Host "  ordinary   : $($result.OrdinaryView)"
     Write-Host "  independent: $($result.IndependentView)"
     Write-Host "  directions : ordinary->independent $($result.FirstDirection), independent->ordinary $($result.SecondDirection)"
-    Write-Host "  probe      : $($result.ProbeName) removed and confirmed absent through both views"
+    Write-Host "  probe      : $($result.ProbeName) removed, and every probe path classified absent"
 }
 
 Write-Host ''
-Write-Host 'host profile path identity: passed (both roots, both directions, exact cleanup)'
+Write-Host 'host profile path identity: passed (both roots, both directions, probe accounted for)'

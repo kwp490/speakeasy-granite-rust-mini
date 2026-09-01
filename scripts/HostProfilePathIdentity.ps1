@@ -11,16 +11,12 @@
     provable without touching a profile.
 
     **A path string is not a storage identity.** A container can present its own
-    storage at `C:\Users\<name>\AppData\Roaming` while every environment variable,
-    every path comparison and every reparse-point check agrees the path is
-    ordinary. Nothing readable from inside that view distinguishes it, so the only
-    evidence is a write that a second, independently obtained view of the disk can
-    see -- and a write through that second view that the first one can see back.
-
-    So this refuses to accept anything cheaper. Not file counts, not directory
-    sizes, not hashes of files that are already there, not reparse-point status,
-    not path-string equality: those all pass under exactly the redirection this
-    exists to catch.
+    storage at `C:\Users\<name>\AppData\Roaming` with nothing inside that view to
+    show it: file counts, directory sizes, hashes of files already there,
+    reparse-point status and path-string equality all pass under exactly the
+    redirection this exists to catch. The only evidence is a write a second,
+    independently obtained view of the disk can see, and a write back through that
+    second view the first one can see in turn.
 
     The second view is the drive's administrative share, `\\localhost\<drive>$`,
     which the SMB server resolves against the real volume rather than against the
@@ -31,26 +27,82 @@
     - **Both roots, both directions, every run.** `%APPDATA%` and `%LOCALAPPDATA%`
       are probed independently; a pass means each of them carried a token out and
       a different token back.
-    - **One file, named once, cryptographically.** Nothing here enumerates either
+    - **One file, named once, from a CSPRNG.** Nothing here enumerates either
       directory, reads anything already in it, or creates a product directory.
-    - **Cleanup is part of the result.** The probe name is removed through every
-      view it could have reached and its absence confirmed; a cleanup that failed
-      fails the whole check rather than being warned about.
-    - **Fail closed.** Every refusal names the root and the direction. There is no
-      switch that skips the check, because a caller that could skip it would skip
-      it on the machine where it mattered.
+    - **Cleanup removes an ordinary file and nothing else.** Every probe path is
+      classified before and after; only a `File` is deleted, anything else is left
+      where it is and reported, and the path has to classify `Missing` afterwards.
+      A cleanup that failed fails the whole check rather than being warned about.
+    - **Fail closed.** Every refusal names the root and the direction, an entry
+      that cannot be classified is a refusal rather than an absence, and there is
+      no switch that skips the check -- a caller that could skip it would skip it
+      on the machine where it mattered.
 #>
 
 function New-PathIdentityProbeName {
     <#
     .DESCRIPTION
-        Cryptographically random, so it cannot collide with a product file, with
-        a file another run of this left behind, or with anything an operator has.
-        `Guid::NewGuid` would very probably do; a CSPRNG removes the "probably".
+        Cryptographically random, so a collision with a product file, with a file
+        an earlier run left behind, or with anything an operator has is negligibly
+        unlikely rather than impossible. An exact entry that is already there is
+        refused without being read, written or removed.
     #>
     $bytes = [byte[]]::new(24)
     [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
     'speakeasy-mini-path-identity-' + [Convert]::ToHexString($bytes).ToLowerInvariant() + '.probe'
+}
+
+function Get-ExactEntryKind {
+    <#
+    .SYNOPSIS
+        What is at exactly this path: `Missing`, `File`, `Directory` or
+        `ReparsePoint`. Anything unclassifiable throws.
+
+    .DESCRIPTION
+        **`File.Exists` is not an absence test.** It answers false for a
+        directory, and false again for a path it could not inspect at all, so a
+        directory standing where the probe file was -- or a path that has become
+        unreadable -- would read as "successfully removed".
+
+        `File.GetAttributes` inspects the one path given and nothing else: no
+        parent enumeration, and no following of a reparse point, because
+        `GetFileAttributesEx` reports the link's own attributes. `Test-Path` is
+        not used because it resolves a link and answers about the *target*, so a
+        dangling link would read as Missing -- and Missing is what licenses a
+        delete or a "confirmed gone".
+
+        **Only a genuine not-found is `Missing`.** Access denied, a malformed
+        path, a provider or I/O failure: those throw, naming the path and the
+        exception type. Folding them into `Missing` is the defect this exists to
+        remove.
+
+        `ProfileCapture.ps1` carries an equivalent classifier for `config\`, with
+        the same reasoning and a different call site; a change to either is worth
+        checking against the other.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    try {
+        $attributes = [IO.File]::GetAttributes($Path)
+    } catch [IO.FileNotFoundException] {
+        return 'Missing'
+    } catch [IO.DirectoryNotFoundException] {
+        # A parent that is not there means this exact path holds nothing, which is
+        # the question being asked. It is not an inability to answer it.
+        return 'Missing'
+    } catch {
+        # Unwrapped, because PowerShell wraps a failure thrown by a .NET method in
+        # a `MethodInvocationException` and naming that says nothing about what
+        # went wrong. The typed catches above match the inner type already.
+        $cause = if ($_.Exception -is [Management.Automation.MethodInvocationException] -and
+            $null -ne $_.Exception.InnerException) { $_.Exception.InnerException } else { $_.Exception }
+        throw ('Cannot classify ' + $Path + ': ' + $cause.GetType().FullName + ' -- ' + $cause.Message)
+    }
+    # Reparse first: a junction is also a directory, and the attribute is what
+    # decides whether following the path leaves the view.
+    if ($attributes -band [IO.FileAttributes]::ReparsePoint) { return 'ReparsePoint' }
+    if ($attributes -band [IO.FileAttributes]::Directory) { return 'Directory' }
+    'File'
 }
 
 function New-PathIdentityToken {
@@ -138,7 +190,13 @@ function Test-DirectoryViewIdentity {
     .PARAMETER TestOnlySecondDirectionWriteView
         The mirror image, for the same reason.
 
-        None of the three reaches the real-host entry point:
+    .PARAMETER TestOnlyBeforeCleanup
+        Runs between the probe and the cleanup, receiving the ordinary probe path.
+        Lets the control replace the probe file with a directory at the moment
+        cleanup is about to run, which is the only deterministic way to prove that
+        an entry of the wrong kind is refused rather than read as absent.
+
+        None of the four reaches the real-host entry point:
         `Assert-HostProfilePathIdentity` does not accept them and
         `Test-HostProfilePathIdentity.ps1` takes no parameters at all.
     #>
@@ -149,17 +207,23 @@ function Test-DirectoryViewIdentity {
         [Parameter(Mandatory)][string]$IndependentView,
         [string]$TestOnlyProbeName,
         [string]$TestOnlyFirstDirectionWriteView,
-        [string]$TestOnlySecondDirectionWriteView
+        [string]$TestOnlySecondDirectionWriteView,
+        [scriptblock]$TestOnlyBeforeCleanup
     )
 
     # The ordinary view has to be a directory: it is the caller's own path, and a
-    # missing one is a different fault from a disagreement between views. The
-    # independent view is deliberately *not* pre-checked -- under the redirection
-    # this exists to catch, the share-side directory may genuinely not exist, and
-    # "the second view never saw the file" is the correct diagnosis for that, not
-    # "the share is broken".
-    if (-not [IO.Directory]::Exists($OrdinaryView)) {
-        throw "${Label}: the ordinary path is not a directory: $OrdinaryView"
+    # missing one is a different fault from a disagreement between views. Through
+    # the classifier, so a view that cannot be inspected refuses rather than
+    # reading as "not a directory". A reparse point passes, because what a link
+    # resolves to is exactly what the token test below decides.
+    #
+    # The independent view is deliberately *not* pre-checked -- under the
+    # redirection this exists to catch, the share-side directory may genuinely not
+    # exist, and "the second view never saw the file" is the correct diagnosis for
+    # that, not "the share is broken".
+    $ordinaryViewKind = Get-ExactEntryKind -Path $OrdinaryView
+    if ($ordinaryViewKind -notin @('Directory', 'ReparsePoint')) {
+        throw "${Label}: the ordinary path is a $ordinaryViewKind rather than a directory: $OrdinaryView"
     }
 
     $probeName = if ($TestOnlyProbeName) { $TestOnlyProbeName } else { New-PathIdentityProbeName }
@@ -175,13 +239,16 @@ function Test-DirectoryViewIdentity {
     $allProbePaths = @($ordinaryProbe, $independentProbe, $firstWriteProbe, $secondWriteProbe) |
         Select-Object -Unique
 
-    # Refused rather than overwritten. The name is random, so something already
-    # there is either a previous run that did not clean up or a collision nothing
-    # here can explain -- and writing over it would destroy the evidence.
+    # Refused rather than overwritten, whatever kind of entry it is. The name is
+    # random, so something already there is either a run that did not clean up or
+    # a collision nothing here can explain, and writing over it would destroy the
+    # evidence. Classified rather than tested for existence: a path that cannot be
+    # inspected must refuse, not read as free.
     foreach ($existing in $allProbePaths) {
-        if ([IO.File]::Exists($existing) -or [IO.Directory]::Exists($existing)) {
-            throw ("${Label}: the probe name already exists at $existing. Nothing here will overwrite " +
-                'it. Remove it by hand and rerun.')
+        $existingKind = Get-ExactEntryKind -Path $existing
+        if ($existingKind -ne 'Missing') {
+            throw ("${Label}: the probe name already exists at $existing as a $existingKind. Nothing " +
+                'here will overwrite or remove it. Resolve it by hand and rerun.')
         }
     }
 
@@ -230,18 +297,49 @@ function Test-DirectoryViewIdentity {
         # recursive delete, never an enumeration: a cleanup that removed whatever
         # it found in a profile root is a worse failure than the one it is
         # cleaning up after.
-        foreach ($path in $allProbePaths) {
+        if ($TestOnlyBeforeCleanup) {
             try {
-                if ([IO.File]::Exists($path)) { [IO.File]::Delete($path) }
+                $null = & $TestOnlyBeforeCleanup $ordinaryProbe
             } catch {
-                $cleanupFailures.Add("could not remove $path : $($_.Exception.Message)")
+                $cleanupFailures.Add("the before-cleanup test seam threw: $($_.Exception.Message)")
             }
         }
         foreach ($path in $allProbePaths) {
+            $kind = $null
             try {
-                if ([IO.File]::Exists($path)) { $cleanupFailures.Add("$path is still present after cleanup") }
+                $kind = Get-ExactEntryKind -Path $path
+            } catch {
+                $cleanupFailures.Add("could not classify $path : $($_.Exception.Message)")
+                continue
+            }
+            if ($kind -eq 'Missing') { continue }
+            if ($kind -ne 'File') {
+                # A directory, a link, or anything else standing at the probe name
+                # is not the file this run wrote, so it is not this run's to
+                # remove. Reported and left exactly as found: the probe cannot be
+                # accounted for, which is the thing the caller has to know.
+                $cleanupFailures.Add("$path is a $kind and was left in place; the probe file this run " +
+                    'wrote there cannot be accounted for')
+                continue
+            }
+            try {
+                [IO.File]::Delete($path)
+            } catch {
+                $cleanupFailures.Add("could not remove $path : $($_.Exception.Message)")
+                continue
+            }
+            # Classified again rather than tested for existence. `File.Exists`
+            # answers false for a directory and false for a path it could not
+            # inspect, so it would report either as removed.
+            $after = $null
+            try {
+                $after = Get-ExactEntryKind -Path $path
             } catch {
                 $cleanupFailures.Add("could not confirm $path is gone: $($_.Exception.Message)")
+                continue
+            }
+            if ($after -ne 'Missing') {
+                $cleanupFailures.Add("$path classifies as $after after it was removed")
             }
         }
     }
