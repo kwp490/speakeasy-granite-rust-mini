@@ -235,6 +235,17 @@ function Get-Status {
     $labels[-1].Text
 }
 
+# **First, before either profile root is used for anything at all.** This run
+# installs for real and rewrites `config\`, and its promise to put that back
+# rests entirely on the capture below addressing the same storage the installed
+# application will. A redirected `%APPDATA%` breaks that silently: the capture
+# succeeds, the restore succeeds, and both of them are about a directory the
+# operator does not have. There is no switch to skip this, because a shell that
+# could be told to trust its environment would be told so on the machine where
+# the environment was lying.
+. (Join-Path $PSScriptRoot 'HostProfilePathIdentity.ps1')
+Assert-HostProfilePathIdentity -Context 'Test-SetupWizard.ps1'
+
 $installRoot = Join-Path $env:LOCALAPPDATA 'SpeakEasy Mini'
 $dataRoot = Join-Path $env:APPDATA 'ai.speakeasy.mini'
 $configRoot = Join-Path $dataRoot 'config'

@@ -51,6 +51,9 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'WizardCleanup.ps1')
 . (Join-Path $PSScriptRoot 'DeleteContainment.ps1')
+# Defines the guard; it is called only in the end-to-end case below, which is the
+# only part of this control that touches the operator's profile.
+. (Join-Path $PSScriptRoot 'HostProfilePathIdentity.ps1')
 
 $targetRoot = (Resolve-Path -LiteralPath (Join-Path $repositoryRoot 'target')).Path.TrimEnd([IO.Path]::DirectorySeparatorChar)
 # A GUID rather than the process id. A pid is reused, so the name could already
@@ -339,6 +342,13 @@ try {
         } else {
             [IO.Path]::GetFullPath((Join-Path $repositoryRoot $ArtifactRoot))
         }
+        # Here and not at the top of the file: everything above runs against a
+        # scratch directory under `target\` and must stay runnable where the
+        # profile is redirected. From this line on the case drives a real install
+        # against the operator's own profile, so the two views have to be proved
+        # to be one before the first path is derived from them.
+        Assert-HostProfilePathIdentity -Context 'Test-CleanupFailureRestoresConfig.ps1 (end-to-end case)'
+
         $installRoot = Join-Path $env:LOCALAPPDATA 'SpeakEasy Mini'
         $configRoot = Join-Path (Join-Path $env:APPDATA 'ai.speakeasy.mini') 'config'
         $seedFiles = @(

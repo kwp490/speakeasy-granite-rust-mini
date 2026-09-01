@@ -36,6 +36,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+
+# Before the profile paths below are so much as constructed. A container can
+# present its own storage at the ordinary `%APPDATA%` path with nothing in the
+# path string, the environment or a reparse-point check to show it, and every
+# assertion this control makes about "the operator's configuration" would then be
+# about a directory the operator never sees.
+. (Join-Path $PSScriptRoot 'HostProfilePathIdentity.ps1')
+Assert-HostProfilePathIdentity -Context 'Test-ProfileRestoreOnAbort.ps1'
+
 $dataRoot = Join-Path $env:APPDATA 'ai.speakeasy.mini'
 $configRoot = Join-Path $dataRoot 'config'
 $seedFiles = @(

@@ -196,6 +196,15 @@ verify ambiguous test filters with `--list` before relying on them.
   path strings, so equal names, sizes or hashes prove nothing and no check here
   detects it. Establish identity with a write probe, never delete a suspected
   mirror as cleanup, and run installer and profile proofs from a verified host.
+- **Every live-profile proof calls `Assert-HostProfilePathIdentity` before its
+  first profile, registry or process access**, from
+  `HostProfilePathIdentity.ps1`; `Test-HostProfilePathIdentity.ps1` runs it
+  alone. It writes one cryptographically named file through each of `%APPDATA%`
+  and `%LOCALAPPDATA%` and back through `\\localhost\<drive>$`, and there is no
+  switch to skip it. A failure means the shell is redirected or cannot prove host
+  identity independently. Repository-local controls and
+  `Test-InstallerLifecycle.ps1`, which redirects both roots under `target\`,
+  stay ungated.
 - **A new or changed recursive delete resolves through `DeleteContainment.ps1`**,
   which walks the root and every component and refuses a reparse point, a file
   where a directory belongs, and the root itself. `Test-InstallerLifecycle.ps1`

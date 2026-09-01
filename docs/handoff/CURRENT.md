@@ -131,10 +131,13 @@ redirected into a container, so which files they touched is unknown:
 unregistered install directory) and CASE 5 (an orphan Add/Remove Programs key)
 have never executed anywhere; CASE 3 has, redirected.
 
-Pending on a host with nothing installed, write probe first — see `CLAUDE.md` on
-a sandbox aliasing host paths:
+Pending on a host with nothing installed. The preflight comes first, and each of
+the four calls it again itself; a failure means the shell is redirected or cannot
+prove host identity independently, and none of them may be run in it:
 
 ```powershell
+.\scripts\Test-HostProfilePathIdentity.ps1
+
 $root = 'target\local-development\<version>'
 .\scripts\Test-PreflightRefusalIsInert.ps1 -ArtifactRoot $root
 .\scripts\Test-ProfileRestoreOnAbort.ps1 -ArtifactRoot $root
@@ -261,12 +264,15 @@ Not blockers for the tree; blockers for cutting a build from it.
    ```
 
 4. **Run the workflow controls when the code they guard changes**, not every
-   release. The first four are repository-local and run anywhere; the last three
-   install for real and need a host with nothing installed. None replaces the
-   fresh build above.
+   release. Read the `Needs` column: the ones that say `nothing` run anywhere,
+   and the ones that say `host` install for real and need a host with nothing
+   installed, with the identity preflight passing first. None replaces the fresh
+   build above.
 
    | Control | Run it when | Needs |
    | --- | --- | --- |
+   | `Test-HostProfilePathIdentityIsScoped.ps1` | `HostProfilePathIdentity.ps1` or a proof's gating changes | nothing |
+   | `Test-HostProfilePathIdentity.ps1` | before any host proof below | host, administrative share |
    | `Test-StaleArtifactRefusal.ps1` | packaging or build-boundary logic changes | packages its own artifact |
    | `Test-BuildRootContainment.ps1` | the build-root validation changes | nothing |
    | `Test-DeleteContainment.ps1` | `DeleteContainment.ps1` or any recursive delete changes | nothing |

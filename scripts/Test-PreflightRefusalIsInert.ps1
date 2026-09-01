@@ -67,6 +67,13 @@ $setup = Join-Path $artifactFull 'SpeakEasyMiniSetup.exe'
 if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
     throw "The single-file installer was not found: $setup"
 }
+# Before the first live-profile path is derived, and so before anything is
+# captured, hashed, planted or installed. This control's whole postcondition is
+# that the operator's own machine came back unchanged; run where `%APPDATA%` is
+# redirected, it would assert that about a container and prove nothing.
+. (Join-Path $PSScriptRoot 'HostProfilePathIdentity.ps1')
+Assert-HostProfilePathIdentity -Context 'Test-PreflightRefusalIsInert.ps1'
+
 $installRoot = Join-Path $env:LOCALAPPDATA 'SpeakEasy Mini'
 $installedApp = Join-Path $installRoot 'ai-speakeasy-mini.exe'
 $dataRoot = Join-Path $env:APPDATA 'ai.speakeasy.mini'
