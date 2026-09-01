@@ -23,13 +23,20 @@ if (-not $ArtifactRoot) {
     # that had drifted from the docs, not the other way round.
     $ArtifactRoot = Join-Path $targetRoot "local-development\$productVersion"
 }
-$artifactFull = [IO.Path]::GetFullPath($ArtifactRoot)
-if (-not $artifactFull.StartsWith($targetRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'ArtifactRoot must remain under the workspace target directory.'
+# Resolved against the repository root when it is relative. `Set-Location` does
+# not move the process working directory `GetFullPath` reads, so a relative
+# argument otherwise resolves against wherever PowerShell was started.
+if (-not [IO.Path]::IsPathRooted($ArtifactRoot)) {
+    $ArtifactRoot = Join-Path $repositoryRoot $ArtifactRoot
 }
-if (Test-Path -LiteralPath $artifactFull) {
-    Remove-Item -LiteralPath $artifactFull -Recurse -Force
-}
+# **Validated here, not only in whatever called this.** `ArtifactRoot` is
+# caller-controlled and the next statement removes it recursively. A prefix
+# comparison was the whole guard, and a prefix says nothing about a junction on
+# `local-development\` sending that delete out of the workspace. `local-development
+# \<version>` is nested by design, so every existing component is walked rather
+# than depth being refused.
+. (Join-Path $PSScriptRoot 'DeleteContainment.ps1')
+$artifactFull = Remove-ContainedDirectory -Path $ArtifactRoot -Root $targetRoot -Label 'ArtifactRoot'
 
 # The Tauri NSIS bundle-marker rewrite that used to live here is gone with NSIS.
 # It existed because the bundler patched a marker byte-range into the executable
@@ -38,13 +45,39 @@ if (Test-Path -LiteralPath $artifactFull) {
 # so the installed file and the built file are now the same bytes and a plain
 # hash is correct.
 
-& (Join-Path $PSScriptRoot 'Invoke-ProofPackage.ps1')
+# **`-FreshBuild` is not optional here.** Cargo decides what to rebuild from
+# source timestamps, so a source restored from a copy is older than the artifact
+# built from the version that replaced it and the next package carries the old
+# code. Every release therefore pays a cold build.
+$installerBuild = Join-Path $targetRoot 'installer-build'
+& (Join-Path $PSScriptRoot 'Invoke-ProofPackage.ps1') -FreshBuild -BuildRoot $installerBuild
 if ($LASTEXITCODE -ne 0) { throw 'Canonical proof build failed.' }
 
-$installerBuild = Join-Path $targetRoot 'installer-build'
-$bootstrapperSource = Join-Path $installerBuild 'release\speakeasy-bootstrapper.exe'
-if (-not (Test-Path -LiteralPath $bootstrapperSource -PathType Leaf)) {
-    throw "The bootstrapper was not produced: $bootstrapperSource"
+# Read back rather than recomputed. The paths below are the ones the build says
+# it produced, so a build that wrote somewhere else cannot be packaged from the
+# directory this script guessed at.
+$packageManifestPath = Join-Path $installerBuild 'proof-package.json'
+if (-not (Test-Path -LiteralPath $packageManifestPath -PathType Leaf)) {
+    throw "The proof build left no package manifest at $packageManifestPath."
+}
+$proofPackage = Get-Content -LiteralPath $packageManifestPath -Raw | ConvertFrom-Json
+# The build root was recreated before Cargo ran, so the manifest's presence proves
+# this run wrote it. The mode is asserted too, because a future edit could drop
+# the switch and nothing else would notice.
+if (-not $proofPackage.fresh_build) {
+    throw 'The proof build reported fresh_build=false; a release must not be packaged from an incremental target.'
+}
+if ($proofPackage.build_root -ne [IO.Path]::GetFullPath($installerBuild).TrimEnd([IO.Path]::DirectorySeparatorChar)) {
+    throw "The proof build reported build_root $($proofPackage.build_root), not $installerBuild."
+}
+$bootstrapperSource = $proofPackage.executables.bootstrapper.path
+$desktopSource = $proofPackage.executables.desktop.path
+$graniteWorkerSource = $proofPackage.executables.granite_worker.path
+$packer = $proofPackage.executables.payload_packer.path
+foreach ($required in @($bootstrapperSource, $desktopSource, $graniteWorkerSource, $packer)) {
+    if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+        throw "The proof build named an executable that is not there: $required"
+    }
 }
 
 New-Item -ItemType Directory -Path $artifactFull -Force | Out-Null
@@ -104,8 +137,8 @@ $defender = try {
 # CPU install.
 
 $payloadSpecs = @(
-    @((Join-Path $installerBuild 'release\ai-speakeasy-mini.exe'), 'ai-speakeasy-mini.exe', 'desktop'),
-    @((Join-Path $installerBuild 'release\speakeasy-bootstrapper.exe'), 'speakeasy-bootstrapper.exe', 'bootstrapper'),
+    @($desktopSource, 'ai-speakeasy-mini.exe', 'desktop'),
+    @($bootstrapperSource, 'speakeasy-bootstrapper.exe', 'bootstrapper'),
     # CPU-only, built with `speakeasy-granite-worker`'s default features -- see
     # Invoke-ProofPackage.ps1. Its GGUF model files are not bundled here, same
     # as every other ASR pack: setup fetches them when no verified copy is
@@ -113,7 +146,7 @@ $payloadSpecs = @(
     # `Get-Granite.ps1` fetches the same files by the same pins, but it is a
     # development convenience for staging a dev tree -- production setup uses
     # the bootstrapper's own download path and never runs it.
-    @((Join-Path $installerBuild 'release\speakeasy-granite-worker.exe'), 'proof/granite-worker.exe', 'granite-worker')
+    @($graniteWorkerSource, 'proof/granite-worker.exe', 'granite-worker')
 )
 # What the payload actually carries, checked rather than assumed.
 #
@@ -128,7 +161,6 @@ $payloadSpecs = @(
 # that process is on a device -- and only then does anything write `cuda` into
 # `install-provider.txt`.
 . (Join-Path $PSScriptRoot 'GraniteWorkerProvider.ps1')
-$graniteWorkerSource = Join-Path $installerBuild 'release\speakeasy-granite-worker.exe'
 $graniteWorkerProvider = Assert-GraniteWorkerPayloadIsCoherent `
     -WorkerPath $graniteWorkerSource `
     -RepositoryRoot $repositoryRoot `
@@ -173,10 +205,6 @@ $installedPayload = foreach ($spec in $payloadSpecs) {
 # have one implementation: a writer in PowerShell and a reader in the installer
 # agree until somebody edits one of them, and the disagreement lands on a user
 # as "this download is damaged" for a file that downloaded perfectly.
-$packer = Join-Path $installerBuild 'release\pack-payload.exe'
-if (-not (Test-Path -LiteralPath $packer -PathType Leaf)) {
-    throw "The payload packer was not produced: $packer"
-}
 $setupExecutable = Join-Path $artifactFull 'SpeakEasyMiniSetup.exe'
 & $packer $payloadRoot $bootstrapperSource $setupExecutable
 if ($LASTEXITCODE -ne 0) { throw 'Packing SpeakEasyMiniSetup.exe failed.' }
