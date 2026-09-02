@@ -119,6 +119,17 @@ Home / End** — the vertical tab pattern, declared with `aria-orientation`. A
 keyboard user can move through the entire window in visual order without a
 pointer. No feature creates a seventh top-level group.
 
+The workspace uses a compact product header rather than a landing-page title.
+Each page begins with its name and a one-sentence purpose, then named groups at a
+predictable rhythm. Ordinary choices are full labeled rows; related fields stay
+inside one bordered surface; status and failure copy sits beside the setting it
+describes. Dense facts are definition rows rather than equal-weight tiles, with
+localized display names in the summary and exact identifiers retained behind
+**Show raw values**. Reset, delete and quit actions remain visually separated
+from ordinary preferences. Complex model, personalization, meter and transcript
+content may stack inside their group rather than being forced into a two-column
+row.
+
 ### Reads that lose the startup race
 
 Every window's webview loads while Tauri's `setup` is still managing
@@ -1182,9 +1193,10 @@ widths without clipped actions. The minimum height is 500 rather than the 560 th
 redesign brief specified, because 560 does not fit: a 1920×1080 panel at 200%
 scaling leaves 516 logical pixels of work area, and a minimum the user cannot
 shrink out of would put the window partly off-screen. Below 760 px the navigation
-rail becomes a full-width row of buttons above the content — still one `tablist`
-with the same keyboard pattern — and the content column keeps a bounded readable
-line length above it. Text reflows at 200% zoom without loss or two-dimensional
+rail becomes a fixed 3-by-2 grid above the content — still one `tablist` with the
+same keyboard pattern, with every page visible and no sideways scrolling. Below
+520 px it becomes a 2-by-3 grid so labels retain readable width. The content
+column keeps a bounded readable line length below it. Text reflows at 200% zoom without loss or two-dimensional
 scrolling except data tables. **No supported size requires horizontal
 scrolling**, measured rather than assumed: see Automated checks.
 
@@ -1212,7 +1224,7 @@ Do not translate model IDs, revisions, provider IDs, hashes, paths, license iden
 ## Automated checks
 
 `apps/desktop/tests/scaffold.test.mjs` covers catalog ownership, semantic roles,
-keyboard structure, inert rendering, the five-group settings limit,
+keyboard structure, inert rendering, the six-group settings limit,
 theme/reduced-motion/forced-colors rules, colour and type going through the
 tokens, narrow dock IPC, and the declared app-icon set together with the
 tray's use of it. It reads `.tsx` for rules about markup and

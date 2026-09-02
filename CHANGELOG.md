@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.9.0 — 2026-09-02
+
+Settings now uses a restrained desktop workspace across all six pages: a compact
+product header, a stable navigation rail, page introductions, predictable group
+spacing, full labeled choice rows, and readable definition lists in place of the
+Advanced tile wall. Runtime summaries use human-facing names by default while
+the exact identifiers remain available under **Show raw values**.
+
+Below 760 px the rail becomes a fixed 3-by-2 tab grid, and below 520 px it becomes
+2-by-3. The same vertical-tab keyboard behavior, one-panel rendering,
+mount-on-activation rules, backend commands, privacy behavior, and failure copy
+remain unchanged. Layout and contrast proofs now cover Transcript log as well as
+the other five pages.
+
 ## 1.8.1 — 2026-08-30
 
 With persisted history enabled, a transcript delivered into a password field was

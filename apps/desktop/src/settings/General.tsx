@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { messages } from "../catalog";
@@ -84,6 +84,10 @@ export function General({
     }
   }
 
+  function updateRecordingFeedback(event: ChangeEvent<HTMLInputElement>) {
+    void profile.setRecordingFeedback(event.target.checked);
+  }
+
   return (
     <>
       <section aria-labelledby="general-shortcut">
@@ -163,13 +167,16 @@ export function General({
         <h3 id="general-feedback">{messages.recordingFeedbackSection}</h3>
         <label className="confirmation">
           <input
+            aria-label={messages.recordingFeedback}
             checked={profile.profile?.recording_feedback_enabled ?? true}
-            onChange={(event) => void profile.setRecordingFeedback(event.target.checked)}
+            onChange={updateRecordingFeedback}
             type="checkbox"
           />
-          {messages.recordingFeedback}
+          <span>
+            <strong>{messages.recordingFeedback}</strong>
+            <small>{messages.recordingFeedbackDetail}</small>
+          </span>
         </label>
-        <p className="setting-detail">{messages.recordingFeedbackDetail}</p>
       </section>
 
       <section aria-labelledby="general-startup">
@@ -190,7 +197,7 @@ export function General({
         offers needs a path that is. The shortcut covers start and stop, the Audio
         page covers the microphone, and these two cover the rest.
       */}
-      <section aria-labelledby="general-keyboard">
+      <section aria-labelledby="general-keyboard" className="settings-danger-zone">
         <h3 id="general-keyboard">{messages.keyboardPathsSection}</h3>
         <p className="setting-detail">{messages.keyboardPathsDetail}</p>
         <div className="actions">

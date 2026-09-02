@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
 Measures rendered text contrast in both SpeakEasy windows against WCAG AA.
 
@@ -228,7 +228,7 @@ foreach ($name in $windows) {
 
     if ($name -eq 'settings') {
         # Each page paints different content, so each page is measured.
-        foreach ($page in @('general', 'audio', 'transcription', 'output', 'advanced')) {
+        foreach ($page in @('general', 'audio', 'transcription', 'output', 'log', 'advanced')) {
             $report = (& $probe -Window settings -Port $Port -Click "#settings-tab-$page" -Expression $measure |
                     ConvertFrom-Json) | ConvertFrom-Json
             $measured += 1

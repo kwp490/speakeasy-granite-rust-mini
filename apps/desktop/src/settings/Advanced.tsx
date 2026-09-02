@@ -273,77 +273,81 @@ export function Advanced({ profile }: { profile: ProfileController }) {
         <p className="setting-detail">{messages.credentialsNeverShown}</p>
       </section>
 
-      <section aria-labelledby="advanced-maintenance">
+      <section aria-labelledby="advanced-maintenance" className="settings-maintenance">
         <h3 id="advanced-maintenance">{messages.maintenanceSection}</h3>
-        <div className="actions">
-          <button
-            disabled={exportDiagnostics.pending}
-            onClick={() => {
-              void exportDiagnostics.run(
-                () => invoke<DiagnosticsExport>("diagnostics_export"),
-                (exported) => `${messages.diagnosticsExported} ${exported.file_name}`,
-              );
-            }}
-            type="button"
-          >
-            {exportDiagnostics.pending ? messages.working : messages.exportDiagnostics}
-          </button>
-          <output aria-live="polite">
-            {exportDiagnostics.error ?? exportDiagnostics.message}
-          </output>
-        </div>
-        <div className="actions">
-          <button onClick={() => void restartEngine()} type="button">
-            {messages.restartEngine}
-          </button>
-          <output aria-live="polite">{engineAction}</output>
-        </div>
-        <p className="setting-detail">{messages.resetExclusions}</p>
-        {resetPreview === null ? (
-          <>
+        <div className="settings-action-list">
+          <div className="actions">
             <button
-              disabled={previewReset.pending}
+              disabled={exportDiagnostics.pending}
               onClick={() => {
-                void previewReset
-                  .run(() => invoke<ResetPreview>("reset_preview"))
-                  .then((preview) => {
-                    // Only on success. A refused preview must not open the
-                    // destructive panel behind it.
-                    if (preview !== null) setResetPreview(preview);
-                  });
+                void exportDiagnostics.run(
+                  () => invoke<DiagnosticsExport>("diagnostics_export"),
+                  (exported) => `${messages.diagnosticsExported} ${exported.file_name}`,
+                );
               }}
               type="button"
             >
-              {previewReset.pending ? messages.working : messages.previewReset}
+              {exportDiagnostics.pending ? messages.working : messages.exportDiagnostics}
             </button>
-            <output aria-live="polite">{previewReset.error}</output>
-          </>
-        ) : (
-          <div className="warning-panel">
-            <p>{resetPreview.categories.map(formatResetCategory).join(", ")}</p>
-            <div className="actions">
+            <output aria-live="polite">
+              {exportDiagnostics.error ?? exportDiagnostics.message}
+            </output>
+          </div>
+          <div className="actions">
+            <button onClick={() => void restartEngine()} type="button">
+              {messages.restartEngine}
+            </button>
+            <output aria-live="polite">{engineAction}</output>
+          </div>
+        </div>
+        <div className="settings-danger-card">
+          <p className="setting-detail">{messages.resetExclusions}</p>
+          {resetPreview === null ? (
+            <>
               <button
-                className="destructive"
-                disabled={resetCommit.pending}
-                onClick={() => void commitReset()}
-                type="button"
-              >
-                {resetCommit.pending ? messages.working : messages.resetNow}
-              </button>
-              <button
-                disabled={resetCommit.pending}
+                disabled={previewReset.pending}
                 onClick={() => {
-                  resetCommit.reset();
-                  setResetPreview(null);
+                  void previewReset
+                    .run(() => invoke<ResetPreview>("reset_preview"))
+                    .then((preview) => {
+                      // Only on success. A refused preview must not open the
+                      // destructive panel behind it.
+                      if (preview !== null) setResetPreview(preview);
+                    });
                 }}
                 type="button"
               >
-                {messages.cancel}
+                {previewReset.pending ? messages.working : messages.previewReset}
               </button>
+              <output aria-live="polite">{previewReset.error}</output>
+            </>
+          ) : (
+            <div className="warning-panel">
+              <p>{resetPreview.categories.map(formatResetCategory).join(", ")}</p>
+              <div className="actions">
+                <button
+                  className="destructive"
+                  disabled={resetCommit.pending}
+                  onClick={() => void commitReset()}
+                  type="button"
+                >
+                  {resetCommit.pending ? messages.working : messages.resetNow}
+                </button>
+                <button
+                  disabled={resetCommit.pending}
+                  onClick={() => {
+                    resetCommit.reset();
+                    setResetPreview(null);
+                  }}
+                  type="button"
+                >
+                  {messages.cancel}
+                </button>
+              </div>
+              <output aria-live="polite">{resetCommit.error}</output>
             </div>
-            <output aria-live="polite">{resetCommit.error}</output>
-          </div>
-        )}
+          )}
+        </div>
       </section>
 
       <section aria-labelledby="advanced-about">

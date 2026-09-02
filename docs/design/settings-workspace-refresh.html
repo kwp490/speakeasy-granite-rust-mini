@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SpeakEasy Mini settings workspace refresh</title>
+  <style>
+    /*
+      Proposal geometry and palette are built from apps/desktop/src/styles.css:
+      the production surface, text, semantic, border, focus, spacing, radius,
+      typeface, 720 px breakpoint, 200 px rail, 720 px content measure, and
+      40–44 px controls. New composition is identified in the ledger below.
+    */
+    :root {
+      color-scheme: light;
+      --surface: #f5f7f2;
+      --surface-raised: #ffffff;
+      --surface-soft: #edf1eb;
+      --text: #17201c;
+      --text-muted: #4c5c52;
+      --accent: #8d3524;
+      --success: #216e3a;
+      --warning: #8a4d00;
+      --danger: #a21f2d;
+      --border: #9ca79f;
+      --border-strong: #5d6b62;
+      --focus: #005fcc;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 18px;
+      --space-5: 24px;
+      --space-6: 32px;
+      --radius: 6px;
+      --rail: 224px;
+      --measure: 760px;
+      font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --surface: #121915;
+      --surface-raised: #1b2520;
+      --surface-soft: #17201c;
+      --text: #f2f4ee;
+      --text-muted: #becabf;
+      --accent: #ff9a7f;
+      --success: #8ee0ab;
+      --warning: #f2c14e;
+      --danger: #f28b84;
+      --border: #66736b;
+      --border-strong: #8b9a90;
+      --focus: #84b7ff;
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: var(--surface); }
+    body { margin: 0; min-height: 100vh; background: var(--surface); font-size: 16px; line-height: 1.5; }
+    button, input, select { font: inherit; }
+    button, select, input[type="text"] { min-height: 42px; }
+    button, select, input[type="text"] {
+      color: var(--text);
+      background: var(--surface-raised);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+    }
+    button { padding: 8px 14px; cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    button.primary { color: var(--surface-raised); background: var(--accent); border-color: var(--accent); font-weight: 650; }
+    html[data-theme="dark"] button.primary { color: #17201c; }
+    button.danger { color: var(--danger); border-color: currentColor; background: transparent; }
+    button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible, [role="tab"]:focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 3px;
+    }
+    p { margin: 0; }
+    h1, h2, h3 { margin: 0; line-height: 1.2; }
+    h1 { font-size: clamp(1.35rem, 2.5vw, 1.7rem); letter-spacing: -0.015em; }
+    h2 { font-size: clamp(1.65rem, 3vw, 2.1rem); letter-spacing: -0.025em; }
+    h3 { font-size: 1rem; }
+    .muted { color: var(--text-muted); }
+    .eyebrow { color: var(--accent); font-size: 0.78rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+    .proposal-note {
+      display: flex;
+      gap: var(--space-3);
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px clamp(18px, 4vw, 48px);
+      color: var(--text-muted);
+      background: var(--surface-soft);
+      border-bottom: 1px solid var(--border);
+      font-size: 0.82rem;
+    }
+    .proposal-note strong { color: var(--text); }
+    .theme-toggle { min-height: 34px; padding: 4px 10px; white-space: nowrap; }
+
+    .app-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      min-height: 72px;
+      padding: var(--space-3) clamp(18px, 4vw, 48px);
+      border-bottom: 1px solid var(--border);
+    }
+    .mark { display: grid; place-items: center; width: 38px; height: 38px; color: #17201c; background: #ff9a7f; border-radius: 10px; font-weight: 800; }
+    .app-title { flex: 1; }
+    .app-title .muted { font-size: 0.85rem; }
+    .version { color: var(--text-muted); font-size: 0.88rem; }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: var(--rail) minmax(0, 1fr);
+      align-items: start;
+      gap: clamp(32px, 6vw, 80px);
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: var(--space-6) clamp(18px, 4vw, 48px) 72px;
+    }
+    .rail { position: sticky; top: var(--space-5); min-width: 0; }
+    .rail-label { margin: 0 0 var(--space-2) 14px; color: var(--text-muted); font-size: 0.82rem; font-weight: 700; }
+    .tabs { display: grid; gap: 2px; }
+    [role="tab"] {
+      position: relative;
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 14px 10px 18px;
+      color: var(--text-muted);
+      background: transparent;
+      border: 0;
+      border-radius: var(--radius);
+      text-align: left;
+      font-weight: 560;
+    }
+    [role="tab"]::before { content: ""; position: absolute; inset: 9px auto 9px 0; width: 3px; border-radius: 3px; background: transparent; }
+    [role="tab"]:hover { color: var(--text); background: var(--surface-soft); }
+    [role="tab"][aria-selected="true"] { color: var(--text); background: var(--surface-soft); font-weight: 720; }
+    [role="tab"][aria-selected="true"]::before { background: var(--accent); }
+
+    main { min-width: 0; max-width: var(--measure); }
+    [role="tabpanel"][hidden] { display: none; }
+    .page-head { padding-bottom: var(--space-5); }
+    .page-head .eyebrow { margin-bottom: var(--space-1); }
+    .page-head p { max-width: 60ch; margin-top: var(--space-2); color: var(--text-muted); }
+    .group { padding: var(--space-5) 0; border-top: 1px solid var(--border); }
+    .group-head { display: flex; gap: var(--space-4); align-items: baseline; justify-content: space-between; margin-bottom: var(--space-3); }
+    .group-head .muted { font-size: 0.88rem; }
+
+    .setting-list { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); overflow: clip; }
+    .setting-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, auto);
+      gap: var(--space-5);
+      align-items: center;
+      min-height: 72px;
+      padding: var(--space-4);
+    }
+    .setting-row + .setting-row { border-top: 1px solid var(--border); }
+    .setting-row.stacked { grid-template-columns: 1fr; align-items: stretch; }
+    .setting-copy strong { display: block; font-weight: 680; }
+    .setting-copy p { max-width: 54ch; margin-top: 2px; color: var(--text-muted); font-size: 0.92rem; }
+    .setting-control { display: flex; gap: var(--space-2); align-items: center; justify-content: flex-end; min-width: 0; }
+    .setting-control select, .setting-control input[type="text"] { width: min(100%, 290px); padding: 7px 10px; }
+    .control-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+    .field label { display: block; margin-bottom: var(--space-1); color: var(--text-muted); font-size: 0.88rem; font-weight: 650; }
+    .field input, .field select { width: 100%; padding: 7px 10px; }
+
+    .choice { display: flex; gap: var(--space-3); align-items: flex-start; cursor: pointer; }
+    .choice input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--accent); flex: 0 0 auto; }
+    .choice span { min-width: 0; }
+    .choice strong { display: block; }
+    .choice small { display: block; margin-top: 2px; color: var(--text-muted); font-size: 0.9rem; }
+    .choices { display: grid; gap: var(--space-2); }
+    .choices .choice { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-raised); }
+
+    .status { display: flex; gap: var(--space-2); align-items: flex-start; margin-top: var(--space-3); padding: 10px 12px; color: var(--text-muted); background: var(--surface-soft); border-left: 3px solid var(--success); border-radius: 0 var(--radius) var(--radius) 0; font-size: 0.9rem; }
+    .status.warning { border-left-color: var(--warning); }
+    .status.danger { border-left-color: var(--danger); }
+    .status-mark { color: var(--success); font-weight: 900; }
+    .warning .status-mark { color: var(--warning); }
+    .danger .status-mark { color: var(--danger); }
+    .pill { display: inline-flex; gap: 6px; align-items: center; min-height: 30px; padding: 3px 9px; color: var(--success); background: var(--surface-soft); border: 1px solid var(--border); border-radius: 999px; font-size: 0.84rem; font-weight: 700; white-space: nowrap; }
+    .dot { width: 7px; height: 7px; background: currentColor; border-radius: 50%; }
+
+    .meter { height: 12px; overflow: hidden; background: var(--surface-soft); border: 1px solid var(--border); border-radius: 99px; }
+    .meter span { display: block; width: 37%; height: 100%; background: var(--success); }
+    .facts { margin: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); overflow: clip; }
+    .fact { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(0, 1.4fr); gap: var(--space-4); padding: 13px var(--space-4); }
+    .fact + .fact { border-top: 1px solid var(--border); }
+    .fact dt { color: var(--text-muted); font-weight: 650; }
+    .fact dd { margin: 0; overflow-wrap: anywhere; text-align: right; }
+    code { padding: 1px 4px; color: var(--text); background: var(--surface-soft); border-radius: 4px; font-family: ui-monospace, "Cascadia Code", monospace; font-size: 0.86rem; }
+
+    .transcript { padding: var(--space-4); background: var(--surface-raised); border: 1px solid var(--border); border-radius: 10px; }
+    .transcript-top { display: flex; gap: var(--space-3); align-items: baseline; justify-content: space-between; color: var(--text-muted); font-size: .88rem; }
+    .transcript blockquote { margin: var(--space-3) 0 0; font-family: Georgia, serif; font-size: 1.05rem; line-height: 1.65; }
+    .empty { padding: var(--space-6); text-align: center; border: 1px dashed var(--border-strong); border-radius: 10px; }
+    .empty strong { display: block; }
+    .empty p { margin-top: var(--space-1); color: var(--text-muted); }
+    details { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); }
+    summary { min-height: 44px; padding: 10px var(--space-4); cursor: pointer; font-weight: 680; }
+    details .details-body { padding: 0 var(--space-4) var(--space-4); color: var(--text-muted); }
+    .danger-zone { border-color: color-mix(in srgb, var(--danger) 60%, var(--border)); }
+    .danger-zone .setting-row { background: color-mix(in srgb, var(--danger) 4%, var(--surface-raised)); }
+    .button-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+    .ledger { margin-top: var(--space-6); padding: var(--space-5); border: 1px dashed var(--border-strong); border-radius: 10px; color: var(--text-muted); background: var(--surface-soft); }
+    .ledger h3 { color: var(--text); }
+    .ledger ul { margin: var(--space-2) 0 0; padding-left: 20px; }
+
+    @media (max-width: 760px) {
+      .proposal-note { align-items: flex-start; }
+      .app-header { min-height: 64px; }
+      .workspace { display: block; padding-top: var(--space-4); }
+      .rail { position: static; margin-bottom: var(--space-6); }
+      .rail-label { margin-left: 0; }
+      .tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-1); }
+      [role="tab"] { width: 100%; min-width: 0; padding: 9px 10px; text-align: center; }
+      [role="tab"]::before { inset: auto 12px 3px; width: auto; height: 3px; }
+      main { max-width: none; }
+      .setting-row { grid-template-columns: 1fr; gap: var(--space-3); align-items: stretch; }
+      .setting-control { justify-content: flex-start; }
+      .setting-control select, .setting-control input[type="text"] { width: 100%; max-width: none; }
+    }
+
+    @media (max-width: 520px) {
+      .proposal-note span { display: none; }
+      .version { display: none; }
+      .app-header { padding-inline: 14px; }
+      .workspace { padding-inline: 14px; }
+      .control-pair { grid-template-columns: 1fr; }
+      .tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .fact { grid-template-columns: 1fr; gap: 2px; }
+      .fact dd { text-align: left; }
+      .group-head { display: block; }
+      .group-head .muted { margin-top: 2px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+    @media (forced-colors: active) {
+      [role="tab"][aria-selected="true"] { outline: 2px solid Highlight; }
+      [role="tab"][aria-selected="true"]::before, .dot, .meter span { background: Highlight; }
+      .status { border-left-color: CanvasText; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="proposal-note" aria-label="Drawing status">
+    <span><strong>Design proposal</strong> · Settings workspace · 2026-09-01 · branch main · not the live application</span>
+    <button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="false">Use dark theme</button>
+  </aside>
+
+  <header class="app-header">
+    <div class="mark" aria-hidden="true">S</div>
+    <div class="app-title">
+      <h1>SpeakEasy Mini</h1>
+      <p class="muted">Settings</p>
+    </div>
+    <span class="version">Version 1.8.1</span>
+  </header>
+
+  <div class="workspace">
+    <nav class="rail" aria-label="Settings pages">
+      <p class="rail-label">Settings</p>
+      <div class="tabs" role="tablist" aria-orientation="vertical">
+        <button id="tab-general" role="tab" aria-selected="true" aria-controls="panel-general" tabindex="0">General</button>
+        <button id="tab-audio" role="tab" aria-selected="false" aria-controls="panel-audio" tabindex="-1">Audio</button>
+        <button id="tab-transcription" role="tab" aria-selected="false" aria-controls="panel-transcription" tabindex="-1">Transcription</button>
+        <button id="tab-output" role="tab" aria-selected="false" aria-controls="panel-output" tabindex="-1">Output &amp; Privacy</button>
+        <button id="tab-log" role="tab" aria-selected="false" aria-controls="panel-log" tabindex="-1">Transcript log</button>
+        <button id="tab-advanced" role="tab" aria-selected="false" aria-controls="panel-advanced" tabindex="-1">Advanced</button>
+      </div>
+    </nav>
+
+    <main>
+      <section id="panel-general" role="tabpanel" aria-labelledby="tab-general" tabindex="0">
+        <header class="page-head">
+          <p class="eyebrow">Everyday behavior</p>
+          <h2>General</h2>
+          <p>Choose how dictation starts, what you hear, and when SpeakEasy Mini runs.</p>
+        </header>
+
+        <section class="group" aria-labelledby="general-shortcut">
+          <div class="group-head"><h3 id="general-shortcut">Keyboard shortcut</h3><span class="pill"><span class="dot"></span>Shortcut active</span></div>
+          <div class="setting-list">
+            <div class="setting-row stacked">
+              <div class="setting-copy"><strong>Start and stop dictation</strong><p>Works from any app. Recordings stop automatically after 2 minutes.</p></div>
+              <div class="control-pair">
+                <div class="field"><label for="hotkey">Global hotkey</label><input id="hotkey" type="text" value="Ctrl+Alt+P"></div>
+                <div class="field"><label for="mode">Activation mode</label><select id="mode"><option>Toggle (press to start, press again to stop)</option><option>Hold to record</option></select></div>
+              </div>
+              <label class="choice"><input type="checkbox" checked><span><strong>Enable the global hotkey</strong><small>Listen for the shortcut while SpeakEasy Mini is running.</small></span></label>
+              <div class="button-row"><button class="primary" type="button">Save hotkey</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="group" aria-labelledby="general-app">
+          <div class="group-head"><h3 id="general-app">App behavior</h3></div>
+          <div class="setting-list">
+            <div class="setting-row"><div class="setting-copy"><strong>Dock</strong><p>Stays on top and clings to the screen edge you drag it to.</p></div><span class="pill"><span class="dot"></span>Always visible</span></div>
+            <div class="setting-row"><label class="choice"><input type="checkbox" checked><span><strong>Recording sounds</strong><small>Play a sound when recording starts and stops.</small></span></label></div>
+            <div class="setting-row"><label class="choice"><input type="checkbox"><span><strong>Start with Windows</strong><small>Launch SpeakEasy Mini when you sign in.</small></span></label></div>
+          </div>
+        </section>
+
+        <section class="group" aria-labelledby="general-keyboard">
+          <div class="group-head"><h3 id="general-keyboard">Keyboard</h3></div>
+          <div class="setting-list danger-zone"><div class="setting-row"><div class="setting-copy"><strong>Quit SpeakEasy Mini</strong><p>Stops the dock, shortcut, and background transcription service.</p></div><button class="danger" type="button">Quit app</button></div></div>
+        </section>
+      </section>
+
+      <section id="panel-audio" role="tabpanel" aria-labelledby="tab-audio" tabindex="0" hidden>
+        <header class="page-head"><p class="eyebrow">Capture</p><h2>Audio</h2><p>Select the microphone used for dictation and check its input before recording.</p></header>
+        <section class="group" aria-labelledby="audio-input">
+          <div class="group-head"><h3 id="audio-input">Microphone</h3><span class="pill"><span class="dot"></span>Ready</span></div>
+          <div class="setting-list">
+            <div class="setting-row"><div class="setting-copy"><strong>Input device</strong><p>This microphone is used for every new dictation.</p></div><div class="setting-control"><select aria-label="Input device"><option>Microphone Array (Realtek Audio)</option><option>USB Audio Device</option></select><button type="button">Refresh</button></div></div>
+            <div class="setting-row stacked"><div class="setting-copy"><strong>Input level</strong><p>Speak normally. The meter should move without staying full.</p></div><div class="meter" aria-label="Input level: 37 percent"><span></span></div></div>
+          </div>
+        </section>
+        <section class="group" aria-labelledby="audio-behavior"><div class="group-head"><h3 id="audio-behavior">Recording behavior</h3></div><div class="setting-list"><div class="setting-row"><div class="setting-copy"><strong>Automatic stop</strong><p>A recording runs for up to 2 minutes, then stops and transcribes.</p></div><span class="muted">2 minutes</span></div></div></section>
+        <section class="group" aria-labelledby="audio-health"><div class="group-head"><h3 id="audio-health">Audio health</h3><span class="muted">Live status</span></div><dl class="facts"><div class="fact"><dt>Selected microphone</dt><dd>Microphone Array (Realtek Audio)</dd></div><div class="fact"><dt>Permission</dt><dd>Allowed</dd></div><div class="fact"><dt>Capture status</dt><dd>Ready</dd></div></dl></section>
+      </section>
+
+      <section id="panel-transcription" role="tabpanel" aria-labelledby="tab-transcription" tabindex="0" hidden>
+        <header class="page-head"><p class="eyebrow">Speech recognition</p><h2>Transcription</h2><p>Choose the language, local model, and optional vocabulary used to recognize speech.</p></header>
+        <section class="group" aria-labelledby="trans-language"><div class="group-head"><h3 id="trans-language">Language</h3></div><div class="setting-list"><div class="setting-row"><div class="setting-copy"><strong>Spoken language</strong><p>Used to improve recognition and punctuation.</p></div><div class="setting-control"><select aria-label="Spoken language"><option>English</option><option>Auto-detect</option></select></div></div></div></section>
+        <section class="group" aria-labelledby="trans-model">
+          <div class="group-head"><h3 id="trans-model">Local model</h3><span class="pill"><span class="dot"></span>Verified on disk</span></div>
+          <div class="setting-list">
+            <div class="setting-row"><div class="setting-copy"><strong>Granite Speech 4.1 · 2B</strong><p>Balanced local model. Audio stays on this device.</p></div><div class="setting-control"><select aria-label="Transcription model"><option>Granite Speech 4.1 · 2B (recommended)</option></select></div></div>
+            <div class="setting-row"><div class="setting-copy"><strong>Device readiness</strong><p>Runtime is ready to transcribe on CPU.</p></div><button type="button">Retest device</button></div>
+          </div>
+          <div class="status"><span class="status-mark" aria-hidden="true">✓</span><span><strong>Model ready.</strong> Files were verified and no download is needed.</span></div>
+        </section>
+        <section class="group" aria-labelledby="trans-personal"><div class="group-head"><h3 id="trans-personal">Personalization</h3><span class="muted">Optional</span></div><div class="setting-list"><div class="setting-row stacked"><div class="setting-copy"><strong>Names and vocabulary</strong><p>Add words the model should recognize exactly, one per line.</p></div><div class="field"><label for="vocab">Custom vocabulary</label><input id="vocab" type="text" value="SpeakEasy Mini, Granite"></div><div class="button-row"><button class="primary" type="button">Save vocabulary</button><button type="button">Clear</button></div></div></div></section>
+      </section>
+
+      <section id="panel-output" role="tabpanel" aria-labelledby="tab-output" tabindex="0" hidden>
+        <header class="page-head"><p class="eyebrow">Delivery and data</p><h2>Output &amp; Privacy</h2><p>Control where finished text goes and which diagnostic details remain on this computer.</p></header>
+        <section class="group" aria-labelledby="output-delivery"><div class="group-head"><h3 id="output-delivery">Text delivery</h3></div><div class="choices"><label class="choice"><input type="radio" name="delivery" checked><span><strong>Paste into the active app</strong><small>Copy the transcript and paste it where the cursor was.</small></span></label><label class="choice"><input type="radio" name="delivery"><span><strong>Copy to clipboard only</strong><small>Keep the transcript ready to paste without typing automatically.</small></span></label></div></section>
+        <section class="group" aria-labelledby="output-last"><div class="group-head"><h3 id="output-last">Last transcript</h3><span class="pill"><span class="dot"></span>Delivered</span></div><div class="setting-list"><div class="setting-row"><div class="setting-copy"><strong>Copied and pasted</strong><p>The transcript was delivered to the active app.</p></div><button type="button">Retry delivery</button></div></div></section>
+        <section class="group" aria-labelledby="output-privacy"><div class="group-head"><h3 id="output-privacy">Privacy</h3></div><div class="setting-list"><div class="setting-row"><label class="choice"><input type="checkbox"><span><strong>Diagnostic logging</strong><small>Save technical details locally to help diagnose failures. Transcript text is excluded.</small></span></label></div><div class="setting-row"><div class="setting-copy"><strong>Protected targets</strong><p>SpeakEasy Mini does not paste into password fields or other protected inputs.</p></div><span class="muted">Always on</span></div></div></section>
+      </section>
+
+      <section id="panel-log" role="tabpanel" aria-labelledby="tab-log" tabindex="0" hidden>
+        <header class="page-head"><p class="eyebrow">History</p><h2>Transcript log</h2><p>Review recent local transcripts, choose how long to keep them, or remove them now.</p></header>
+        <section class="group" aria-labelledby="log-visibility"><div class="group-head"><h3 id="log-visibility">Visibility</h3></div><div class="setting-list"><div class="setting-row"><div class="setting-copy"><strong>Keep the log visible</strong><p>Open a small always-on-top transcript window while you work.</p></div><button type="button">Pin log</button></div></div></section>
+        <section class="group" aria-labelledby="log-recent"><div class="group-head"><h3 id="log-recent">Recent transcripts</h3><span class="muted">1 transcript</span></div><article class="transcript"><div class="transcript-top"><time>Today, 10:42 AM</time><span>23 words</span></div><blockquote>“Draft the project update and include the open accessibility checks before the release summary.”</blockquote></article></section>
+        <section class="group" aria-labelledby="log-retention"><div class="group-head"><h3 id="log-retention">Retention</h3></div><div class="choices"><label class="choice"><input type="radio" name="retention" checked><span><strong>Keep for 7 days</strong><small>Older transcripts are removed automatically.</small></span></label><label class="choice"><input type="radio" name="retention"><span><strong>Keep until I delete them</strong><small>Do not remove transcripts automatically.</small></span></label></div></section>
+        <section class="group" aria-labelledby="log-data"><div class="group-head"><h3 id="log-data">Transcript data</h3></div><div class="setting-list danger-zone"><div class="setting-row"><div class="setting-copy"><strong>Export transcript log</strong><p>Save a copy before removing local history.</p></div><button type="button">Export</button></div><div class="setting-row"><div class="setting-copy"><strong>Delete all transcripts</strong><p>Permanently removes the local transcript log.</p></div><button class="danger" type="button">Delete all</button></div></div></section>
+      </section>
+
+      <section id="panel-advanced" role="tabpanel" aria-labelledby="tab-advanced" tabindex="0" hidden>
+        <header class="page-head"><p class="eyebrow">System</p><h2>Advanced</h2><p>Inspect local runtime status, export diagnostics, and recover from uncommon failures.</p></header>
+        <section class="group" aria-labelledby="advanced-runtime"><div class="group-head"><h3 id="advanced-runtime">Runtime</h3><span class="pill"><span class="dot"></span>Ready</span></div><dl class="facts"><div class="fact"><dt>Engine</dt><dd>Granite Speech 4.1 · local CPU</dd></div><div class="fact"><dt>Worker</dt><dd>Ready</dd></div><div class="fact"><dt>Device status</dt><dd>Microphone Array selected</dd></div><div class="fact"><dt>Application version</dt><dd>1.8.1</dd></div></dl></section>
+        <section class="group" aria-labelledby="advanced-performance"><div class="group-head"><h3 id="advanced-performance">Performance</h3></div><dl class="facts"><div class="fact"><dt>Processor</dt><dd>CPU</dd></div><div class="fact"><dt>Model</dt><dd>Granite Speech 4.1 · 2B · Q4_K_M</dd></div><div class="fact"><dt>Last device check</dt><dd>Ready · just now</dd></div></dl></section>
+        <section class="group" aria-labelledby="advanced-credentials"><div class="group-head"><h3 id="advanced-credentials">Credentials</h3></div><dl class="facts"><div class="fact"><dt>Download access</dt><dd>Not required</dd></div><div class="fact"><dt>Storage</dt><dd>Windows Credential Manager</dd></div></dl></section>
+        <section class="group" aria-labelledby="advanced-raw"><div class="group-head"><h3 id="advanced-raw">Technical details</h3></div><details><summary>Show raw runtime values</summary><div class="details-body"><p>Engine: <code>llama.cpp:granite-speech-4.1-2b-q4_k_m-cpu</code></p><p>Worker: <code>cpu_gpu_runtime_missing</code></p><p>Capture: <code>capture_device_not_selected</code></p></div></details></section>
+        <section class="group" aria-labelledby="advanced-maintenance"><div class="group-head"><h3 id="advanced-maintenance">Maintenance</h3></div><div class="setting-list"><div class="setting-row"><div class="setting-copy"><strong>Export diagnostics</strong><p>Create a local support bundle without transcript text.</p></div><button type="button">Export</button></div><div class="setting-row"><div class="setting-copy"><strong>Restart SpeakEasy Mini</strong><p>Closes and reopens the app.</p></div><button type="button">Restart</button></div></div></section>
+        <section class="group" aria-labelledby="advanced-reset"><div class="group-head"><h3 id="advanced-reset">Reset</h3></div><div class="setting-list danger-zone"><div class="setting-row"><div class="setting-copy"><strong>Reset app settings</strong><p>Returns preferences to their defaults. Models and transcript data are not removed.</p></div><button class="danger" type="button">Reset settings</button></div></div></section>
+        <aside class="ledger"><h3>Drawing ledger</h3><ul><li>Retained: production palette, spacing scale, control height, focus treatment, page count, tab semantics, one-page scroll, and the 760 px responsive threshold.</li><li>Proposed: compact product header, 224 px rail, page introductions, bordered setting groups, reusable setting rows, labeled status, definition-list facts, and a horizontal overflow rail at narrow widths.</li><li>Deliberate exception: complex model/personalization and transcript content stay stacked instead of being forced into a universal row.</li></ul></aside>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    const panels = [...document.querySelectorAll('[role="tabpanel"]')];
+
+    function activateTab(tab, moveFocus = true) {
+      tabs.forEach((candidate) => {
+        const selected = candidate === tab;
+        candidate.setAttribute('aria-selected', String(selected));
+        candidate.tabIndex = selected ? 0 : -1;
+      });
+      panels.forEach((panel) => { panel.hidden = panel.id !== tab.getAttribute('aria-controls'); });
+      if (moveFocus) tab.focus();
+      history.replaceState(null, '', `#${tab.id.replace('tab-', '')}`);
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => activateTab(tab, false));
+      tab.addEventListener('keydown', (event) => {
+        let next = null;
+        if (event.key === 'ArrowDown' || event.key === 'ArrowRight') next = tabs[(index + 1) % tabs.length];
+        if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') next = tabs[(index - 1 + tabs.length) % tabs.length];
+        if (event.key === 'Home') next = tabs[0];
+        if (event.key === 'End') next = tabs[tabs.length - 1];
+        if (next) { event.preventDefault(); activateTab(next); }
+      });
+    });
+
+    const requested = tabs.find((tab) => `#${tab.id.replace('tab-', '')}` === location.hash);
+    if (requested) activateTab(requested, false);
+
+    const themeButton = document.getElementById('theme-toggle');
+    themeButton.addEventListener('click', () => {
+      const dark = document.documentElement.dataset.theme !== 'dark';
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      themeButton.setAttribute('aria-pressed', String(dark));
+      themeButton.textContent = dark ? 'Use light theme' : 'Use dark theme';
+    });
+  </script>
+</body>
+</html>

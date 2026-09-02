@@ -5,6 +5,7 @@ import { Advanced } from "./Advanced";
 import { Audio } from "./Audio";
 import { General } from "./General";
 import { OutputPrivacy } from "./OutputPrivacy";
+import { SettingsPageHeader } from "./SettingsPageHeader";
 import { TranscriptLogPage } from "./TranscriptLogPage";
 import { Transcription } from "./Transcription";
 import { useProfile } from "./useProfile";
@@ -12,7 +13,7 @@ import { useProfile } from "./useProfile";
 /**
  * The settings workspace (UI-GUIDE "Information architecture").
  *
- * Five pages behind a nav rail, which is a vertical `tablist`: exactly one page is
+ * Six pages behind a nav rail, which is a vertical `tablist`: exactly one page is
  * visible at a time, which is what the tab pattern describes. The old horizontal
  * tab strip used ArrowLeft/ArrowRight; a vertical rail uses ArrowUp/ArrowDown plus
  * Home/End, and declares `aria-orientation` so the pattern is not merely implied.
@@ -82,8 +83,14 @@ export function SettingsApp() {
   return (
     <main aria-labelledby="app-title" className="settings" data-testid="desktop-scaffold">
       <header className="settings-header">
-        <p className="eyebrow">{messages.version}</p>
-        <h1 id="app-title">{messages.settingsHeading}</h1>
+        <div aria-hidden="true" className="settings-mark">{messages.settingsMark}</div>
+        <div className="settings-title">
+          <h1 aria-label={messages.settingsHeading} id="app-title">
+            {messages.settingsProductName}
+          </h1>
+          <p>{messages.settings}</p>
+        </div>
+        <p className="settings-version">{messages.versionLabel(messages.version)}</p>
       </header>
 
       <div className="settings-body">
@@ -141,7 +148,11 @@ export function SettingsApp() {
             role="tabpanel"
             tabIndex={0}
           >
-            <h2>{messages.settingsGroups.general}</h2>
+            <SettingsPageHeader
+              detail={messages.settingsPageDetails.general}
+              eyebrow={messages.settingsPageEyebrows.general}
+              title={messages.settingsGroups.general}
+            />
             <General profile={profile} />
           </section>
           <section
@@ -151,7 +162,11 @@ export function SettingsApp() {
             role="tabpanel"
             tabIndex={0}
           >
-            <h2>{messages.settingsGroups.audio}</h2>
+            <SettingsPageHeader
+              detail={messages.settingsPageDetails.audio}
+              eyebrow={messages.settingsPageEyebrows.audio}
+              title={messages.settingsGroups.audio}
+            />
             {/* Mounted only while visible: the input meter polls, and a hidden
                 page has no business sampling the microphone level. */}
             {activeGroup === "audio" && (
@@ -165,7 +180,11 @@ export function SettingsApp() {
             role="tabpanel"
             tabIndex={0}
           >
-            <h2>{messages.settingsGroups.transcription}</h2>
+            <SettingsPageHeader
+              detail={messages.settingsPageDetails.transcription}
+              eyebrow={messages.settingsPageEyebrows.transcription}
+              title={messages.settingsGroups.transcription}
+            />
             <Transcription />
           </section>
           <section
@@ -175,7 +194,11 @@ export function SettingsApp() {
             role="tabpanel"
             tabIndex={0}
           >
-            <h2>{messages.settingsGroups.output}</h2>
+            <SettingsPageHeader
+              detail={messages.settingsPageDetails.output}
+              eyebrow={messages.settingsPageEyebrows.output}
+              title={messages.settingsGroups.output}
+            />
             {activeGroup === "output" && <OutputPrivacy profile={profile} />}
           </section>
           <section
@@ -185,7 +208,11 @@ export function SettingsApp() {
             role="tabpanel"
             tabIndex={0}
           >
-            <h2>{messages.settingsGroups.log}</h2>
+            <SettingsPageHeader
+              detail={messages.settingsPageDetails.log}
+              eyebrow={messages.settingsPageEyebrows.log}
+              title={messages.settingsGroups.log}
+            />
             {/* Mounted only while visible: the log polls for new entries, and a
                 hidden page has no business doing that. Same rule as Audio. */}
             {activeGroup === "log" && <TranscriptLogPage profile={profile} />}
@@ -197,7 +224,11 @@ export function SettingsApp() {
             role="tabpanel"
             tabIndex={0}
           >
-            <h2>{messages.settingsGroups.advanced}</h2>
+            <SettingsPageHeader
+              detail={messages.settingsPageDetails.advanced}
+              eyebrow={messages.settingsPageEyebrows.advanced}
+              title={messages.settingsGroups.advanced}
+            />
             {/* Mounted only while visible, and here the reason is staleness
                 rather than cost. Every field on this page is a fact about *now*:
                 the engine reason, the device, the RTF and latency percentiles,

@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
 Walks every page of the running settings workspace and reports the layout facts
 docs/UI-GUIDE.md's responsive rules state: no horizontal scrolling, one scroll
@@ -43,7 +43,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $probe = Join-Path $PSScriptRoot 'Invoke-WebviewProbe.ps1'
-$pages = @('general', 'audio', 'transcription', 'output', 'advanced')
+$pages = @('general', 'audio', 'transcription', 'output', 'log', 'advanced')
 
 # Every number describes the same frame, so they cannot disagree with each other.
 $measure = @'
@@ -66,6 +66,7 @@ JSON.stringify((() => {
   const active = [...document.querySelectorAll('[role="tab"]')]
     .find((tab) => tab.getAttribute('aria-selected') === 'true');
   const rail = document.querySelector('.settings-rail');
+  const body = document.querySelector('.settings-body');
   return {
     page: active === undefined ? null : active.id,
     clientWidth: root.clientWidth,
@@ -73,7 +74,8 @@ JSON.stringify((() => {
     overflow: root.scrollWidth - root.clientWidth,
     culprits: overflowing,
     nestedScrollers: scrollers,
-    railIsRow: rail === null ? null : getComputedStyle(rail).borderRightStyle === 'none',
+    railIsRow: rail === null || body === null ? null :
+      getComputedStyle(body).gridTemplateColumns.trim().split(/\s+/).length === 1,
   };
 })())
 '@

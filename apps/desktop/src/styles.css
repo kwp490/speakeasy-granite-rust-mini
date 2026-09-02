@@ -1194,8 +1194,8 @@ h1 {
 
 dt {
   color: var(--text-muted);
-  font-size: 0.8rem;
-  text-transform: uppercase;
+  font-size: 1rem;
+  font-weight: 650;
 }
 
 dd {
@@ -1221,7 +1221,7 @@ dd {
 }
 
 .section-heading {
-  align-items: end;
+  align-items: baseline;
   display: flex;
   gap: var(--space-4);
   justify-content: space-between;
@@ -1237,6 +1237,8 @@ dd {
    "1 transcript this session" into "1 Transcript This Session". Catalog strings
    arrive correctly cased; re-casing them can only make them wrong. */
 .section-heading output {
+  color: var(--text-muted);
+  font-size: 0.9rem;
   text-align: right;
 }
 
@@ -1245,10 +1247,13 @@ dd {
 }
 
 .model-row {
-  border-block: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
   display: grid;
   gap: var(--space-4);
-  padding: var(--space-5) 0;
+  margin: var(--space-3) 0;
+  padding: var(--space-4);
 }
 
 .model-row p {
@@ -1257,14 +1262,33 @@ dd {
 }
 
 .confirmation {
-  align-items: center;
+  align-items: flex-start;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   display: flex;
   gap: var(--space-3);
+  line-height: 1.5;
+  min-height: 48px;
+  padding: var(--space-3);
 }
 
 .confirmation input {
-  height: 18px;
-  width: 18px;
+  flex: 0 0 auto;
+  height: 20px;
+  margin-top: 2px;
+  width: 20px;
+}
+
+.confirmation strong,
+.confirmation small {
+  display: block;
+}
+
+.confirmation small {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-top: 2px;
 }
 
 button {
@@ -1356,57 +1380,143 @@ button:focus-visible {
 }
 
 /* ── The settings workspace ────────────────────────────────────────────────
-   A nav rail beside one scrolling content column (UI-GUIDE "Information
-   architecture"). Never two scroll
-   regions: the rail is fixed and the content moves. */
+   A compact product header, a stable rail and one readable content column.
+   The page remains the only scroll region: the rail is sticky but never owns
+   overflow, and the narrow tab grid never scrolls sideways. */
+.settings {
+  margin: 0;
+  padding: 0 0 calc(var(--space-6) * 2);
+  width: 100%;
+}
+
+.settings-header {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: var(--space-3);
+  min-height: 72px;
+  padding: var(--space-3) clamp(var(--space-4), 4vw, 48px);
+}
+
+.settings-mark {
+  align-items: center;
+  background: var(--hud-accent);
+  border-radius: 10px;
+  color: var(--hud-accent-text);
+  display: flex;
+  flex: 0 0 38px;
+  font-weight: 800;
+  height: 38px;
+  justify-content: center;
+}
+
+.settings-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-title h1 {
+  font-size: clamp(1.35rem, 2.5vw, 1.7rem);
+  font-weight: 750;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+.settings-title p,
+.settings-version {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.settings-version {
+  text-align: right;
+}
+
 .settings-body {
   display: grid;
-  gap: var(--space-6);
-  grid-template-columns: 200px minmax(0, 1fr);
+  gap: clamp(var(--space-6), 6vw, 80px);
+  grid-template-columns: 224px minmax(0, 1fr);
+  margin: 0 auto;
+  max-width: 1240px;
+  padding: var(--space-6) clamp(var(--space-4), 4vw, 48px) 0;
 }
 
 .settings-rail {
   align-content: start;
-  border-right: 1px solid var(--border);
   display: grid;
-  gap: var(--space-1);
-  padding-right: var(--space-3);
+  gap: 2px;
   position: sticky;
-  top: var(--space-4);
+  top: var(--space-5);
 }
 
 .settings-rail button {
   background: transparent;
   border: 0;
-  border-left: 4px solid transparent;
-  border-radius: 0;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-muted);
   min-height: 44px;
+  padding: 10px 14px;
   text-align: left;
 }
 
+.settings-rail button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-raised) 58%, var(--surface));
+  border-color: transparent;
+  color: var(--text);
+}
+
 .settings-rail button[aria-selected="true"] {
+  background: color-mix(in srgb, var(--surface-raised) 58%, var(--surface));
   border-left-color: var(--accent);
+  color: var(--text);
   font-weight: 700;
 }
 
 /* Content is bounded for readable line length regardless of window width. */
 .settings-content {
-  max-width: 720px;
+  max-width: 760px;
   min-width: 0;
 }
 
 [role="tabpanel"] {
+  padding-bottom: var(--space-6);
+}
+
+.settings-page-header {
   padding-bottom: var(--space-5);
+}
+
+.settings-page-header .eyebrow {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  margin: 0 0 var(--space-1);
+}
+
+.settings-page-header h2 {
+  font-size: clamp(1.65rem, 3vw, 2.1rem);
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.settings-page-header > p:last-child {
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: var(--space-2) 0 0;
+  max-width: 60ch;
 }
 
 [role="tabpanel"] > section {
   border-top: 1px solid var(--border);
-  margin-top: var(--space-5);
-  padding-top: var(--space-4);
+  margin-top: 0;
+  padding: var(--space-5) 0;
 }
 
 [role="tabpanel"] h3 {
-  margin: 0 0 var(--space-2);
+  font-size: 1rem;
+  margin: 0 0 var(--space-3);
 }
 
 .setting-detail,
@@ -1417,23 +1527,66 @@ button:focus-visible {
 }
 
 .setting-status {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface-raised) 58%, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  display: inline-flex;
+  gap: var(--space-2);
   font-weight: 700;
+  padding: var(--space-1) var(--space-2);
+}
+
+.setting-status::before {
+  background: var(--success);
+  border-radius: 50%;
+  content: "";
+  height: 7px;
+  width: 7px;
+}
+
+.settings section > .actions {
+  margin-top: var(--space-3);
+}
+
+.settings section > .confirmation + .confirmation {
+  margin-top: var(--space-2);
+}
+
+.settings p.warning {
+  background: color-mix(in srgb, var(--warning) 7%, var(--surface));
+  border-left: 3px solid var(--warning);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: var(--space-2) var(--space-3);
 }
 
 .setting-fields {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
   display: grid;
   gap: var(--space-3);
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   margin: var(--space-3) 0;
+  padding: var(--space-4);
 }
 
 .setting-fields label,
 .setting-field {
   display: grid;
   gap: var(--space-2);
-  margin: var(--space-3) 0;
+  margin: 0;
   max-width: 360px;
   min-width: 0;
+}
+
+.settings section > .setting-field {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: var(--space-3) 0;
+  max-width: none;
+  padding: var(--space-4);
 }
 
 /* A `select` sizes itself to its longest option, and it does not shrink below
@@ -1475,7 +1628,7 @@ button:focus-visible {
 
 /* Checkbox and radio inputs are sized by the `.confirmation` row, not stretched. */
 .settings .confirmation input {
-  width: 18px;
+  width: 20px;
 }
 
 /* `pre` does not wrap by default, so an untrusted snippet body or transcript on
@@ -1622,22 +1775,73 @@ fieldset > label:not(.confirmation) {
 }
 
 .fact-grid {
-  display: grid;
-  gap: var(--space-3);
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: block;
   margin: var(--space-4) 0 0;
+  overflow: hidden;
 }
 
 .fact-grid div {
-  background: color-mix(in srgb, var(--surface-raised) 88%, var(--border));
-  border-radius: var(--radius);
+  align-items: start;
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1.4fr);
   min-width: 0;
-  padding: var(--space-3);
+  padding: 13px var(--space-4);
+}
+
+.fact-grid div + div {
+  border-top: 1px solid var(--border);
 }
 
 .fact-grid dd {
-  margin: var(--space-2) 0 0;
+  margin: 0;
   overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.settings-danger-zone,
+.settings-maintenance {
+  border-top-color: color-mix(in srgb, var(--danger) 55%, var(--border)) !important;
+}
+
+.settings-danger-zone .actions,
+.settings-maintenance .warning-panel {
+  background: color-mix(in srgb, var(--danger) 4%, var(--surface-raised));
+  border: 1px solid color-mix(in srgb, var(--danger) 60%, var(--border));
+  border-radius: 10px;
+  padding: var(--space-4);
+}
+
+.settings-action-list,
+.settings-danger-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.settings-action-list > .actions {
+  margin: 0;
+  min-height: 64px;
+  padding: var(--space-3) var(--space-4);
+}
+
+.settings-action-list > .actions + .actions {
+  border-top: 1px solid var(--border);
+}
+
+.settings-danger-card {
+  background: color-mix(in srgb, var(--danger) 4%, var(--surface-raised));
+  border-color: color-mix(in srgb, var(--danger) 60%, var(--border));
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+}
+
+.settings-danger-card .setting-detail {
+  margin-bottom: var(--space-3);
 }
 
 .tag {
@@ -1677,7 +1881,12 @@ fieldset > label:not(.confirmation) {
      indication of where the user is. */
   .settings-rail button[aria-selected="true"],
   .setup-steps li[data-state="current"] {
+    border-bottom-color: Highlight;
     border-left-color: Highlight;
+  }
+
+  .setting-status::before {
+    background: Highlight;
   }
 
   .setup-steps li[data-state="done"] {
@@ -1700,7 +1909,7 @@ button:disabled {
 }
 
 @media (max-width: 560px) {
-  main {
+  main:not(.settings) {
     padding: var(--space-5) 0;
   }
 
@@ -1710,31 +1919,50 @@ button:disabled {
   }
 }
 
-/* Below 760 px the rail stops being a rail (UI-GUIDE "Responsive"). It
-   becomes a full-width row of buttons above the content — still one tablist,
-   still the same keyboard pattern, no horizontal scroll trap. */
+/* Below 760 px the rail becomes a fixed 3x2 grid above the content. All six
+   pages stay visible and the same tablist keyboard pattern remains; unlike a
+   horizontally scrolling strip, it adds no second scroll region. */
 @media (max-width: 760px) {
   .settings-body {
     grid-template-columns: minmax(0, 1fr);
+    padding-top: var(--space-4);
   }
 
   .settings-rail {
-    border-bottom: 1px solid var(--border);
-    border-right: 0;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    padding: 0 0 var(--space-2);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     position: static;
   }
 
   .settings-rail button {
     border-bottom: 4px solid transparent;
     border-left: 0;
+    min-width: 0;
+    padding-inline: var(--space-2);
     text-align: center;
   }
 
   .settings-rail button[aria-selected="true"] {
     border-bottom-color: var(--accent);
     border-left-color: transparent;
+  }
+}
+
+@media (max-width: 520px) {
+  .settings-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fact-grid div {
+    gap: 2px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fact-grid dd {
+    text-align: left;
+  }
+
+  .settings-version {
+    display: none;
   }
 }
 

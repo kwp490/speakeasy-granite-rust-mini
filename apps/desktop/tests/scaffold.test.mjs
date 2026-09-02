@@ -1354,17 +1354,17 @@ test("TSX contains no hard-coded visible text outside the message catalog", asyn
   assert.match(app, /messages\.displayNames/);
 });
 
-test("settings keep five groups, inert content, and keyboard tab semantics", async () => {
+test("settings keep six groups, inert content, and keyboard tab semantics", async () => {
   const app = await readComponents();
   const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
 
-  // Still exactly five here; the transcript log is the sixth group and is
-  // asserted separately.
+  // Exactly six top-level pages. Adding another setting must not create a
+  // seventh navigation destination (UI-GUIDE "Information architecture").
   assert.match(app, /const settingsGroups/);
   assert.equal(
-    (app.match(/\{ id: "(general|audio|transcription|output|advanced)"/g) ?? []).length,
-    5,
+    (app.match(/\{ id: "(general|audio|transcription|output|log|advanced)"/g) ?? []).length,
+    6,
   );
 
   // The rail replaced the horizontal tab strip, so the keyboard pattern changed

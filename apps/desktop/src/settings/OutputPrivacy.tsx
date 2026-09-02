@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { messages } from "../catalog";
@@ -65,6 +65,10 @@ export function OutputPrivacy({ profile }: { profile: ProfileController }) {
   }
 
   const delivery = profile.profile?.delivery_preference ?? "result_view_only";
+
+  function updateDiskLogging(event: ChangeEvent<HTMLInputElement>) {
+    void profile.setDiskLogging(event.target.checked);
+  }
 
   return (
     <>
@@ -159,13 +163,16 @@ export function OutputPrivacy({ profile }: { profile: ProfileController }) {
         <h3 id="output-logging">{messages.diagnosticLogging}</h3>
         <label className="confirmation">
           <input
+            aria-label={messages.diagnosticLogging}
             checked={profile.profile?.disk_logging_enabled ?? true}
-            onChange={(event) => void profile.setDiskLogging(event.target.checked)}
+            onChange={updateDiskLogging}
             type="checkbox"
           />
-          {messages.diagnosticLogging}
+          <span>
+            <strong>{messages.diagnosticLogging}</strong>
+            <small>{messages.diagnosticLoggingDetail}</small>
+          </span>
         </label>
-        <p className="setting-detail">{messages.diagnosticLoggingDetail}</p>
       </section>
 
       <section aria-labelledby="output-protected">

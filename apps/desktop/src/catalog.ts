@@ -144,6 +144,25 @@ export const messages = {
     log: "Transcript log",
     advanced: "Advanced",
   },
+  settingsPageEyebrows: {
+    general: "Everyday behavior",
+    audio: "Capture",
+    transcription: "Speech recognition",
+    output: "Delivery and data",
+    log: "History",
+    advanced: "System",
+  },
+  settingsPageDetails: {
+    general: "Choose how dictation starts, what you hear, and when SpeakEasy Mini runs.",
+    audio: "Select the microphone used for dictation and check its input before recording.",
+    transcription:
+      "Choose the language, local model, and optional vocabulary used to recognize speech.",
+    output:
+      "Control where finished text goes and which diagnostic details remain on this computer.",
+    log: "Review recent local transcripts, choose how long to keep them, or remove them now.",
+    advanced:
+      "Inspect local runtime status, export diagnostics, and recover from uncommon failures.",
+  },
   settingsNav: "Settings pages",
 
   // Transcript log
@@ -159,6 +178,9 @@ export const messages = {
   transcriptLogClearOnClose: "Clear when I close the app",
   transcriptLogRetain: "Keep them between sessions",
   settingsHeading: "SpeakEasy Mini settings",
+  settingsMark: "S",
+  settingsProductName: "SpeakEasy Mini",
+  versionLabel: (version: string) => `Version ${version.replace(/^v/i, "")}`,
 
   // General
   shortcutSection: "Keyboard shortcut",
@@ -278,6 +300,11 @@ export const messages = {
     selected_device_only: "Only the microphone you selected",
     hotkey_auto_paste_enabled: "Inserting into the focused app is turned on",
     bundled_trusted_manifest: "Bundled trusted manifest",
+    "llama.cpp:granite-speech-4.1-2b-q4_k_m-cpu": "Granite Speech 4.1 · local processor",
+    cpu_gpu_runtime_missing: "Graphics-card runtime is not installed",
+    cpu_gpu_pack_not_installed: "Processor installation",
+    capture_device_not_selected: "No microphone selected",
+    sherpa_onnx_c_api_1_13_4: "sherpa-onnx 1.13.4",
   },
   back: "Back",
   continue: "Continue",
