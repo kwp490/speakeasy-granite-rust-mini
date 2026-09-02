@@ -44,19 +44,18 @@ It must end `no leaks found` and exit 0.
 
 | | |
 | --- | --- |
-| **The wizard and profile machine proofs are inconclusive** | They ran where `%APPDATA%` was redirected, so what they touched was never established. Rerun on a host. Details below |
 | **A clean clone builds; the recorded failure did not reproduce** | Kept as a watch item, not a defect. The environment it was proved in is below |
 | **Model integrity is not execution-time** | The digest pass is desktop-side and the worker reopens by path. Needs a threat-model decision, not code |
 | **`NotAttempted` transcripts are retained** | With auto-paste off nothing classifies the target, so history keeps the row. Disclosed rather than fixed |
 | **GPU qualification cannot be proved** | Nothing can promote a card to proven, so the claim left the UI and then the payload |
 | **The Hugging Face CDN host may be regional** | One host is allowed and it looks US-specific. Affects any install that fetches the model, not only the graphics-card one |
 
-Four of these six are **deliberate residuals of 1.8.1**, not code left out by
+Four of these five are **deliberate residuals of 1.8.1**, not code left out by
 accident: the integrity gap and the `NotAttempted` retention are documented
 limitations awaiting a threat-model decision, the GPU claim stays out of the UI
 until a real inference sample can support it, and the CDN allowlist is not
-widened by guesswork. Each is disclosed where a user would look. The clean-clone
-failure is contributor-only; the first row is the only open work.
+widened by guesswork. Each is disclosed where a user would look. The fifth, the
+clean-clone failure, is contributor-only and watched rather than fixed.
 
 ### The seven ignored tests, and how to run them
 
@@ -122,28 +121,6 @@ which is why it is out of the default gate; it fails rather than skips if the
 hive is unwritable. **Assert whole transcripts, never a prefix** — a
 `contains("ever tried")` assertion once passed on a transcript missing a third of
 the utterance.
-
-### The wizard and profile machine proofs are inconclusive
-
-The four proofs below last ran where `%LOCALAPPDATA%` and `%APPDATA%` were
-redirected into a container, so which files they touched is unknown:
-**unverified, not failed**. `Test-PreflightRefusalIsInert.ps1`'s CASE 4 (an empty
-unregistered install directory) and CASE 5 (an orphan Add/Remove Programs key)
-have never executed anywhere; CASE 3 has, redirected.
-
-Pending on a host with nothing installed. The preflight comes first, and each of
-the four calls it again itself; a failure means the shell is redirected or cannot
-prove host identity independently, and none of them may be run in it:
-
-```powershell
-.\scripts\Test-HostProfilePathIdentity.ps1
-
-$root = 'target\local-development\<version>'
-.\scripts\Test-PreflightRefusalIsInert.ps1 -ArtifactRoot $root
-.\scripts\Test-ProfileRestoreOnAbort.ps1 -ArtifactRoot $root
-.\scripts\Test-CleanupFailureRestoresConfig.ps1 -ArtifactRoot $root
-.\scripts\Test-SetupWizard.ps1 -ArtifactRoot $root
-```
 
 ### A clean clone builds
 
@@ -277,9 +254,25 @@ Not blockers for the tree; blockers for cutting a build from it.
    | `Test-BuildRootContainment.ps1` | the build-root validation changes | nothing |
    | `Test-DeleteContainment.ps1` | `DeleteContainment.ps1` or any recursive delete changes | nothing |
    | `Test-ProfileCaptureIsScoped.ps1` | `ProfileCapture.ps1` changes | nothing |
+   | `Test-PlantedDirectoryIsScoped.ps1` | `PlantedDirectory.ps1`, or the preflight control's planted-directory capture or removal, changes | nothing |
    | `Test-CleanupFailureRestoresConfig.ps1` | `WizardCleanup.ps1` or the wizard cleanup changes | artifact root for its end-to-end case only |
    | `Test-PreflightRefusalIsInert.ps1` | the wizard pre-flight or cleanup changes | artifact root, host |
    | `Test-ProfileRestoreOnAbort.ps1` | the config capture or restore changes | artifact root, host |
+
+   The four host proofs are one sequence, and each calls the identity preflight
+   again itself. Run the preflight first: a failure means the shell is redirected
+   or cannot prove host identity independently, and none of them may be run in
+   it.
+
+   ```powershell
+   .\scripts\Test-HostProfilePathIdentity.ps1
+
+   $root = 'target\local-development\<version>'
+   .\scripts\Test-PreflightRefusalIsInert.ps1 -ArtifactRoot $root
+   .\scripts\Test-ProfileRestoreOnAbort.ps1 -ArtifactRoot $root
+   .\scripts\Test-CleanupFailureRestoresConfig.ps1 -ArtifactRoot $root
+   .\scripts\Test-SetupWizard.ps1 -ArtifactRoot $root
+   ```
 
 5. **Publish `SHA256SUMS` with the artifact**, then download the published file
    back and re-hash it. The build is unsigned by decision, so a digest a stranger
