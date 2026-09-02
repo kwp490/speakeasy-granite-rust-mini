@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-Measures rendered text contrast in both SpeakEasy windows against WCAG AA.
+Measures rendered text contrast in SpeakEasy's settings and dock windows against WCAG AA.
 
 .DESCRIPTION
 UI-GUIDE.md states that the light and dark palettes meet WCAG AA for normal text
-and UI boundaries. That is a number, and it was not true: the transcriber's
-primary button used `--accent`, which flips to a light coral under a dark system
-theme, against near-white text — 1.9:1. The transcriber's surface never follows
+and UI boundaries. That is a number, and it was not true: the dock's primary
+button used `--accent`, which flips to a light coral under a dark system
+theme, against near-white text — 1.9:1. The dock's surface never follows
 the system theme, so its accent must not either, and it now has its own tokens.
 
 This reads the **computed** colours out of the live document and computes the
@@ -25,11 +25,11 @@ Requires the app running with the WebView2 debugging port open:
 ./scripts/Invoke-ContrastProof.ps1
 
 .EXAMPLE
-./scripts/Invoke-ContrastProof.ps1 -Window transcriber
+./scripts/Invoke-ContrastProof.ps1 -Window dock
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('settings', 'transcriber', 'both')]
+    [ValidateSet('settings', 'dock', 'both')]
     [string]$Window = 'both',
 
     # UI-GUIDE claims AA for *both* palettes, so both are measured. The scheme is
@@ -62,8 +62,7 @@ JSON.stringify((() => {
     // near-white — the numbers were wrong, not the colours.
     const scale = value.startsWith('color(') ? 255 : 1;
     const [r, g, b, a] = numbers;
-    if (a !== undefined && a === 0) return null;
-    return [r * scale, g * scale, b * scale];
+    return [r * scale, g * scale, b * scale, a ?? 1];
   };
   const channel = (value) => {
     const c = value / 255;
@@ -75,14 +74,21 @@ JSON.stringify((() => {
     const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
     return (hi + 0.05) / (lo + 0.05);
   };
-  // What a reader actually sees behind this element: the nearest ancestor that
-  // paints an opaque background.
+  const composite = ([r, g, b, a], behind) => [
+    r * a + behind[0] * (1 - a),
+    g * a + behind[1] * (1 - a),
+    b * a + behind[2] * (1 - a),
+  ];
+  // What a reader actually sees behind this element. Semi-transparent layers
+  // are composed from the outermost painted ancestor inward; treating an 18%
+  // status tint as opaque makes its same-hue text look like a false 1:1.
   const backdrop = (element) => {
+    const layers = [];
     for (let node = element; node !== null; node = node.parentElement) {
       const colour = parse(getComputedStyle(node).backgroundColor);
-      if (colour !== null) return colour;
+      if (colour !== null && colour[3] > 0) layers.push(colour);
     }
-    return [255, 255, 255];
+    return layers.reverse().reduce((behind, layer) => composite(layer, behind), [255, 255, 255]);
   };
 
   const findings = [];
@@ -101,7 +107,7 @@ JSON.stringify((() => {
     if (text !== '') {
       const front = parse(style.color);
       if (front !== null) {
-        const value = ratio(front, back);
+        const value = ratio(composite(front, back), back);
         const need = large ? 3 : 4.5;
         if (value < need) {
           findings.push({
@@ -121,8 +127,9 @@ JSON.stringify((() => {
     // Interactive borders carry state, so they have their own 3:1 floor.
     if (/^(BUTTON|SELECT|INPUT|TEXTAREA)$/.test(element.tagName) && element.disabled !== true) {
       const edge = parse(style.borderTopColor);
-      if (edge !== null && parseFloat(style.borderTopWidth) > 0) {
-        const value = ratio(edge, backdrop(element.parentElement ?? element));
+      if (edge !== null && edge[3] > 0 && parseFloat(style.borderTopWidth) > 0) {
+        const borderBackdrop = backdrop(element.parentElement ?? element);
+        const value = ratio(composite(edge, borderBackdrop), borderBackdrop);
         if (value < 3) {
           findings.push({
             kind: 'border',
@@ -145,7 +152,7 @@ JSON.stringify((() => {
 })())
 '@
 
-$windows = if ($Window -eq 'both') { @('transcriber', 'settings') } else { @($Window) }
+$windows = if ($Window -eq 'both') { @('dock', 'settings') } else { @($Window) }
 $schemes = if ($Scheme -eq 'both') { @('light', 'dark') } else { @($Scheme) }
 $total = 0
 # A run that measures nothing prints "meets WCAG AA" and exits 0, which is
