@@ -90,6 +90,9 @@ $wizard = Join-Path $PSScriptRoot 'Test-SetupWizard.ps1'
 # `Test-ProfileCaptureIsScoped.ps1`. The *assertion* half below stays local and
 # independent, so a defect cannot satisfy both.
 . (Join-Path $PSScriptRoot 'ProfileCapture.ps1')
+# `Get-DirectoryState` and the planted-directory removal, proved without a
+# profile by `Test-PlantedDirectoryIsScoped.ps1`.
+. (Join-Path $PSScriptRoot 'PlantedDirectory.ps1')
 $trackedFiles = @(Get-TrackedConfigFileNames)
 
 # Presence and SHA-256 only. This is the *assertion* half and is deliberately not
@@ -135,14 +138,6 @@ function Assert-Unchanged {
         throw "${Stage}: configuration changed -- " + ($differences -join '; ')
     }
     Write-Host "  ${Stage}: all $($Before.Count) captured config entries unchanged"
-}
-
-function Get-DirectoryState {
-    param([Parameter(Mandatory)][string]$Root)
-    if (-not (Test-Path -LiteralPath $Root -PathType Container)) { return $null }
-    @(Get-ChildItem -LiteralPath $Root -Recurse -File -Force |
-        ForEach-Object { '{0}={1}' -f $_.FullName.Substring($Root.Length + 1), (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } |
-        Sort-Object)
 }
 
 # **Presence, every value name, every value type and every value datum**, as one
@@ -230,33 +225,10 @@ $decoyFiles = @(
 )
 
 function Remove-PlantedDirectory {
-    # Refuses unless this control's own marker is still there holding this run's
-    # GUID, then removes exactly the files it created and the directories it
-    # created, deepest first and non-recursively. A directory holding anything
-    # else refuses to go and names what is in it.
-    $markerPath = Join-Path $installRoot $decoyMarkerName
-    if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) {
-        throw "There is no control marker at $markerPath, so nothing here is provably this control's; removing nothing."
-    }
-    $found = (Get-Content -LiteralPath $markerPath -Raw).Trim()
-    if ($found -ne $decoyMarkerValue) {
-        throw "The marker at $markerPath reads '$found', not this run's '$decoyMarkerValue'; removing nothing."
-    }
-    foreach ($file in $decoyFiles) {
-        if (Test-Path -LiteralPath $file -PathType Leaf) { Remove-Item -LiteralPath $file -Force }
-    }
-    $deepestFirst = [array]::CreateInstance([string], $decoyDirectories.Count)
-    [array]::Copy($decoyDirectories, $deepestFirst, $decoyDirectories.Count)
-    [array]::Reverse($deepestFirst)
-    foreach ($directory in $deepestFirst) {
-        if (-not (Test-Path -LiteralPath $directory -PathType Container)) { continue }
-        $left = @(Get-ChildItem -LiteralPath $directory -Force)
-        if ($left.Count -gt 0) {
-            throw ("$directory still holds $($left.Count) item(s) this control did not create, so it " +
-                'stays: ' + ((@($left | ForEach-Object { $_.Name })) -join ', '))
-        }
-        [IO.Directory]::Delete($directory, $false)
-    }
+    # `PlantedDirectory.ps1` carries the removal and the reasoning, and
+    # `Test-PlantedDirectoryIsScoped.ps1` proves it without a profile.
+    Remove-PlantedDirectoryEntries -Root $installRoot -MarkerName $decoyMarkerName `
+        -MarkerValue $decoyMarkerValue -Files $decoyFiles -Directories $decoyDirectories
 }
 
 Push-Location $repositoryRoot
