@@ -28,6 +28,39 @@ git log --oneline origin/main..HEAD
 git log --oneline $(git describe --tags --abbrev=0)..main
 ```
 
+### Prepared v1.9.0 state (2026-09-02)
+
+The approved Settings workspace redesign is implemented on `main`. The feature
+landed in `9683d54` and the live contrast instrument was brought forward to the
+current dock/settings windows in `a761bc3`. At handoff, `main` and `origin/main`
+contain both commits and the working tree is expected to be clean after this
+documentation update is pushed; verify that rather than assuming it remains true.
+
+The workspace and installed application are `1.9.0`. The current-user install is
+at `%LOCALAPPDATA%\SpeakEasy Mini`, running as a normal production launch with no
+DevTools port. The processor provider was re-proved through the installed
+bootstrapper (`provider_recorded device=cpu`) after installation, and the dock
+reported `CPU / ready`. The existing personalization and provider records were
+preserved byte-for-byte across the v1.8.1 uninstall and v1.9.0 reinstall.
+
+The local, unsigned development installer is
+`target\local-development\1.9.0\SpeakEasyMiniSetup.exe`, 37,930,723 bytes, SHA-256
+`4fc0d2f84b190aaeebd4d0f5b65118228250b67120c325d6022a6f6277589928`.
+`Build-LocalInstaller.ps1` produced it from an empty fresh-build root and
+`Test-InstallerLifecycle.ps1` passed against it. This is a local artifact, not a
+published release asset.
+
+The full `Invoke-ScaffoldChecks.ps1 -SkipNpmInstall` gate passed with exit 0 and
+ended `no leaks found`. The installed UI passed all six settings pages at 720,
+880 and 1200 CSS px with zero horizontal overflow and zero nested scroll regions;
+the dock and six pages passed WCAG AA across 14 light/dark surfaces.
+
+`Test-SetupWizard.ps1` did not reach the wizard. Its mandatory host-identity
+preflight correctly refused because this shell cannot prove `%APPDATA%` through
+`\\localhost\C$`. It changed no install or profile state. Do not bypass that
+guard: run the wizard proof only from a shell where
+`Test-HostProfilePathIdentity.ps1` passes.
+
 Cutting a release from what the last one lists is a decision, not a formality —
 see "Before the next release". Test counts are deliberately not listed for the
 same reason; run the gate and read the totals, not the verdict, because a suite
@@ -49,13 +82,15 @@ It must end `no leaks found` and exit 0.
 | **`NotAttempted` transcripts are retained** | With auto-paste off nothing classifies the target, so history keeps the row. Disclosed rather than fixed |
 | **GPU qualification cannot be proved** | Nothing can promote a card to proven, so the claim left the UI and then the payload |
 | **The Hugging Face CDN host may be regional** | One host is allowed and it looks US-specific. Affects any install that fetches the model, not only the graphics-card one |
+| **v1.9.0 is prepared, not published** | The fresh installer and lifecycle proof passed; the guarded setup-wizard proof still needs a host where `\\localhost\C$` identity succeeds before any release is cut |
 
-Four of these five are **deliberate residuals of 1.8.1**, not code left out by
-accident: the integrity gap and the `NotAttempted` retention are documented
-limitations awaiting a threat-model decision, the GPU claim stays out of the UI
-until a real inference sample can support it, and the CDN allowlist is not
-widened by guesswork. Each is disclosed where a user would look. The fifth, the
-clean-clone failure, is contributor-only and watched rather than fixed.
+Four of the five longstanding entries are **deliberate residuals carried forward
+from 1.8.1**, not code left out by accident: the integrity gap and the
+`NotAttempted` retention are documented limitations awaiting a threat-model
+decision, the GPU claim stays out of the UI until a real inference sample can
+support it, and the CDN allowlist is not widened by guesswork. Each is disclosed
+where a user would look. The clean-clone failure is contributor-only and watched
+rather than fixed. The v1.9.0 row is the current release milestone.
 
 ### The seven ignored tests, and how to run them
 
@@ -218,6 +253,12 @@ worker. Nothing here can test it from one country.
 ## Before the next release
 
 Not blockers for the tree; blockers for cutting a build from it.
+
+For the prepared v1.9.0 build, steps 1 and 2 are complete. The fresh build and
+installer lifecycle portion of step 3 are complete; `Test-SetupWizard.ps1` is
+still outstanding because the current shell failed the mandatory host-identity
+preflight. Nothing has been tagged, uploaded or published, and step 5 is not
+complete. Rebuild and repeat the proofs if source or packaged inputs change.
 
 1. **The version must move**, before anything is built. `install::decide_now`
    returns `RefuseSameVersion` on an equal stamp, so a rebuilt version cannot

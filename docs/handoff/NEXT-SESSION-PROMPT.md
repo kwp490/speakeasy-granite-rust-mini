@@ -1,121 +1,86 @@
 # Prompt for the next session
 
-Copy everything below the line into a new Claude Code session in
+Copy everything below the line into a new Codex session in
 `C:\Coding Projects\speakeasy-granite-rust-mini`.
 
-Keep this file to the work that is actually next. It is a pointer into
-`docs/handoff/CURRENT.md`, not a second copy of it.
+Keep this file to the work that is actually next. It points into
+`docs/handoff/CURRENT.md`; it does not replace it.
 
 ---
 
-You are picking up work on SpeakEasy Mini, a local-only Windows dictation app
-(Rust + Tauri 2 + React, all inference on-device) at
-`C:\Coding Projects\speakeasy-granite-rust-mini`, branch `main`.
+Continue work on SpeakEasy Mini, the local-only Windows dictation app in
+`C:\Coding Projects\speakeasy-granite-rust-mini`.
 
-Establish where the branch stands before starting rather than assuming it — the
-push state changes with every commit and cannot be written down here:
+Read these completely before changing anything:
+
+1. `CLAUDE.md`
+2. `docs/handoff/CURRENT.md`
+3. `docs/UI-GUIDE.md` for any interface work
+
+Then establish the live state instead of trusting this snapshot:
 
 ```powershell
 git status -sb
+git fetch origin
+git log --oneline --decorate -5
 git log --oneline origin/main..HEAD
+& .\scripts\Get-ProductVersion.ps1
 ```
 
-`git status -sb` reports both the working tree and the ahead/behind count in one
-line. Anything listed by the second command is unpushed.
+At the 2026-09-02 handoff, the tree is expected to be clean and pushed, and the
+workspace version is `1.9.0`; verify both. The approved Settings workspace
+redesign is production code (`9683d54`), and the live contrast proof fix is
+`a761bc3`. A later commit may contain only this handoff refresh.
 
-## Read first, in this order
+SpeakEasy Mini 1.9.0 is installed for the current user at
+`C:\Users\User\AppData\Local\SpeakEasy Mini` and was left running normally.
+The installed bootstrapper re-proved the processor engine, and the dock reported
+`CPU / ready`. The user's existing personalization and provider files survived
+the uninstall/reinstall byte-identically. Do not uninstall, reset, or replace
+that installation unless the user asks.
 
-1. **`CLAUDE.md`** — orientation. "Traps that fail silently" and "Settled
-   decisions" are not optional. Four that bite most work here:
-   - dot-source `scripts\Enter-DevEnvironment.ps1` in **every** new shell;
-   - a **stale** staged worker fails as `StaleEvent`, which names the protocol
-     rather than the binary — re-stage before believing a hardware-test failure;
-   - `npm run tauri -- dev` overwrites `target\debug\proof\granite-worker.exe`
-     with the CPU worker, silently reverting a staged CUDA one;
-   - a control that undoes itself with `git checkout` reverts to **HEAD** and
-     destroys uncommitted work. Copy the file aside instead.
-2. **`docs/handoff/CURRENT.md`** — "What is open" is the table to act on, and
-   "Before the next release" is what a release needs that the tree does not.
+The local installer is
+`target\local-development\1.9.0\SpeakEasyMiniSetup.exe` with SHA-256
+`4fc0d2f84b190aaeebd4d0f5b65118228250b67120c325d6022a6f6277589928`.
+It was built from an empty fresh-build root. The full repository gate and the
+installer lifecycle proof passed. The installed settings UI passed all six pages
+at 720, 880 and 1200 CSS px without horizontal overflow or nested scroll regions,
+and the dock/settings contrast proof passed 14 light/dark surfaces.
 
-## Job 1: run the hardware proofs against `HEAD`
+One release proof remains: `Test-SetupWizard.ps1` stopped at its mandatory
+host-identity preflight because this shell cannot see the profile through
+`\\localhost\C$`. That refusal happened before mutation. Never bypass the guard.
+If the next task is to publish v1.9.0, first use a shell where this passes:
 
-Seven tests are `#[ignore]`d and five of them drive a real worker process. They
-last ran on 2026-08-28. `GraniteEngineCoordinator::ensure_ready` changed
-signature twice since, and the resident pack began refusing a mismatch. A
-signature change that compiles is not a signature change that works.
+```powershell
+.\scripts\Test-HostProfilePathIdentity.ps1
+```
 
-**Re-stage first.** `target\debug\proof\granite-worker.exe` goes stale between
-sessions, and a stale worker fails as `StaleEvent`, which reads as a protocol bug
-rather than an old binary.
+Only after that succeeds should the guarded wizard proof be run:
 
-Six of the seven do not require a CUDA worker: four drive the processor worker
-(the three desktop passes and the bootstrapper's engine smoke) and two drive no
-worker at all (`registry_hive` writes to the real `HKCU`, `the_real_nvidia`
-extracts a pinned NVIDIA archive).
+```powershell
+.\scripts\Test-SetupWizard.ps1 -ArtifactRoot 'target\local-development\1.9.0'
+```
+
+No v1.9.0 tag or GitHub Release exists yet. Do not create either unless the user
+explicitly asks to publish the release. If source or packaged inputs change,
+rebuild the installer and repeat its proofs; do not reuse the recorded digest.
+
+On this host, the full gate needed two environment accommodations:
+
+- set `TEMP` and `TMP` to a repository-local directory such as
+  `target\gate-temp`, because the ambient `C:\WINDOWS\TEMP` allowed the gate to
+  create its temporary dependency-policy script but refused cleanup;
+- the pinned gitleaks 8.30.1 binary is installed under
+  `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe`
+  but its WindowsApps shim is absent, so prepend that directory to `PATH`.
+
+For ordinary development, dot-source the environment in every new shell:
 
 ```powershell
 . .\scripts\Enter-DevEnvironment.ps1
-.\scripts\Stage-DevRuntime.ps1
-cargo test -p speakeasy-desktop --lib granite_final_pass -- --ignored --nocapture
-cargo test -p speakeasy-bootstrapper smoke -- --ignored --nocapture
-cargo test -p speakeasy-bootstrapper registry_hive -- --ignored --nocapture
-cargo test -p speakeasy-models the_real_nvidia -- --ignored --nocapture
 ```
 
-**Use `granite_final_pass`, not `granite`.** The broader filter also selects
-`a_cuda_worker_reports_the_device_its_context_probe_can_prove`, which *asserts*
-rather than skips when the staged worker is not a CUDA build — so it fails
-immediately after `Stage-DevRuntime.ps1` stages the processor one, and that
-failure reads like a broken engine rather than the wrong binary.
-
-**The seventh is unrun and needs a CUDA worker staged by hand.**
-`Enable-GraniteCuda.ps1` did this and was retired, so there is no script. The
-three CUDA libraries are already in `target\debug\proof\`; replace only the
-worker, and do it **after** `Stage-DevRuntime.ps1`, which overwrites that path:
-
-```powershell
-cargo build --release -p speakeasy-granite-worker --features cuda
-Copy-Item target\release\speakeasy-granite-worker.exe `
-  target\debug\proof\granite-worker.exe -Force
-cargo test -p speakeasy-desktop --lib a_cuda_worker_reports -- --ignored --nocapture
-```
-
-`Stage-DevRuntime.ps1` builds the workers `--release` first, so budget about two
-minutes for the llama.cpp compile if it is not cached.
-`run_granite_final_pass_survives_an_idle_gap_before_a_second_dictation` sleeps
-300 s by default — run it deliberately or not at all, and say which. Say which
-worker was staged for anything you report.
-
-If a proof fails, the first question is whether the worker was re-staged, not
-whether the code is wrong.
-
-## Job 2: a clean clone still does not build
-
-Open and not retried. The frontend half of the gate passes in a fresh clone; the
-Rust half fails at `speakeasy-granite` on `llama-cpp-sys-2`'s CMake configure with
-`No CMAKE_C_COMPILER could be found`.
-
-The leading explanation is one untested command away: `Enter-DevEnvironment.ps1`
-prefers `.tools\cmake-4.4.0-windows-x86_64\bin\cmake.exe` and falls back to `PATH`
-**with a warning rather than a failure**. That directory does not exist here, so
-every build on this machine has used the system CMake, 4.4.2. Stage 4.4.0 and
-re-run. `CURRENT.md` has what to do with either answer.
-
-## Then: pick from "What is open"
-
-Everything else worth doing is in that table, with what each one needs. Two of
-them — the model-integrity threat model and what a non-delivering path should
-inspect — are decisions rather than code, and are yours to make rather than an
-agent's.
-
-## How to work
-
-- **Run the whole gate**, not `cargo test --workspace --lib`:
-  `.\scripts\Invoke-ScaffoldChecks.ps1 -SkipNpmInstall`. It must exit 0.
-- **Report counts including ignored**, and name which ignored tests did not run.
-  "0 failed" is not a pass condition; a suite that got smaller reads the same.
-- **Prove every new test can fail** by restoring the *real* defect. A control that
-  does not go red has verified nothing.
-- **Do not start a release** without reading "Before the next release" in
-  `CURRENT.md`: the version is already tagged, so a build from `main` as it stands
-  cannot install over the published one.
+Use `Invoke-ScaffoldChecks.ps1 -SkipNpmInstall` as the full gate. It is not green
+until it exits 0 and ends `no leaks found`. Preserve unrelated user changes, and
+ask git—not this handoff—what has changed since the snapshot above.
