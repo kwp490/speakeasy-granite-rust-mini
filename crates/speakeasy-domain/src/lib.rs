@@ -30,14 +30,14 @@ pub use ports::{
     AudioSink, AudioSource, BoxFuture, CaptureHandle, CaptureRequest, DeliveryError,
     DeliveryOutcome, DeliveryReceipt, DeliveryRefusal, DeliveryRequest, DeliveryStrategy,
     EndpointReason, EngineCapabilities, EngineSnapshot, ExecutableIdentity, FinalAsr,
-    FinalAsrMetrics, FinalAudioJob, FinalTranscript, HypothesisFinality, IntegrityRelationship,
-    KeyboardContext, LocaleSelection, PolishEngine, PolishError, PolishLimits, PolishRequest,
-    PolishedText, ProtectedSpan, SelectionSnapshot, StreamingAsr, StreamingAsrOptions,
-    StreamingAsrRequest, StreamingControlMessage, StreamingControlReceiver, StreamingFinish,
-    StreamingHealth, StreamingHealthState, StreamingHypothesis, StreamingMetrics, StreamingResult,
-    StreamingResultReceiver, StreamingSendError, StreamingSessionControl, StreamingSessionHandle,
-    TargetKind, TargetSnapshot, TextTarget, TimestampedAudioFrame, TranscriptProvenance,
-    UiaElementIdentity, UiaPatterns, UtteranceAudio,
+    FinalAsrMetrics, FinalAudioJob, FinalTranscript, ForegroundIdentity, HypothesisFinality,
+    IntegrityRelationship, KeyboardContext, LocaleSelection, PolishEngine, PolishError,
+    PolishLimits, PolishRequest, PolishedText, ProtectedSpan, SelectionSnapshot, StreamingAsr,
+    StreamingAsrOptions, StreamingAsrRequest, StreamingControlMessage, StreamingControlReceiver,
+    StreamingFinish, StreamingHealth, StreamingHealthState, StreamingHypothesis, StreamingMetrics,
+    StreamingResult, StreamingResultReceiver, StreamingSendError, StreamingSessionControl,
+    StreamingSessionHandle, TargetKind, TargetSnapshot, TextTarget, TimestampedAudioFrame,
+    TranscriptProvenance, UiaElementIdentity, UiaPatterns, UtteranceAudio,
 };
 pub use reliability::{
     DegradationAction, DegradationDecision, DegradationReason, ExclusiveOperation, FaultBoundary,
@@ -52,6 +52,6 @@ pub use state::{
 pub use worker_protocol::{
     MAX_AUDIO_SAMPLES_PER_REQUEST, MAX_FRAME_BYTES, ProtocolError, RequestId,
     WORKER_PROTOCOL_VERSION, WorkerClient, WorkerCommand, WorkerErrorCode, WorkerEvent,
-    WorkerRequest, WorkerResponse, WorkerSessionId, read_frame, worker_response_is_terminal,
-    write_frame,
+    WorkerRequest, WorkerResponse, WorkerSessionId, frame_bytes, read_frame,
+    worker_response_is_terminal, write_frame,
 };

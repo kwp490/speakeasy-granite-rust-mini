@@ -7,9 +7,9 @@ use std::time::Duration;
 use sha2::{Digest, Sha256};
 use speakeasy_delivery::TargetObservation;
 use speakeasy_domain::{
-    DeliveryCapability, DeliveryRefusal, ExecutableIdentity, IntegrityRelationship,
-    KeyboardContext, SelectionSnapshot, SessionId, TargetKind, TargetSnapshot, UiaElementIdentity,
-    UiaPatterns,
+    DeliveryCapability, DeliveryRefusal, ExecutableIdentity, ForegroundIdentity,
+    IntegrityRelationship, KeyboardContext, SelectionSnapshot, SessionId, TargetKind,
+    TargetSnapshot, UiaElementIdentity, UiaPatterns,
 };
 
 use crate::{
@@ -462,6 +462,63 @@ fn inspect_current(
     _session_id: SessionId,
     _activity: ActivityHookEvidence,
 ) -> Result<TargetSnapshot, DeliveryRefusal> {
+    Err(DeliveryRefusal::Unsupported)
+}
+
+/// Reads who holds the foreground now, without a UI Automation inspection.
+///
+/// Four syscalls and no UIA, which is what makes it usable immediately before
+/// synthesizing input. [`inspect_current`] is the opposite trade: it answers
+/// far more and costs 68 ms into an empty Notepad and 12.8 s into a `WebView2`
+/// window, so it cannot be the thing that re-checks a target during delivery.
+///
+/// `foreground` is false rather than an error when nothing holds the
+/// foreground, so the caller refuses on the identity comparison rather than on
+/// a separate code.
+#[cfg(windows)]
+pub fn current_foreground_identity(
+    session_id: SessionId,
+) -> Result<ForegroundIdentity, DeliveryRefusal> {
+    let Some(foreground) = winsafe::HWND::GetForegroundWindow() else {
+        return Ok(ForegroundIdentity {
+            session_id,
+            foreground: false,
+            window_handle: 0,
+            process_id: 0,
+            process_start_time: 0,
+        });
+    };
+    let (_, process_id) = foreground.GetWindowThreadProcessId();
+    let process = winsafe::HPROCESS::OpenProcess(
+        winsafe::co::PROCESS::QUERY_LIMITED_INFORMATION,
+        false,
+        process_id,
+    )
+    .map_err(|_| DeliveryRefusal::TargetInaccessible)?;
+    let process_start_time = process
+        .GetProcessTimes()
+        .map(|times| u64::from(times.0))
+        .map_err(|_| DeliveryRefusal::Unsupported)?;
+    // Parsed exactly as `inspect_current` parses it, so the two produce the
+    // same number for the same window. Two spellings of one handle would make
+    // every comparison a refusal.
+    let window_handle = format!("{foreground:x}")
+        .trim_start_matches("0x")
+        .parse::<u64>()
+        .unwrap_or_default();
+    Ok(ForegroundIdentity {
+        session_id,
+        foreground: true,
+        window_handle,
+        process_id,
+        process_start_time,
+    })
+}
+
+#[cfg(not(windows))]
+pub fn current_foreground_identity(
+    _session_id: SessionId,
+) -> Result<ForegroundIdentity, DeliveryRefusal> {
     Err(DeliveryRefusal::Unsupported)
 }
 

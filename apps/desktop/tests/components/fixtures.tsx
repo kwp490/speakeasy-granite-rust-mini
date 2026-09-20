@@ -17,7 +17,12 @@ import type {
  */
 afterEach(cleanup);
 
-/** A saved profile with everything off, which is the shipped default. */
+/**
+ * A saved profile at the shipped defaults.
+ *
+ * Everything is off except `auto_paste_enabled`, which ships on: inserting the
+ * transcript into the focused app is what the shortcut is for.
+ */
 export function profileStatus(overrides: Partial<ProfileStatus> = {}): ProfileStatus {
   return {
     schema_version: 1,
@@ -26,6 +31,7 @@ export function profileStatus(overrides: Partial<ProfileStatus> = {}): ProfileSt
     history_retention_days: 30,
     history_plaintext_disclosure_accepted: false,
     delivery_preference: "result_view_only",
+    auto_paste_enabled: true,
     recording_feedback_enabled: false,
     disk_logging_enabled: false,
     preferred_capture_device_id: null,

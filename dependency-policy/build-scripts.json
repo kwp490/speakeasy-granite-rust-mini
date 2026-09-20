@@ -39,7 +39,8 @@
       "name": "aws-lc-sys",
       "version": "0.45.0",
       "source": "crates.io",
-      "network_indicator": false
+      "network_indicator": false,
+      "note": "Reviewed at 0.45.0 after the RUSTSEC-2026-0285 rustls upgrade pulled it forward from 0.43.0. Its build.rs includes builder/, whose cc_builder.rs carries https:// strings -- every one is a comment citing an aws-lc GitHub issue or CMakeLists, the same false-positive class as web_atoms. No HTTP client: build-dependencies are bindgen, cc, cmake and dunce only."
     },
     {
       "name": "bindgen",

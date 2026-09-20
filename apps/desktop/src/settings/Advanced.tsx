@@ -5,6 +5,7 @@ import { Disclosure } from "../components/Disclosure";
 import { messages } from "../catalog";
 import { displayName, formatCredentialStatus, formatResetCategory } from "./format";
 import { readWithRetry } from "./readWithRetry";
+import { ENGINE_LOADING, type HudStatus } from "../state/transcriberState";
 import type {
   CredentialStatus,
   DiagnosticsExport,
@@ -14,6 +15,46 @@ import type {
 } from "./types";
 import type { ProfileController } from "./useProfile";
 import { useMutation } from "./useMutation";
+
+/**
+ * How long to wait for a restarted engine before giving up on it.
+ *
+ * A cold Granite warm hashes the pack and loads roughly 2 GB, which is tens of
+ * seconds on a processor install. The wait is generous because the alternative
+ * is telling a user their restart failed while it is still working.
+ */
+const ENGINE_READY_TIMEOUT_MS = 180_000;
+
+/** Gap between polls. One request at a time; the next is scheduled after it settles. */
+const ENGINE_POLL_GAP_MS = 500;
+
+/**
+ * Waits for a restarted engine to settle, and answers what it settled on.
+ *
+ * `runtime_recover` only *starts* the warm -- it may not hold an IPC call for a
+ * 2 GB load -- so the button cannot claim a restart from that command
+ * returning. This polls the same status the dock reads and returns `ready`, a
+ * named engine failure code, or `engine_restart_timed_out`.
+ *
+ * Self-scheduling rather than an interval, so a slow read cannot queue
+ * overlapping calls. A refused read is not a failed restart and is retried:
+ * only the clock ends the wait.
+ */
+async function awaitEngineReady(): Promise<string> {
+  const deadline = Date.now() + ENGINE_READY_TIMEOUT_MS;
+  for (;;) {
+    try {
+      const status = await invoke<HudStatus>("capture_hud_status");
+      if (!ENGINE_LOADING.has(status.engine)) return status.engine;
+    } catch {
+      // A read that lost a race says nothing about the engine. Keep waiting.
+    }
+    if (Date.now() >= deadline) return "engine_restart_timed_out";
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, ENGINE_POLL_GAP_MS);
+    });
+  }
+}
 
 /**
  * Advanced: runtime status, performance, credentials, maintenance, About.
@@ -41,7 +82,7 @@ export function Advanced({ profile }: { profile: ProfileController }) {
   // as a button that does nothing rather than as a reset that did not happen.
   const resetCommit = useMutation<ProfileStatus>();
   const [resetPreview, setResetPreview] = useState<ResetPreview | null>(null);
-  const [engineAction, setEngineAction] = useState("");
+  const restartEngine = useMutation<void>();
 
   // Both retried, and both with a rejection handler, because neither had one:
   // each was a bare mount-time `invoke` whose refusal became an unhandled promise
@@ -64,16 +105,6 @@ export function Advanced({ profile }: { profile: ProfileController }) {
       setStatusUnavailable(true);
     });
   }, []);
-
-  async function restartEngine() {
-    setEngineAction("");
-    try {
-      await invoke("runtime_recover");
-      setEngineAction(messages.engineRestarted);
-    } catch {
-      setEngineAction(messages.engineRestartFailed);
-    }
-  }
 
   async function commitReset() {
     if (resetPreview === null) return;
@@ -294,10 +325,28 @@ export function Advanced({ profile }: { profile: ProfileController }) {
             </output>
           </div>
           <div className="actions">
-            <button onClick={() => void restartEngine()} type="button">
-              {messages.restartEngine}
+            <button
+              disabled={restartEngine.pending}
+              onClick={() => {
+                void restartEngine.run(
+                  async () => {
+                    await invoke("runtime_recover");
+                    // The command starts the warm and returns; it cannot hold an
+                    // IPC call for a 2 GB load. Success is the engine reporting
+                    // `ready`, never this command returning.
+                    const engine = await awaitEngineReady();
+                    // The bare code, because that is what `invoke` rejects with
+                    // and what `formatError` maps to catalog prose.
+                    if (engine !== "ready") throw engine;
+                  },
+                  () => messages.engineRestarted,
+                );
+              }}
+              type="button"
+            >
+              {restartEngine.pending ? messages.engineRestarting : messages.restartEngine}
             </button>
-            <output aria-live="polite">{engineAction}</output>
+            <output aria-live="polite">{restartEngine.error ?? restartEngine.message}</output>
           </div>
         </div>
         <div className="settings-danger-card">

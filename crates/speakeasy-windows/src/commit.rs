@@ -167,7 +167,14 @@ fn execute_commit(
         }
         CommitMode::FocusedNow => {
             validate_focused_preflight(&request.snapshot)?;
+            // The snapshot was taken when transcription finished; everything
+            // after this point is a wait, and the foreground can change during
+            // any of them. `input_epoch_unchanged` cannot serve here -- the
+            // activation hotkey necessarily moved the input epoch, which is why
+            // this mode exists -- so identity is what is re-asked instead.
+            foreground_identity_unchanged(&request.snapshot)?;
             wait_for_activation_modifiers(request.deadline)?;
+            foreground_identity_unchanged(&request.snapshot)?;
         }
     }
 
@@ -178,6 +185,12 @@ fn execute_commit(
     )?;
     if matches!(request.mode, CommitMode::Validated { .. }) {
         input_epoch_unchanged(&request.snapshot)?;
+    }
+    if matches!(request.mode, CommitMode::FocusedNow) {
+        // Last, and deliberately the statement before `send_paste_shortcut`.
+        // The clipboard write can block on another writer until the deadline,
+        // and this is the only thing between that wait and the keystroke.
+        foreground_identity_unchanged(&request.snapshot)?;
     }
     let accepted = send_paste_shortcut()?;
     if accepted != PASTE_EVENT_COUNT {
@@ -192,6 +205,19 @@ fn execute_commit(
         input_events_accepted: Some(accepted),
         consumption_verified: false,
     })
+}
+
+/// Refuses when the foreground is no longer the window `snapshot` describes.
+///
+/// Identity only, and the limitation is the point: a focus change *inside* the
+/// target process -- into a password box in the same window -- leaves every
+/// field equal and is not caught here. Catching that needs a fresh UI
+/// Automation read of the focused element, which costs up to seconds and
+/// cannot run immediately before synthesizing input. `classify_guard` still
+/// refuses the password field that was focused at inspection time.
+fn foreground_identity_unchanged(snapshot: &TargetSnapshot) -> Result<(), DeliveryRefusal> {
+    let identity = crate::target::current_foreground_identity(snapshot.session_id)?;
+    speakeasy_delivery::validate_foreground_identity(snapshot, identity)
 }
 
 fn validate_focused_preflight(snapshot: &TargetSnapshot) -> Result<(), DeliveryRefusal> {
@@ -442,5 +468,48 @@ mod tests {
         assert_eq!(keys[2].wVk, winsafe::co::VK::CHAR_V);
         assert_eq!(keys[3].wVk, winsafe::co::VK::CONTROL);
         assert!(keys.iter().all(|key| key.wVk != winsafe::co::VK::RETURN));
+    }
+    /// The identity re-check must be the last thing before the keystroke.
+    ///
+    /// A structural assertion because the behaviour cannot be reached here:
+    /// `execute_commit` needs a real foreground window and a real clipboard.
+    /// What decays is the *ordering* -- a later edit adding a wait, a retry or
+    /// a log line between the check and `send_paste_shortcut` reopens exactly
+    /// the window this closes, and does so without failing anything else.
+    ///
+    /// `validate_foreground_identity` has the behavioural tests, in
+    /// `speakeasy-delivery`.
+    #[test]
+    fn the_focused_path_rechecks_identity_immediately_before_synthesizing_input() {
+        let source = include_str!("commit.rs");
+        let body = source
+            .split_once("fn execute_commit(")
+            .expect("execute_commit must exist")
+            .1;
+        let before_input = body
+            .split_once("let accepted = send_paste_shortcut()?;")
+            .expect("the paste keystroke must be sent in execute_commit")
+            .0;
+
+        assert_eq!(
+            before_input
+                .matches("foreground_identity_unchanged(&request.snapshot)?")
+                .count(),
+            3,
+            "the focused path checks after the preflight, after the modifier wait,              and once more immediately before input"
+        );
+
+        let (_, last) = before_input
+            .rsplit_once("foreground_identity_unchanged(&request.snapshot)?")
+            .expect("at least one check must precede the keystroke");
+        // Only the closing brace of its `if` block may sit between the final
+        // check and the keystroke.
+        assert_eq!(
+            last.chars()
+                .filter(|c| !c.is_whitespace() && *c != '}')
+                .collect::<String>(),
+            ";",
+            "nothing may run between the last identity check and the keystroke, found: {last:?}"
+        );
     }
 }

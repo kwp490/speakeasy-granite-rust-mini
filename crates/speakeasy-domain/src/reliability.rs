@@ -388,6 +388,9 @@ pub enum ExclusiveOperation {
     ModelDelete,
     ApplicationUpdate,
     StorageMigration,
+    /// Explicit engine recovery: it tears down the resident worker, so it may
+    /// not overlap a dictation holding that worker.
+    EngineRestart,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -950,23 +950,20 @@ impl Wizard {
         // because they are not two claims.
         let provider = self.selected_provider();
         let (message, tone, show_bar) = match download::plan(provider) {
-            Ok(plan) if plan.already_satisfied() => {
-                // Nothing to transfer, and it must not be reported as a transfer
-                // that finished instantly: what happened is that the files are
-                // present and their digests still match.
-                self.settled.set(true);
-                self.ready.set(true);
-                (
-                    catalog::DOWNLOAD_ALREADY_PRESENT.to_owned(),
-                    catalog::Tone::Good,
-                    false,
-                )
-            }
             Ok(plan) => {
-                let described = catalog::describe_download_plan(
-                    &plan.items.iter().map(|item| item.label).collect::<Vec<_>>(),
-                    plan.total_bytes,
-                );
+                // Presence decides what this says first, and nothing else. The
+                // run starts either way, because keeping retained bytes means
+                // hashing them and that may not happen on the message loop.
+                // Short-circuiting here on a length comparison was the whole
+                // defect: a same-length corruption skipped the step entirely.
+                let described = if plan.everything_is_present() {
+                    catalog::DOWNLOAD_VERIFYING_PRESENT.to_owned()
+                } else {
+                    catalog::describe_download_plan(
+                        &plan.items.iter().map(|item| item.label).collect::<Vec<_>>(),
+                        plan.total_bytes,
+                    )
+                };
                 *self.run.borrow_mut() = Some(download::start(plan));
                 (described, catalog::Tone::Plain, true)
             }
@@ -1146,10 +1143,15 @@ impl Wizard {
             } else {
                 self.ready.set(true);
                 self.transfer.set_position(TRANSFER_STEPS);
-                self.set_notice(
-                    &catalog::describe_download_complete(&run.labels, run.total_bytes),
-                    catalog::Tone::Good,
-                );
+                // "Nothing was fetched" and "a transfer finished" are different
+                // claims, and after a verification pass the first is the true
+                // one: the retained bytes were read and still match.
+                let complete = if progress.transferred_bytes() == 0 {
+                    catalog::DOWNLOAD_ALREADY_PRESENT.to_owned()
+                } else {
+                    catalog::describe_download_complete(&run.labels, run.total_bytes)
+                };
+                self.set_notice(&complete, catalog::Tone::Good);
             }
             self.apply_next_availability(STEP_DOWNLOAD);
             return;

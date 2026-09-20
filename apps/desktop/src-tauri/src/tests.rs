@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
 
     #[test]
     fn native_diagnostic_paths_are_redacted_before_persistence() {
@@ -1528,7 +1529,7 @@ mod tests {
         for target in [DeliveryTarget::Sensitive, DeliveryTarget::Unknown] {
             assert_eq!(
                 history.persist(&history_row_for(&base, target)),
-                Ok(false),
+                Ok(HistoryWrite::Skipped),
                 "{target:?} must not be stored"
             );
         }
@@ -1539,7 +1540,10 @@ mod tests {
 
         for target in [DeliveryTarget::Cleared, DeliveryTarget::NotAttempted] {
             let row = transcript_row(&format!("session-{target:?}"));
-            assert_eq!(history.persist(&history_row_for(&row, target)), Ok(true));
+            assert_eq!(
+                history.persist(&history_row_for(&row, target)),
+                Ok(HistoryWrite::Inserted)
+            );
         }
         let stored = stored_rows(&history);
         assert_eq!(stored.len(), 2, "ordinary dictations must still be kept");
@@ -2300,7 +2304,7 @@ mod tests {
             row.polished_text = Some(format!("polished {session}"));
             assert_eq!(
                 history.persist(&history_row_for(&row, DeliveryTarget::Cleared)),
-                Ok(true),
+                Ok(HistoryWrite::Inserted),
                 "the row must be stored, or this proves nothing"
             );
         }
@@ -2339,7 +2343,7 @@ mod tests {
         let quiet = HistoryCoordinator::new(quiet_root.path(), &Settings::default());
         assert_eq!(
             quiet.persist(&history_row_for(&transcript_row("session-c"), DeliveryTarget::Cleared)),
-            Ok(false),
+            Ok(HistoryWrite::Skipped),
             "with retention off nothing is stored"
         );
         let quiet_log = SessionTranscriptCoordinator::default();
@@ -2374,7 +2378,7 @@ mod tests {
                     &transcript_row(session),
                     DeliveryTarget::Cleared
                 )),
-                Ok(true),
+                Ok(HistoryWrite::Inserted),
                 "the row must be stored, or the seeded half of this proves nothing"
             );
         }
@@ -2472,5 +2476,153 @@ mod tests {
             .map_or_else(Vec::new, |repository| {
                 repository.list(100).expect("list history")
             })
+    }
+    /// Seeds a coordinator with the shortcut the user already has working.
+    fn working_hotkey(binding: &str) -> HotkeyCoordinator {
+        let coordinator = HotkeyCoordinator::default();
+        write_hotkey_candidate(
+            &coordinator,
+            &HotkeyCandidate {
+                binding: binding.to_owned(),
+                mode: ActivationMode::Toggle,
+                enabled: true,
+            },
+        )
+        .expect("seed the working shortcut");
+        coordinator
+    }
+
+    #[test]
+    fn a_refused_hotkey_registration_restores_the_working_shortcut_and_persists_nothing() {
+        let coordinator = working_hotkey("Ctrl+Alt+P");
+        let registered = RefCell::new(Vec::new());
+        let unregistered = RefCell::new(Vec::new());
+        let persisted = RefCell::new(Vec::new());
+
+        let result = apply_hotkey_candidate(
+            &coordinator,
+            HotkeyCandidate {
+                binding: "Ctrl+Alt+Q".to_owned(),
+                mode: ActivationMode::PushToTalk,
+                enabled: true,
+            },
+            |binding| unregistered.borrow_mut().push(binding.to_owned()),
+            || {
+                // Reads the coordinator, exactly as `register_activation_hotkey`
+                // does, so the rollback is observed through the real seam.
+                let binding = coordinator.binding.lock().expect("binding").clone();
+                registered.borrow_mut().push(binding.clone());
+                if binding == "Ctrl+Alt+Q" {
+                    Err("hotkey_conflict")
+                } else {
+                    Ok(())
+                }
+            },
+            |candidate| {
+                persisted.borrow_mut().push(candidate.binding.clone());
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Err("hotkey_conflict"));
+        assert!(
+            persisted.borrow().is_empty(),
+            "a shortcut that never registered must not reach the settings file"
+        );
+        let restored = read_hotkey_candidate(&coordinator).expect("read back");
+        assert_eq!(restored.binding, "Ctrl+Alt+P");
+        assert_eq!(restored.mode, ActivationMode::Toggle);
+        assert!(restored.enabled);
+        assert_eq!(
+            registered.borrow().as_slice(),
+            ["Ctrl+Alt+Q", "Ctrl+Alt+P"],
+            "the previous shortcut must be registered again after the refusal"
+        );
+        assert!(
+            unregistered.borrow().contains(&"Ctrl+Alt+Q".to_owned()),
+            "the refused candidate must not be left holding a registration"
+        );
+    }
+
+    #[test]
+    fn a_failed_hotkey_save_rolls_the_registration_back_too() {
+        let coordinator = working_hotkey("Ctrl+Alt+P");
+        let registered = RefCell::new(Vec::new());
+
+        let result = apply_hotkey_candidate(
+            &coordinator,
+            HotkeyCandidate {
+                binding: "Ctrl+Alt+Q".to_owned(),
+                mode: ActivationMode::HandsFree,
+                enabled: true,
+            },
+            |_| {},
+            || {
+                registered
+                    .borrow_mut()
+                    .push(coordinator.binding.lock().expect("binding").clone());
+                Ok(())
+            },
+            |_| Err("profile_state_unavailable"),
+        );
+
+        assert_eq!(result, Err("profile_state_unavailable"));
+        let restored = read_hotkey_candidate(&coordinator).expect("read back");
+        assert_eq!(
+            restored.binding, "Ctrl+Alt+P",
+            "a binding that registered but could not be saved must not stay live"
+        );
+        assert_eq!(restored.mode, ActivationMode::Toggle);
+        assert_eq!(registered.borrow().as_slice(), ["Ctrl+Alt+Q", "Ctrl+Alt+P"]);
+    }
+    #[test]
+    fn an_engine_restart_is_refused_while_a_dictation_holds_the_worker() {
+        let operations = OperationCoordinator::default();
+        let session_id = SessionId::from_bytes([9; 16]);
+        operations.begin_dictation(session_id).expect("dictation");
+        assert_eq!(
+            operations.begin(ExclusiveOperation::EngineRestart),
+            Err("dictation_active_operation_deferred"),
+            "a restart discards the worker the running dictation is using"
+        );
+
+        operations.finish_dictation();
+        assert_eq!(operations.begin(ExclusiveOperation::EngineRestart), Ok(()));
+        // And it releases again, so one refused restart cannot wedge the next.
+        operations.finish(ExclusiveOperation::EngineRestart);
+        assert_eq!(operations.begin(ExclusiveOperation::ModelInstall), Ok(()));
+    }
+    #[test]
+    fn a_session_identifier_is_random_rather_than_a_counter_that_restarts() {
+        use std::collections::HashSet;
+
+        const SAMPLE: usize = 1_000;
+
+        // The counter this replaced started at one in every process, so the
+        // first identifier of every launch was identical in its low eight
+        // bytes. That is what made identifiers repeat across launches, and
+        // `transcript_history` keys on them.
+        let first = new_session_id().into_bytes();
+        assert_ne!(
+            first[..8],
+            1_u64.to_le_bytes()[..],
+            "the first identifier of a process must not be a counter's first value"
+        );
+
+        let ids: HashSet<[u8; 16]> = (0..SAMPLE).map(|_| new_session_id().into_bytes()).collect();
+        assert_eq!(ids.len(), SAMPLE, "identifiers must not repeat within a process");
+
+        // Every byte position has to carry entropy. The replaced value put
+        // `Instant::now().elapsed()` -- a few nanoseconds -- in the high half,
+        // so those bytes were very nearly constant and a repeat needed only the
+        // counter to come round again.
+        for index in 0..16 {
+            let distinct: HashSet<u8> = ids.iter().map(|id| id[index]).collect();
+            assert!(
+                distinct.len() > 16,
+                "byte {index} takes only {} values across {SAMPLE} identifiers",
+                distinct.len()
+            );
+        }
     }
 }

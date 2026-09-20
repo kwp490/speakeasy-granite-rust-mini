@@ -289,6 +289,67 @@ mod tests {
         ));
     }
 
+    /// A file that exists but cannot be opened is not reported as absent.
+    ///
+    /// `Missing` is reserved for `NotFound` because the two need different
+    /// instructions: one says fetch the pack again, the other says something on
+    /// this machine is standing in the way. A directory where a required file
+    /// belongs is the reachable case -- `File::open` refuses it with a
+    /// permission error rather than `NotFound` -- and it is the branch that
+    /// keeps the two apart.
+    #[test]
+    fn a_file_that_cannot_be_opened_is_not_reported_as_missing() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("model.gguf")).unwrap();
+        let manifest = catalog_with(&json!([{
+            "path": "model.gguf",
+            "bytes": 4,
+            "sha256": "0".repeat(64)
+        }]));
+        let error = verify_pack_files(&manifest.packs()[0], dir.path())
+            .expect_err("a directory is not a readable model file");
+        assert!(
+            matches!(error, PackVerificationError::Io(_)),
+            "an unreadable file must not be reported as absent: {error:?}"
+        );
+    }
+
+    /// The error prints its detail and exposes a cause only where one exists.
+    ///
+    /// `source` is what a caller walks to reach the operating system's own
+    /// message. It is `Some` for the I/O variant alone: the other three are
+    /// this module's own verdicts about bytes it read successfully, and
+    /// inventing a cause for them would send a reader looking for an OS failure
+    /// that never happened.
+    #[test]
+    fn the_verification_error_prints_and_exposes_only_an_io_cause() {
+        let wrapped =
+            PackVerificationError::from(io::Error::new(io::ErrorKind::PermissionDenied, "denied"));
+        assert!(
+            wrapped.source().is_some(),
+            "an I/O failure carries the cause it wrapped"
+        );
+        assert!(
+            format!("{wrapped}").contains("pack file verification failed"),
+            "the display form says what failed"
+        );
+
+        for verdict in [
+            PackVerificationError::Missing("a.gguf".to_owned()),
+            PackVerificationError::LengthMismatch("b.gguf".to_owned()),
+            PackVerificationError::HashMismatch("c.gguf".to_owned()),
+        ] {
+            assert!(
+                verdict.source().is_none(),
+                "{verdict:?} is a verdict about bytes that were read, not a wrapped error"
+            );
+            assert!(
+                format!("{verdict}").contains("pack file verification failed"),
+                "{verdict:?} must still print its detail"
+            );
+        }
+    }
+
     #[test]
     fn a_hash_mismatch_is_reported_when_length_matches() {
         let dir = tempdir().unwrap();

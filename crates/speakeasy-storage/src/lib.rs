@@ -22,8 +22,8 @@ pub use recovery::{
     verified_installer_path, verify_recovery_bundle,
 };
 pub use repository::{
-    DATABASE_SCHEMA_VERSION, HistoryPolicy, HistoryRepository, RepositoryError, ResultProvenance,
-    SessionResultList, TranscriptResult,
+    DATABASE_SCHEMA_VERSION, HistoryPolicy, HistoryRepository, HistoryWrite, RepositoryError,
+    ResultProvenance, SessionResultList, TranscriptResult,
 };
 pub use settings::{
     APP_CAPABILITY_EVIDENCE_SCHEMA_VERSION, ActivationHotkeyMode, AppCapabilityEvidence,

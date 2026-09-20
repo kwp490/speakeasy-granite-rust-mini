@@ -61,10 +61,49 @@ fn capture_transcribe_cancel(
 #[allow(clippy::needless_pass_by_value)]
 fn runtime_recover(
     window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
     runtime: tauri::State<'_, RuntimeWizardCoordinator>,
+    operations: tauri::State<'_, OperationCoordinator>,
 ) -> Result<(), &'static str> {
     require_main_window(&window)?;
-    runtime.recover_manually()
+    // Exclusive for the same reason a model install is: this discards the
+    // resident worker, and doing that under a running pass would fail that
+    // dictation rather than recover the engine.
+    operations.begin(ExclusiveOperation::EngineRestart)?;
+    let outcome = restart_granite_engine(&app, &runtime);
+    operations.finish(ExclusiveOperation::EngineRestart);
+    outcome
+}
+
+/// Restarts the engine the production dictation path actually uses.
+///
+/// [`RuntimeWizardCoordinator::recover_manually`] clears the *wizard's* crash
+/// state, and that is not the state a dictation consults. The resident worker
+/// and the quarantine that refuses a pass both live on
+/// [`GraniteEngineCoordinator`], so recovery that never touched it reported
+/// success while every later dictation still failed its quarantine check.
+///
+/// The warm is deliberately not awaited. It hashes the pack and loads roughly
+/// 2 GB, which is far longer than an IPC command may hold, so this returns once
+/// a replacement warm is under way; the caller watches `capture_hud_status` for
+/// `ready` and reports success from that rather than from this returning.
+fn restart_granite_engine(
+    app: &tauri::AppHandle,
+    runtime: &RuntimeWizardCoordinator,
+) -> Result<(), &'static str> {
+    // The wizard's crash state as well, and first: it refuses while a runtime
+    // operation is active, which is the one condition under which tearing the
+    // worker down would be wrong.
+    runtime.recover_manually()?;
+    {
+        let granite = app
+            .try_state::<GraniteEngineCoordinator>()
+            .ok_or("granite_state_unavailable")?;
+        granite.clear_quarantine();
+        granite.invalidate();
+    }
+    warm_granite_engine(app);
+    Ok(())
 }
 
 const fn domain_error_code(error: &DomainError) -> &'static str {
@@ -220,44 +259,124 @@ fn hotkey_configure(
         _ => return Err("hotkey_mode_invalid"),
     };
     let coordinator = app.state::<HotkeyCoordinator>();
-    let previous = coordinator
-        .binding
-        .lock()
-        .map_err(|_| "hotkey_state_unavailable")?
-        .clone();
-    let _ = app.global_shortcut().unregister(previous.as_str());
+    let profile = app.state::<ProfileCoordinator>();
+    apply_hotkey_candidate(
+        &coordinator,
+        HotkeyCandidate {
+            binding,
+            mode,
+            enabled,
+        },
+        |binding| {
+            let _ = app.global_shortcut().unregister(binding);
+        },
+        || register_activation_hotkey(&app),
+        |candidate| {
+            let mut settings = profile
+                .settings
+                .lock()
+                .map_err(|_| "profile_state_unavailable")?
+                .clone();
+            settings.hotkey.enabled = candidate.enabled;
+            candidate
+                .binding
+                .clone_into(&mut settings.hotkey.activation_binding);
+            settings.hotkey.activation_mode = stored_mode;
+            profile.save(&settings)?;
+            *profile
+                .settings
+                .lock()
+                .map_err(|_| "profile_state_unavailable")? = settings;
+            Ok(())
+        },
+    )
+}
+
+/// One candidate activation-hotkey change: what the coordinator holds, and what
+/// `hotkey_configure` was asked to put there.
+struct HotkeyCandidate {
+    binding: String,
+    mode: ActivationMode,
+    enabled: bool,
+}
+
+/// Reads the coordinator's live activation state as a candidate.
+fn read_hotkey_candidate(coordinator: &HotkeyCoordinator) -> Result<HotkeyCandidate, &'static str> {
+    Ok(HotkeyCandidate {
+        binding: coordinator
+            .binding
+            .lock()
+            .map_err(|_| "hotkey_state_unavailable")?
+            .clone(),
+        mode: *coordinator
+            .mode
+            .lock()
+            .map_err(|_| "hotkey_state_unavailable")?,
+        enabled: *coordinator
+            .enabled
+            .lock()
+            .map_err(|_| "hotkey_state_unavailable")?,
+    })
+}
+
+/// Writes a candidate into the live coordinator.
+fn write_hotkey_candidate(
+    coordinator: &HotkeyCoordinator,
+    candidate: &HotkeyCandidate,
+) -> Result<(), &'static str> {
     {
         let mut current = coordinator
             .binding
             .lock()
             .map_err(|_| "hotkey_state_unavailable")?;
-        binding.clone_into(&mut current);
+        candidate.binding.clone_into(&mut current);
     }
     *coordinator
         .mode
         .lock()
-        .map_err(|_| "hotkey_state_unavailable")? = mode;
+        .map_err(|_| "hotkey_state_unavailable")? = candidate.mode;
     *coordinator
         .enabled
         .lock()
-        .map_err(|_| "hotkey_state_unavailable")? = enabled;
+        .map_err(|_| "hotkey_state_unavailable")? = candidate.enabled;
+    Ok(())
+}
 
-    let profile = app.state::<ProfileCoordinator>();
-    let mut settings = profile
-        .settings
-        .lock()
-        .map_err(|_| "profile_state_unavailable")?
-        .clone();
-    settings.hotkey.enabled = enabled;
-    settings.hotkey.activation_binding = binding;
-    settings.hotkey.activation_mode = stored_mode;
-    profile.save(&settings)?;
-    *profile
-        .settings
-        .lock()
-        .map_err(|_| "profile_state_unavailable")? = settings;
+/// Applies one activation-hotkey change as a single transaction.
+///
+/// Registration runs before persistence, and a failure at either step puts the
+/// previous binding, mode and enabled flag back and re-registers them. The
+/// order is the whole point: this used to unregister the working shortcut
+/// first and save before registering, so a binding Windows refused left the
+/// user with no activation shortcut at all *and* the refused value on disk for
+/// the next launch.
+///
+/// `register` reads the coordinator rather than taking an argument, because
+/// that is how `register_activation_hotkey` works — so the candidate has to be
+/// written before it runs, and a rollback has to rewrite the coordinator rather
+/// than simply decline to write it.
+fn apply_hotkey_candidate(
+    coordinator: &HotkeyCoordinator,
+    candidate: HotkeyCandidate,
+    unregister: impl Fn(&str),
+    register: impl Fn() -> Result<(), &'static str>,
+    persist: impl Fn(&HotkeyCandidate) -> Result<(), &'static str>,
+) -> Result<(), &'static str> {
+    let previous = read_hotkey_candidate(coordinator)?;
+    unregister(&previous.binding);
+    write_hotkey_candidate(coordinator, &candidate)?;
 
-    register_activation_hotkey(&app)
+    let outcome = register().and_then(|()| persist(&candidate));
+    if let Err(error) = outcome {
+        unregister(&candidate.binding);
+        write_hotkey_candidate(coordinator, &previous)?;
+        // Best effort, and deliberately not reported in place of `error`: the
+        // user asked about their change, and that is what failed. A restore
+        // that cannot re-register leaves the registration status saying so.
+        let _ = register();
+        return Err(error);
+    }
+    Ok(())
 }
 
 /// Applies the persisted activation preference to the live coordinator.

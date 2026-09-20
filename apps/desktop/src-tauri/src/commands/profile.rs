@@ -296,6 +296,37 @@ fn disk_logging_configure(
     profile.view()
 }
 
+/// Turns automatic insertion into the focused application on or off.
+///
+/// Its own command rather than a field on `delivery_configure`, because the two
+/// govern different things and conflating them is how this ended up with no
+/// control at all: `safe_preference` is about the copy this window keeps, and
+/// this is about whether another application receives the text.
+///
+/// The default stays on. Turning it off leaves the transcript in the result
+/// view, and `deliver_final_text` then classifies no target -- see
+/// `docs/PRIVACY.md` on why an unattempted delivery is still retained.
+#[tauri::command]
+fn auto_paste_configure(
+    window: tauri::WebviewWindow,
+    profile: tauri::State<'_, ProfileCoordinator>,
+    enabled: bool,
+) -> Result<ProfileView, &'static str> {
+    require_main_window(&window)?;
+    let mut settings = profile
+        .settings
+        .lock()
+        .map_err(|_| "profile_state_unavailable")?
+        .clone();
+    settings.delivery.auto_paste = enabled;
+    profile.save(&settings)?;
+    *profile
+        .settings
+        .lock()
+        .map_err(|_| "profile_state_unavailable")? = settings;
+    profile.view()
+}
+
 #[tauri::command]
 fn delivery_configure(
     window: tauri::WebviewWindow,

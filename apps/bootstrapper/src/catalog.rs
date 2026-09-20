@@ -1051,8 +1051,20 @@ pub fn describe_download_plan(labels: &[&str], total_bytes: u64) -> String {
 /// Its own message rather than a progress bar that fills instantly, because
 /// those are not the same claim: nothing was transferred, and the reason is that
 /// the files are present and their digests still match.
+///
+/// Shown **after** the reverification pass, never instead of it. It used to be
+/// shown on a length comparison, which made "still matches its checksum" a
+/// sentence no code had checked.
 pub const DOWNLOAD_ALREADY_PRESENT: &str =
     "Everything needed is already here and still matches its checksum. Nothing to download.";
+
+/// Shown while retained artifacts are read back and hashed.
+///
+/// Keeping bytes that are already on disk means verifying them, which reads
+/// 2.30 GB for the shipped Granite pack. That is not instant and must not be
+/// silent, so the step runs with its bar showing and says this while it does.
+pub const DOWNLOAD_VERIFYING_PRESENT: &str =
+    "Everything needed is already here. Checking that it still matches its checksum.";
 
 /// Which of the three things the download step does is happening now.
 ///

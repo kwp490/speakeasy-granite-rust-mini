@@ -328,6 +328,23 @@ impl WorkerRequest {
 ///
 /// Returns [`ProtocolError`] when serialization, size validation, or I/O fails.
 pub fn write_frame<T: Serialize>(writer: &mut impl Write, value: &T) -> Result<(), ProtocolError> {
+    writer.write_all(&frame_bytes(value)?)?;
+    writer.flush()?;
+    Ok(())
+}
+
+/// Encodes one little-endian length-prefixed JSON frame without writing it.
+///
+/// Split out from [`write_frame`] so a caller can serialize on its own thread
+/// and hand the bytes to whichever thread owns the pipe. `write_all` on a full
+/// pipe blocks until the reader drains it, which is not something a request
+/// with a deadline can do inline.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError`] when serialization fails or the frame exceeds
+/// [`MAX_FRAME_BYTES`].
+pub fn frame_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>, ProtocolError> {
     let payload = serde_json::to_vec(value)?;
     if payload.len() > MAX_FRAME_BYTES {
         return Err(ProtocolError::FrameTooLarge {
@@ -339,10 +356,10 @@ pub fn write_frame<T: Serialize>(writer: &mut impl Write, value: &T) -> Result<(
         actual: payload.len(),
         maximum: MAX_FRAME_BYTES,
     })?;
-    writer.write_all(&length.to_le_bytes())?;
-    writer.write_all(&payload)?;
-    writer.flush()?;
-    Ok(())
+    let mut frame = Vec::with_capacity(4 + payload.len());
+    frame.extend_from_slice(&length.to_le_bytes());
+    frame.extend_from_slice(&payload);
+    Ok(frame)
 }
 
 /// Reads one little-endian length-prefixed JSON frame.

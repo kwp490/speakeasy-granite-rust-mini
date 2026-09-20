@@ -110,6 +110,10 @@ having attempted the paste and looked at where the text went: **if you turn
 automatic paste off and copy the transcript into such a field yourself, it is
 kept**, because nothing observed the destination.
 
+Automatic paste is in **Settings -> Output & Privacy**, on by default. Turning it
+off leaves each transcript here to read and copy yourself; nothing is inserted
+into the app you were using.
+
 **Before dictating anything sensitive, turn persisted history off.** It is off by
 default, it is the one setting that holds however you move the text, and it
 leaves nothing on disk to exclude in the first place.

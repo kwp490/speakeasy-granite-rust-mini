@@ -15,7 +15,7 @@ that closed it, and any hazard general enough to bite again lives in
 | --- | --- |
 | Branch | `main`, on `kwp490/speakeasy-granite-rust-mini` (public) |
 | Latest release | `v1.9.0`, 2026-09-20, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
-| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.9.0`, equal to the published release, so the next build must move it first |
+| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.9.1`, one prepared increment ahead of the published `v1.9.0` release |
 | Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
 | Ignored tests | seven, all hardware or real-registry. See below |
 
@@ -53,6 +53,58 @@ release. They last ran against `v1.8.1`, the warm path did not move in `1.9.0`,
 and the wizard proof above exercised a real CUDA dictation against this
 artifact. Re-run them when the warm path next moves.
 
+### Prepared v1.9.1 state (2026-09-20)
+
+An independent code review ("Astra") raised eight findings and all eight are
+fixed in the working tree, each with a red control that reproduced the defect
+before the fix and was restored byte-exactly afterwards. Two were disclosure
+defects (Settings claimed terminals were excluded; the engine-restart button
+claimed a restart it never performed), three were correctness (hotkey rollback,
+session-identifier collisions, an unbounded worker write), two were security
+(cache reuse without digests, a stale target decision before synthesized input)
+and one was the missing automatic-paste control.
+
+**RUSTSEC-2026-0285 was taken independently in both `1.9.0` and this batch, and
+the two fixes were not identical.** `1.9.0` updated `Cargo.lock` to `rustls`
+0.23.45 and re-recorded the build-script inventory, but left the workspace pin
+in `Cargo.toml` at `=0.23.42`. Nothing resolves that pin today, because no crate
+takes `rustls` directly — so the disagreement was latent rather than broken. This
+version moves the pin to `=0.23.45` so the manifest and the lockfile agree, and
+adds a `note` to the `aws-lc-sys` entry recording that its `builder/cc_builder.rs`
+`https://` strings are all comments citing upstream issues, which is the same
+false-positive class as `web_atoms`.
+
+`speakeasy-desktop` now takes `getrandom` as a direct dependency, recorded in
+`Test-DependencyPolicy.ps1` with its reason. It adds no package to the graph.
+
+The workspace and installed application are `1.9.1`. The install was a direct
+`Decision::Upgrade` from 1.9.0 rather than an uninstall and reinstall, so the
+existing personalization and settings records were untouched.
+
+The local, unsigned development installer is
+`target\local-development\1.9.1\SpeakEasyMiniSetup.exe`, 38,249,187 bytes,
+SHA-256 `5c3f960b711836c27217730bceac6fe5f4ecd361a099a6d89b536e361ab75cb3`.
+This is a local artifact, not a published release asset.
+
+The full `Invoke-ScaffoldChecks.ps1 -SkipNpmInstall` gate passed with exit 0 and
+ended `no leaks found`.
+
+**Neither installer proof has run against this build, and both refusals are
+correct.** `Test-InstallerLifecycle.ps1` refused because
+`HKCU:\Software\SpeakEasy Mini\LocalDevelopment` holds one machine-wide version
+stamp and the real installation owns it; the script will not delete a stamp that
+may belong to an installation someone uses, so the proof needs a host with
+SpeakEasy Mini uninstalled. `Test-SetupWizard.ps1` was not attempted: its
+mandatory host-identity preflight has already been observed to refuse on this
+shell, which cannot prove `%APPDATA%` through `\\localhost\C$`. Do not bypass
+either guard. **Both must pass on a suitable host before any release is cut
+from this version.**
+
+One UI measurement from the 1.9.0 handoff is not carried forward: the settings
+pages were re-laid-out only in so far as one checkbox and one button label
+changed, and the responsive and contrast sweeps were not re-run here. Re-run
+them before a release.
+
 Cutting a release from what the last one lists is a decision, not a formality —
 see "Before the next release". Test counts are deliberately not listed for the
 same reason; run the gate and read the totals, not the verdict, because a suite
@@ -70,11 +122,13 @@ It must end `no leaks found` and exit 0.
 | | |
 | --- | --- |
 | **A clean clone builds; the recorded failure did not reproduce** | Kept as a watch item, not a defect. The environment it was proved in is below |
-| **Model integrity is not execution-time** | The digest pass is desktop-side and the worker reopens by path. Needs a threat-model decision, not code |
+| **Model integrity is not execution-time** | The digest pass is desktop-side and the worker reopens by path. Needs a threat-model decision, not code. Narrowed in 1.9.1: setup no longer *reuses* or *stages* bytes it has not re-hashed |
 | **`NotAttempted` transcripts are retained** | With auto-paste off nothing classifies the target, so history keeps the row. Disclosed rather than fixed |
 | **GPU qualification cannot be proved** | Nothing can promote a card to proven, so the claim left the UI and then the payload |
 | **The Hugging Face CDN host may be regional** | One host is allowed and it looks US-specific. Affects any install that fetches the model, not only the graphics-card one |
 | **Five advisory allowlist entries expire 2026-10-19** | RUSTSEC-2025-0075/0080/0081/0098/0100, all `unic-*` crates reached through Tauri's `urlpattern`. The gate fails on the expiry date whether or not anything changed, so the entries need re-reviewing and re-dating, or dropping if Tauri has moved off them |
+| **v1.9.1 is prepared, not published** | Built and installed locally. **Neither installer proof has run against it** — see "Prepared v1.9.1 state" |
+| **Focused delivery re-checks identity, not sensitivity** | A focus change *within* the target process is not caught. Closing it needs a UI Automation read at input time, which costs up to seconds |
 
 Four of the five longstanding entries are **deliberate residuals carried forward
 from 1.8.1**, not code left out by accident: the integrity gap and the
@@ -82,7 +136,18 @@ from 1.8.1**, not code left out by accident: the integrity gap and the
 decision, the GPU claim stays out of the UI until a real inference sample can
 support it, and the CDN allowlist is not widened by guesswork. Each is disclosed
 where a user would look. The clean-clone failure is contributor-only and watched
-rather than fixed. The allowlist row is the only one with a deadline attached.
+rather than fixed. The v1.9.1 row is the current release milestone, and
+the allowlist row is the only one with a deadline attached.
+
+The focused-delivery row is new in 1.9.1 and is a residual of the fix rather
+than a gap in it: delivery now re-reads the foreground window, its process and
+that process's start time after every wait and immediately before the keystroke,
+which closes the case where focus moved to a *different* application. Identity
+is all it can afford there — a full `TargetSnapshot` costs a UI Automation
+inspection measured at 68 ms into an empty Notepad and 12.8 s into a WebView2
+window — so a move into a password box *inside* the same window still passes.
+It is documented beside the protection in `docs/ARCHITECTURE.md` and in
+`validate_foreground_identity`.
 
 ### The seven ignored tests, and how to run them
 
@@ -246,9 +311,14 @@ worker. Nothing here can test it from one country.
 
 Not blockers for the tree; blockers for cutting a build from it.
 
-All five steps are complete for `v1.9.0`, which is published. Nothing here is
-carried over: the next release starts at step 1, because the workspace version
-now equals the published one and `install::decide_now` refuses an equal stamp.
+For the prepared v1.9.1 build, steps 1 and 2 are complete and the fresh build in
+step 3 is complete. **Both proofs in step 3 are outstanding**, and neither was
+skipped by choice: `Test-InstallerLifecycle.ps1` refuses while any SpeakEasy
+Mini version stamp exists in `HKCU`, which the real installation owns, and
+`Test-SetupWizard.ps1` refuses on this shell's host-identity preflight. Both
+need a host with SpeakEasy Mini uninstalled and `\\localhost\C$` reachable.
+Nothing has been tagged, uploaded or published, and step 5 is not complete.
+Rebuild and repeat the proofs if source or packaged inputs change.
 
 1. **The version must move**, before anything is built. `install::decide_now`
    returns `RefuseSameVersion` on an equal stamp, so a rebuilt version cannot

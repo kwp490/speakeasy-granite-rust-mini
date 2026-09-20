@@ -790,6 +790,20 @@ impl GraniteEngineCoordinator {
         }
     }
 
+    /// Clears the crash quarantine so a later warm may run again.
+    ///
+    /// Explicit user recovery only. The quarantine exists because repeated
+    /// crashes in one window mean the worker is not coming back by itself, so
+    /// clearing it on any automatic path would restore the restart loop it was
+    /// added to stop. `is_quarantined` is what `run_granite_final_pass` and
+    /// `warm_granite_if_configured` both consult, which is why clearing the
+    /// runtime wizard's separate throttle never unblocked a dictation.
+    pub fn clear_quarantine(&self) {
+        if let Ok(mut crashes) = self.crashes.lock() {
+            crashes.reset();
+        }
+    }
+
     /// Releases the resident worker so the app can exit cleanly, or so the
     /// next dictation spawns a fresh one after a fault the worker cannot
     /// recover from.
@@ -1905,6 +1919,63 @@ mod tests {
             CancelToken::default(),
         ));
         assert_eq!(outcome, Err(domain_error(ErrorCode::EngineQuarantined)));
+    }
+
+    /// Explicit recovery, proved at the check that actually refuses a pass.
+    ///
+    /// The wizard's own recovery is asserted to leave this quarantine alone,
+    /// because that separation is the whole defect: the Restart button called
+    /// only `recover_manually`, reported success, and every later dictation
+    /// still failed `is_quarantined` on a coordinator nothing had touched.
+    #[test]
+    fn clearing_the_engine_quarantine_lets_a_pass_past_the_check_that_refused_it() {
+        let coordinator = GraniteEngineCoordinator::default();
+        for _ in 0..3 {
+            coordinator.record_worker_failure();
+        }
+        assert!(coordinator.is_quarantined());
+
+        crate::runtime_wizard::RuntimeWizardCoordinator::new(PathBuf::from("unused"))
+            .recover_manually()
+            .expect("no runtime operation is active");
+        assert!(
+            coordinator.is_quarantined(),
+            "the wizard's throttle is not the engine's, so clearing it is not recovery"
+        );
+
+        coordinator.clear_quarantine();
+        assert!(!coordinator.is_quarantined());
+
+        let audio = UtteranceAudio {
+            session_id: speakeasy_domain::SessionId::from_bytes([5; 16]),
+            sample_rate_hz: 16_000,
+            samples: vec![0; 1_600],
+        };
+        let request = AsrRequest {
+            correlation_id: speakeasy_domain::CorrelationId::from_bytes([6; 16]),
+            session_id: audio.session_id,
+            language: AsrLanguage::English,
+            task: AsrTask::Transcribe,
+        };
+        let outcome = tauri::async_runtime::block_on(run_granite_final_pass(
+            GraniteEnvironment {
+                granite_worker_exe: None,
+                install_root: Path::new("unused"),
+                total_memory_bytes: AMPLE_MEMORY,
+                diagnostic_log: None,
+                recorded_provider: "unrecorded",
+                cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                verifier: &TrustedDigestVerifier,
+            },
+            &coordinator,
+            audio,
+            request,
+            CancelToken::default(),
+        ));
+        // `Ok(None)` is "Granite is not configured on this machine", which is
+        // the honest answer here. What matters is that it is no longer
+        // `EngineQuarantined`: the gate that refused every pass now lets one by.
+        assert_eq!(outcome, Ok(None));
     }
 
     #[test]

@@ -1114,6 +1114,7 @@ impl ProfileCoordinator {
                 .privacy
                 .history_plaintext_disclosure_accepted,
             delivery_preference: settings.delivery.safe_preference,
+            auto_paste_enabled: settings.delivery.auto_paste,
             recording_feedback_enabled: settings.delivery.feedback_enabled,
             disk_logging_enabled: settings.privacy.disk_logging_enabled,
             preferred_capture_device_id: settings.preferred_capture_device_id.clone(),
@@ -1319,13 +1320,13 @@ impl HistoryCoordinator {
     /// transcript went, and is not known until then. The bool is returned rather
     /// than dropped because "refused by policy" and "stored" are different
     /// outcomes the diagnostic log has to tell apart.
-    fn persist(&self, result: &TranscriptResult) -> Result<bool, &'static str> {
+    fn persist(&self, result: &TranscriptResult) -> Result<HistoryWrite, &'static str> {
         let mut slot = self
             .repository
             .lock()
             .map_err(|_| "history_state_unavailable")?;
         let Some(repository) = slot.as_mut() else {
-            return Ok(false);
+            return Ok(HistoryWrite::Skipped);
         };
         repository
             .record(result)
@@ -1404,5 +1405,16 @@ impl OperationCoordinator {
         )
         .then_some(())
         .ok_or("dictation_active_operation_deferred")
+    }
+
+    /// Releases an operation taken with [`Self::begin`].
+    ///
+    /// Infallible on purpose: a caller that has finished its work cannot do
+    /// anything useful with a poisoned arbiter, and leaving the operation held
+    /// would block every later one.
+    fn finish(&self, operation: ExclusiveOperation) {
+        if let Ok(mut arbiter) = self.arbiter.lock() {
+            let _ = arbiter.finish(operation);
+        }
     }
 }

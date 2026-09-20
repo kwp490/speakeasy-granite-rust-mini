@@ -45,6 +45,7 @@ export type ProfileController = {
   setStartup: (enabled: boolean) => Promise<void>;
   setRecordingFeedback: (enabled: boolean) => Promise<void>;
   setDiskLogging: (enabled: boolean) => Promise<void>;
+  setAutoPaste: (enabled: boolean) => Promise<void>;
   setDelivery: (preference: SafeDeliveryPreference) => Promise<void>;
   setHistory: (options: {
     enabled: boolean;
@@ -130,6 +131,13 @@ export function useProfile(): ProfileController {
     [configure],
   );
 
+  const setAutoPaste = useCallback(
+    async (enabled: boolean) => {
+      await configure(() => invoke<ProfileStatus>("auto_paste_configure", { enabled }));
+    },
+    [configure],
+  );
+
   const setDelivery = useCallback(
     async (preference: SafeDeliveryPreference) => {
       await configure(() => invoke<ProfileStatus>("delivery_configure", { preference }));
@@ -158,6 +166,7 @@ export function useProfile(): ProfileController {
     setStartup,
     setRecordingFeedback,
     setDiskLogging,
+    setAutoPaste,
     setDelivery,
     setHistory,
     replace: setProfile,

@@ -1,5 +1,121 @@
 # Changelog
 
+## 1.9.1 — 2026-09-20
+
+An independent code review found eight issues and all eight are fixed. The ones
+you can see: Settings claimed terminals never receive dictated text when they
+always did, the **Restart transcription engine** button reported success without
+restarting anything, a rejected keyboard shortcut left you with no working
+shortcut, and there is now a switch to stop SpeakEasy Mini typing into the app
+you were using. Underneath: setup no longer reuses cached files it has not
+re-checked, saved transcripts can no longer overwrite one another, delivery
+confirms the window again before it types, and a stalled engine can no longer
+hang a dictation. This release also takes a security fix for the TLS library
+used to download the model.
+
+### Settings was wrong about terminals — 2026-09-20
+
+**Output & privacy** said password fields, the secure desktop, elevated windows,
+read-only targets and terminals never receive inserted text. The first four were
+true. Terminals were not: dictating with a command prompt or PowerShell window
+in front pasted into it, and always had. The rule that excluded terminals lived
+in a planner that no shipped code path ever called.
+
+Pasting into a terminal is intentional and stays. The text now says so, and
+warns that what lands there can run as a command.
+
+### Restart transcription engine now restarts the engine — 2026-09-20
+
+The button reset an internal counter that no dictation ever consults, then
+announced that the engine had restarted. The engine itself — the loaded model,
+and the lock-out that stops it retrying after repeated crashes — was untouched,
+so a quarantined engine stayed quarantined and every dictation kept failing.
+
+It now clears that lock-out, discards the loaded worker, loads a fresh one, and
+reports success only once the engine is ready. While it works the button is
+disabled and reads *Restarting…*. It refuses while a dictation is running,
+rather than pulling the engine out from under it.
+
+### A rejected shortcut no longer leaves you without one — 2026-09-20
+
+Saving a shortcut that Windows would not accept unregistered the old one first
+and saved the rejected value before trying to register it. The result was no
+working shortcut and the bad value still there after a restart.
+
+Registration now happens first, the setting is saved only if it succeeds, and
+any failure puts the previous shortcut back and re-registers it. The page shows
+the shortcut that is actually live rather than the one that was refused.
+
+### You can turn off automatic paste — 2026-09-20
+
+**Output & privacy** has a new switch, *Insert the transcript into the app I was
+using*. It is on by default, so nothing changes unless you turn it off. Turn it
+off to read a transcript here and copy it yourself.
+
+The behaviour existed and the app had always acted on it; there was simply no
+way to reach it except a choice made by the installer.
+
+**This does not make history safer.** SpeakEasy Mini cannot see a paste you
+perform yourself, so a transcript you place somewhere sensitive is still kept.
+Turn persisted history off before dictating anything sensitive — that is the
+one setting that holds whatever you do with the text, and it is the default.
+
+### Setup re-checks files it kept — 2026-09-20
+
+Running setup again over an existing installation decided a file was still good
+by comparing its size. A file of the right size whose contents had changed
+passed, and went on to be loaded by the engine — and, for the graphics-card
+download, copied out and executed. The wizard said "still matches its checksum"
+when no checksum had been read.
+
+Retained files are now re-hashed before they are reused and before anything is
+staged for execution. Anything that fails is downloaded again. The step shows
+what it is doing, because reading 2.30 GB is not instant.
+
+### Delivery confirms the window again before it types — 2026-09-20
+
+The check on where a transcript may go ran once, when transcription finished.
+Delivery then waited — for you to release the shortcut keys, and for the
+clipboard — and typed without looking again. If the focus moved during either
+wait, the decision made about the first window authorised typing into the
+second.
+
+The window, its program and that program's start time are now re-checked after
+each wait and immediately before the keystroke, and delivery is refused if any
+of them changed.
+
+**A limitation worth knowing:** this does not catch focus moving *within* the
+same program, such as into a password box in the window already being typed
+into. Recognising that needs an inspection that can take seconds, which cannot
+run at the moment of typing.
+
+### Saved transcripts can no longer overwrite one another — 2026-09-20
+
+Each dictation's identifier was a counter that restarted at one every launch,
+combined with a value that was very nearly always the same. Saved history is
+keyed on that identifier, so an identifier that came round again silently
+replaced an older, unrelated transcript.
+
+Identifiers now come from the operating system's random number generator. A
+history entry that does replace an existing one is recorded as a replacement
+rather than reported as an ordinary save.
+
+### A stalled engine can no longer hang a dictation — 2026-09-20
+
+If the engine stopped reading its input while still running, the app blocked
+handing it audio — with no time limit, ignoring the dictation's own deadline and
+any attempt to cancel. Nothing recovered it.
+
+Sending to the engine is now bounded by the same deadline as everything else in
+a request, can be cancelled, and shuts the engine process down if it expires.
+
+### Security update to the TLS library — 2026-09-20
+
+`rustls`, which secures the model and runtime downloads, is updated to 0.23.45
+for RUSTSEC-2026-0285. The flaw let a server send handshake messages unencrypted
+that should have been encrypted, without the connection being rejected. It did
+not allow an attacker to alter or complete a handshake.
+
 ## 1.9.0 — 2026-09-02
 
 Settings now uses a restrained desktop workspace across all six pages: a compact

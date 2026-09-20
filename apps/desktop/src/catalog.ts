@@ -127,7 +127,7 @@ export const messages = {
     granite_unavailable:
       "No transcription engine is installed, so nothing can be transcribed. Setup installs one and verifies it before the app ever opens, so this normally means the installation was changed afterwards. Run the installer again.",
     granite_quarantined:
-      "The engine failed several times in a row and was paused so it could not keep failing silently. Restart SpeakEasy Mini to clear it.",
+      "The engine failed several times in a row and was paused so it could not keep failing silently. Use Restart transcription engine in Advanced settings to clear it.",
     // Not a malfunction, so it must not read as one.
     no_speech:
       "The recording held no speech. If you did speak, check the microphone selected in Audio — the level meter there should move while you talk.",
@@ -267,7 +267,7 @@ export const messages = {
   retryFailed: "That did not complete. The audio is still retained, so you can try again.",
   protectedTargets: "Protected targets",
   protectedTargetsDetail:
-    "Password fields, the Windows secure desktop, elevated windows, read-only targets and terminals never receive inserted text. The transcript stays here instead.",
+    "Password fields, the Windows secure desktop, elevated windows and read-only targets never receive inserted text. The transcript stays here instead. Terminals and consoles are not excluded: text pasted into one can run as a command, so check what has focus first.",
 
   // Advanced
   runtimeSection: "Runtime",
@@ -275,8 +275,8 @@ export const messages = {
   credentialsSection: "Credentials",
   maintenanceSection: "Maintenance",
   restartEngine: "Restart transcription engine",
+  engineRestarting: "Restarting the engine…",
   engineRestarted: "The transcription engine was restarted.",
-  engineRestartFailed: "The engine could not be restarted. Try again after any running dictation finishes.",
   aboutSection: "About",
   aboutDetail:
     "SpeakEasy transcribes on this device with a local model. There is no analytics, no crash upload and no cloud sync.",
@@ -341,6 +341,9 @@ export const messages = {
   resultViewOnly: "Private result view only",
   explicitCopy: "Result view with explicit copy",
   deliveryChoiceDetail: "This choice covers the transcript kept in this window. Dictation started from the transcriber or the shortcut always inserts its final transcript into the app you were using, unless that app refuses inserted text.",
+  autoPaste: "Insert the transcript into the app I was using",
+  autoPasteDetail:
+    "On by default. Turn it off to read a transcript here first and copy it yourself. SpeakEasy Mini cannot see a paste you do it yourself, so a transcript you place somewhere sensitive is still kept in history — turn history off before dictating anything sensitive.",
   copyLastTranscript: "Copy the last transcript",
   modelSource: "Source",
   modelRevision: "Revision",
@@ -744,6 +747,15 @@ export const messages = {
       "Transcription is paused after repeated engine failures. Use Restart engine in Advanced settings.",
     granite_state_unavailable:
       "The transcription engine state is unavailable. Wait a moment and retry.",
+    dictation_active_operation_deferred:
+      "A dictation is running. This can be done once it finishes.",
+    runtime_busy: "Another runtime operation is already running. Wait for it to finish, then retry.",
+    runtime_state_unavailable:
+      "The runtime state could not be read. Restart SpeakEasy Mini and try again.",
+    operation_state_unavailable:
+      "The operation state could not be read. Restart SpeakEasy Mini and try again.",
+    engine_restart_timed_out:
+      "The engine did not finish loading in time. It may still be loading — check the runtime status above before trying again.",
     // The shortcut's half of `model_verifying`. Bounded by the launch warm, so
     // the instruction is to wait rather than to do anything.
     model_verifying:

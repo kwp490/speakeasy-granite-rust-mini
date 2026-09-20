@@ -48,7 +48,7 @@ use speakeasy_models::{
 };
 use speakeasy_storage::{
     ActivationHotkeyMode, DEFAULT_ACTIVATION_HOTKEY, HistoryPolicy, HistoryRepository,
-    HudDockEdge, HudDockPlacement, PersonalizationRepository, ResultProvenance,
+    HistoryWrite, HudDockEdge, HudDockPlacement, PersonalizationRepository, ResultProvenance,
     SafeDeliveryPreference, Settings, SettingsStore, TranscriptResult,
     WritingRulePreferences, clear_pending_update_after_health_checks,
 };
@@ -279,6 +279,14 @@ pub struct ProfileView {
     history_retention_days: u16,
     history_plaintext_disclosure_accepted: bool,
     delivery_preference: SafeDeliveryPreference,
+    /// Whether a finished transcript is inserted into whatever holds the
+    /// foreground, as opposed to being left in the result view to be read
+    /// first.
+    ///
+    /// Distinct from `delivery_preference`, which governs the copy kept in
+    /// this window. The backend has always branched on this; until it was
+    /// exposed, the only way to turn it off was the installer's seed.
+    auto_paste_enabled: bool,
     recording_feedback_enabled: bool,
     disk_logging_enabled: bool,
     /// The microphone dictation will actually record from, so the Audio page can
@@ -699,13 +707,25 @@ impl HotkeyCoordinator {
     }
 }
 
+/// A session identifier that does not repeat, within a process or across them.
+///
+/// Sixteen bytes from the OS CSPRNG. This was a process-local counter starting
+/// at one, plus `Instant::now().elapsed()` — which measures the interval since
+/// the instant created on that same line, a few nanoseconds, and is neither a
+/// timestamp nor unique to a process. The counter restarted at one every
+/// launch, so identifiers repeated across launches.
+///
+/// That mattered beyond identity: `transcript_history` keys on this value, so a
+/// repeat overwrote an older, unrelated transcript. `HistoryRepository::record`
+/// now reports a replacement rather than performing one silently, and this is
+/// the other half — the identifiers stop colliding in the first place.
+///
+/// A failure here is not recoverable into a weaker identifier: a predictable or
+/// repeated session id is the defect being removed. On Windows this reads the
+/// system CSPRNG, which does not fail in any state where the app is running.
 fn new_session_id() -> SessionId {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
     let mut bytes = [0_u8; 16];
-    bytes[..8].copy_from_slice(&sequence.to_le_bytes());
-    bytes[8..].copy_from_slice(&Instant::now().elapsed().as_nanos().to_le_bytes()[..8]);
+    getrandom::fill(&mut bytes).expect("the OS must provide randomness for a session identifier");
     SessionId::from_bytes(bytes)
 }
 
@@ -1441,8 +1461,13 @@ fn persist_delivered_history(
         .state::<HistoryCoordinator>()
         .persist(&history_row_for(record, target));
     let outcome = match stored {
-        Ok(true) => "stored",
-        Ok(false) => "not_stored",
+        Ok(HistoryWrite::Inserted) => "stored",
+        Ok(HistoryWrite::Skipped) => "not_stored",
+        // Expected once per retry, which re-transcribes retained audio under
+        // the session id it was captured with. From anywhere else it is an
+        // identifier collision overwriting an unrelated transcript, and this is
+        // the line that says so instead of reporting a plain success.
+        Ok(HistoryWrite::Replaced) => "replaced_existing_row",
         Err(code) => code,
     };
     let classification = match target {

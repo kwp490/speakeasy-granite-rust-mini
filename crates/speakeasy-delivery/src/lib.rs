@@ -14,7 +14,8 @@ use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::thread::{self, JoinHandle};
 
 use speakeasy_domain::{
-    DeliveryCapability, DeliveryRefusal, DeliveryStrategy, SessionId, TargetKind, TargetSnapshot,
+    DeliveryCapability, DeliveryRefusal, DeliveryStrategy, ForegroundIdentity, SessionId,
+    TargetKind, TargetSnapshot,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -100,21 +101,16 @@ pub fn validate_target(
     snapshot: &TargetSnapshot,
     observation: TargetObservation,
 ) -> Result<(), DeliveryRefusal> {
-    if observation.session_id != snapshot.session_id {
-        return Err(DeliveryRefusal::SessionMismatch);
-    }
-    if !observation.foreground {
-        return Err(DeliveryRefusal::FocusChanged);
-    }
-    if observation.window_handle != snapshot.window_handle {
-        return Err(DeliveryRefusal::FocusChanged);
-    }
-    if observation.process_id != snapshot.process_id {
-        return Err(DeliveryRefusal::ProcessChanged);
-    }
-    if observation.process_start_time != snapshot.executable.process_start_time {
-        return Err(DeliveryRefusal::WindowReused);
-    }
+    validate_foreground_identity(
+        snapshot,
+        ForegroundIdentity {
+            session_id: observation.session_id,
+            foreground: observation.foreground,
+            window_handle: observation.window_handle,
+            process_id: observation.process_id,
+            process_start_time: observation.process_start_time,
+        },
+    )?;
     if observation.thread_id != snapshot.thread_id || !observation.element_matches {
         return Err(DeliveryRefusal::ElementChanged);
     }
@@ -153,6 +149,44 @@ pub fn validate_target(
     }
     if !observation.modifiers_released {
         return Err(DeliveryRefusal::ModifierHeld);
+    }
+    Ok(())
+}
+
+/// Confirms the foreground is still the window `snapshot` describes.
+///
+/// The identity half of [`validate_target`], split out because it is the part
+/// that can be re-asked cheaply. [`validate_target`] calls it first and then
+/// goes on to the evidence that needs a UI Automation observation; the
+/// focused-commit path calls it on its own, repeatedly, because that is all it
+/// can afford immediately before synthesizing input.
+///
+/// **It is identity, not sensitivity.** A focus change *within* the target
+/// process — into a password field in the same window, say — keeps every field
+/// here equal and is not caught. Catching that needs a fresh UIA read of the
+/// focused element, which cannot run on this path at this cost.
+///
+/// # Errors
+///
+/// Returns the first typed mismatch; callers must not proceed to a writer.
+pub fn validate_foreground_identity(
+    snapshot: &TargetSnapshot,
+    identity: ForegroundIdentity,
+) -> Result<(), DeliveryRefusal> {
+    if identity.session_id != snapshot.session_id {
+        return Err(DeliveryRefusal::SessionMismatch);
+    }
+    if !identity.foreground {
+        return Err(DeliveryRefusal::FocusChanged);
+    }
+    if identity.window_handle != snapshot.window_handle {
+        return Err(DeliveryRefusal::FocusChanged);
+    }
+    if identity.process_id != snapshot.process_id {
+        return Err(DeliveryRefusal::ProcessChanged);
+    }
+    if identity.process_start_time != snapshot.executable.process_start_time {
+        return Err(DeliveryRefusal::WindowReused);
     }
     Ok(())
 }
@@ -397,6 +431,95 @@ mod tests {
             },
             capability: DeliveryCapability::CommitOnFinish,
         }
+    }
+
+    fn identity() -> ForegroundIdentity {
+        ForegroundIdentity {
+            session_id: session(1),
+            foreground: true,
+            window_handle: 100,
+            process_id: 200,
+            process_start_time: 400,
+        }
+    }
+
+    /// Every way the foreground can stop being the inspected window.
+    ///
+    /// The focused-commit path validated once and then waited -- for the
+    /// modifiers to be released, and for the clipboard -- and synthesized
+    /// `Ctrl+V` without looking again. A focus change during either wait
+    /// carried the original window's safety decision onto whatever held the
+    /// foreground by then, and the successful `SendInput` was classified as a
+    /// cleared delivery target. Each case below is that change, named.
+    #[test]
+    fn a_foreground_that_is_no_longer_the_inspected_window_is_refused() {
+        let target = snapshot();
+        assert_eq!(validate_foreground_identity(&target, identity()), Ok(()));
+
+        let cases = [
+            (
+                "nothing holds the foreground",
+                ForegroundIdentity {
+                    foreground: false,
+                    ..identity()
+                },
+                DeliveryRefusal::FocusChanged,
+            ),
+            (
+                "another window has it",
+                ForegroundIdentity {
+                    window_handle: 101,
+                    ..identity()
+                },
+                DeliveryRefusal::FocusChanged,
+            ),
+            (
+                "another process has it",
+                ForegroundIdentity {
+                    process_id: 201,
+                    ..identity()
+                },
+                DeliveryRefusal::ProcessChanged,
+            ),
+            (
+                "the handle was reused by a new process",
+                ForegroundIdentity {
+                    process_start_time: 401,
+                    ..identity()
+                },
+                DeliveryRefusal::WindowReused,
+            ),
+            (
+                "the answer belongs to another dictation",
+                ForegroundIdentity {
+                    session_id: session(2),
+                    ..identity()
+                },
+                DeliveryRefusal::SessionMismatch,
+            ),
+        ];
+        for (description, changed, expected) in cases {
+            assert_eq!(
+                validate_foreground_identity(&target, changed),
+                Err(expected),
+                "{description}: input must be refused, not sent to the new target"
+            );
+        }
+    }
+
+    /// The limitation, pinned so it is not mistaken for coverage.
+    ///
+    /// A focus change inside the target process leaves every identity field
+    /// equal, so this check passes. It is documented beside the protection in
+    /// `validate_foreground_identity` and in `foreground_identity_unchanged`,
+    /// and closing it needs a fresh UI Automation read that cannot run at this
+    /// point for this cost.
+    #[test]
+    fn an_identity_check_does_not_see_a_focus_change_within_the_target_process() {
+        assert_eq!(
+            validate_foreground_identity(&snapshot(), identity()),
+            Ok(())
+        );
     }
 
     fn observation() -> TargetObservation {

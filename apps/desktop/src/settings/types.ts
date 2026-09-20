@@ -85,6 +85,14 @@ export type ProfileStatus = {
   history_retention_days: number;
   history_plaintext_disclosure_accepted: boolean;
   delivery_preference: SafeDeliveryPreference;
+  /**
+   * Whether a finished transcript is inserted into whatever holds the
+   * foreground, rather than left here to be read first.
+   *
+   * Separate from `delivery_preference`, which governs the copy this window
+   * keeps. This one decides whether another application receives the text.
+   */
+  auto_paste_enabled: boolean;
   recording_feedback_enabled: boolean;
   disk_logging_enabled: boolean;
   /**

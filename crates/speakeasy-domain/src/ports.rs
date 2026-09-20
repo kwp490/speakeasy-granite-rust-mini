@@ -647,6 +647,29 @@ pub struct TargetSnapshot {
     pub capability: DeliveryCapability,
 }
 
+/// Who holds the foreground right now, cheaply enough to ask repeatedly.
+///
+/// The four facts that can be read with a handful of syscalls and no UI
+/// Automation: a full [`TargetSnapshot`] costs a UIA inspection, measured at
+/// 68 ms into an empty Notepad and 12.8 s into a `WebView2` window, which is not
+/// something that can run immediately before synthesizing input.
+///
+/// It exists so the focused-commit path can confirm the window it is about to
+/// paste into is still the window it inspected. That path validated once and
+/// then waited — for modifiers to be released and for the clipboard — and sent
+/// input without looking again, so a focus change during either wait carried
+/// the original window's safety decision onto a different one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ForegroundIdentity {
+    pub session_id: SessionId,
+    /// False when nothing holds the foreground, which is its own refusal.
+    pub foreground: bool,
+    pub window_handle: u64,
+    pub process_id: u32,
+    /// Distinguishes a reused window handle from the original window.
+    pub process_start_time: u64,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeliveryRequest {
     pub correlation_id: CorrelationId,

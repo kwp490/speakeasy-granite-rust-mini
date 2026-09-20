@@ -7,6 +7,25 @@ use std::time::Duration;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
+/// What one history write did.
+///
+/// Three outcomes rather than a boolean, because "nothing was written" and
+/// "something was overwritten" are different facts and the second one used to
+/// be indistinguishable from an ordinary success.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HistoryWrite {
+    /// Retention is off, or the target was sensitive. Nothing reached the disk.
+    Skipped,
+    /// A new row.
+    Inserted,
+    /// An existing row for this session id was overwritten.
+    ///
+    /// Expected exactly once per retry. Anything else is an identifier
+    /// collision replacing an unrelated transcript, which is why this is
+    /// reported rather than folded into [`Self::Inserted`].
+    Replaced,
+}
+
 pub const DATABASE_SCHEMA_VERSION: u32 = 1;
 const SESSION_RESULT_LIMIT: usize = 50;
 
@@ -156,16 +175,34 @@ impl HistoryRepository {
         Ok(())
     }
 
-    /// Returns true only when a non-sensitive result was written.
+    /// Writes one result, and says whether it replaced an existing row.
+    ///
+    /// `session_id` is the primary key and the write is `INSERT OR REPLACE`,
+    /// because `dictation_retry` re-transcribes retained audio under the
+    /// session id it was captured with and must overwrite its own earlier row.
+    /// Any *other* replacement is an identifier collision overwriting an
+    /// unrelated transcript, so the two are distinguished here rather than both
+    /// reporting a plain success.
     ///
     /// # Errors
     ///
-    /// Returns a validation or `SQLite` write error.
-    pub fn record(&mut self, result: &TranscriptResult) -> Result<bool, RepositoryError> {
+    /// Returns a validation or `SQLite` read or write error.
+    pub fn record(&mut self, result: &TranscriptResult) -> Result<HistoryWrite, RepositoryError> {
         validate_result(result)?;
         if !self.policy.permits_persistence() || result.secure_target {
-            return Ok(false);
+            return Ok(HistoryWrite::Skipped);
         }
+        // Read before the write, because `INSERT OR REPLACE` cannot report
+        // which of the two it did.
+        let replacing = self
+            .connection
+            .query_row(
+                "SELECT 1 FROM transcript_history WHERE session_id = ?1",
+                params![result.session_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
         self.connection.execute(
             "INSERT OR REPLACE INTO transcript_history
              (session_id, created_unix_ms, raw_text, polished_text, provenance)
@@ -178,7 +215,11 @@ impl HistoryRepository {
                 provenance_name(&result.provenance)
             ],
         )?;
-        Ok(true)
+        Ok(if replacing {
+            HistoryWrite::Replaced
+        } else {
+            HistoryWrite::Inserted
+        })
     }
 
     /// Returns at most 500 persisted results in newest-first order.
@@ -410,8 +451,9 @@ mod tests {
             plaintext_disclosure_accepted: true,
         };
         let mut repository = HistoryRepository::open(&path, policy).unwrap();
-        assert!(
+        assert_eq!(
             repository.record(&result("healthy", 1, false)).unwrap(),
+            HistoryWrite::Inserted,
             "the repository must be genuinely working before it is broken"
         );
 
@@ -428,12 +470,52 @@ mod tests {
         );
     }
 
+    /// A rewrite of the same session is reported, never folded into a success.
+    ///
+    /// `dictation_retry` re-transcribes retained audio under the session id it
+    /// was captured with, so a replacement is legitimate and has to keep
+    /// working. Every *other* replacement is an identifier collision
+    /// overwriting an unrelated transcript, and the caller can only tell the
+    /// difference if this says which happened.
+    #[test]
+    fn rewriting_one_session_reports_the_replacement_rather_than_hiding_it() {
+        let root = tempdir().unwrap();
+        let path = root.path().join("history.sqlite3");
+        let mut repository = HistoryRepository::open(
+            &path,
+            HistoryPolicy {
+                enabled: true,
+                retention_days: 30,
+                plaintext_disclosure_accepted: true,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            repository.record(&result("retried", 1, false)).unwrap(),
+            HistoryWrite::Inserted
+        );
+        assert_eq!(
+            repository.record(&result("retried", 2, false)).unwrap(),
+            HistoryWrite::Replaced,
+            "a second write to one session id must be reported as a replacement"
+        );
+        assert_eq!(
+            repository.list(10).unwrap().len(),
+            1,
+            "and it must still be one row, not two"
+        );
+    }
+
     #[test]
     fn history_is_off_by_default_and_secure_results_are_always_excluded() {
         let root = tempdir().unwrap();
         let path = root.path().join("history.sqlite3");
         let mut repository = HistoryRepository::open(&path, HistoryPolicy::default()).unwrap();
-        assert!(!repository.record(&result("off", 1, false)).unwrap());
+        assert_eq!(
+            repository.record(&result("off", 1, false)).unwrap(),
+            HistoryWrite::Skipped
+        );
         repository
             .set_policy(HistoryPolicy {
                 enabled: true,
@@ -441,8 +523,14 @@ mod tests {
                 plaintext_disclosure_accepted: true,
             })
             .unwrap();
-        assert!(!repository.record(&result("secure", 2, true)).unwrap());
-        assert!(repository.record(&result("normal", 3, false)).unwrap());
+        assert_eq!(
+            repository.record(&result("secure", 2, true)).unwrap(),
+            HistoryWrite::Skipped
+        );
+        assert_eq!(
+            repository.record(&result("normal", 3, false)).unwrap(),
+            HistoryWrite::Inserted
+        );
         let rows = repository.list(10).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].session_id, "normal");

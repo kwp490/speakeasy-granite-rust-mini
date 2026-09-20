@@ -1321,13 +1321,19 @@ test("dictation stays backend-owned and automatic paste stays out of the fronten
   // for the backend's `hotkey_auto_paste_enabled` delivery reason. Naming a
   // diagnostic code is not holding an authority. The rule is sharpened to what it
   // actually guards — no command invocation and no primitive.
-  // The frontend may *configure* delivery — `delivery_configure` writes the
-  // user's preference and delivers nothing. It may never *perform* delivery.
+  // The frontend may *configure* delivery — `delivery_configure` and
+  // `auto_paste_configure` write the user's preference and deliver nothing. It
+  // may never *perform* delivery.
+  //
+  // The `_configure` exemption covers the whole predicate rather than only the
+  // `deliver` half. It did not when `auto_paste_configure` was added, so a
+  // settings command that writes one boolean was read as a paste, and the rule
+  // this test states in the line above was not the rule it enforced.
   const invoked = [...app.matchAll(/invoke(?:<[^>]*>)?\("([a-z_]+)"/g)].map((match) => match[1]);
   const performsDelivery = [...new Set(invoked)].filter(
     (name) =>
-      /paste|send_key|os_input|type_text/.test(name) ||
-      (/deliver/.test(name) && !name.endsWith("_configure")),
+      !name.endsWith("_configure") &&
+      (/paste|send_key|os_input|type_text/.test(name) || /deliver/.test(name)),
   );
   assert.deepEqual(
     performsDelivery,
@@ -2879,4 +2885,53 @@ test("the handoff sends the reader to git for the branch state", async () => {
       `${name} must show how to list unpushed commits`,
     );
   }
+});
+
+/**
+ * Binds the protected-targets disclosure to what the live delivery gate refuses.
+ *
+ * `validate_focused_preflight` is that gate: it runs `classify_guard` and then
+ * refuses only `ResultViewOnly` and `AppendOnlyLive`. A terminal classifies as
+ * `ClipboardOnly`, so it is pasted into. `select_strategy` does exclude
+ * terminals, but it is reachable only through `CommitWriter::write`, which has
+ * no production caller — so the planner's rule never ran and the Settings copy
+ * promised an exclusion the build did not have.
+ *
+ * Both halves are asserted on purpose. Checking only the copy would let the code
+ * drift back; checking only the code would let the copy go stale. If the
+ * exclusion is ever added to the focused writer, this fails and says to rewrite
+ * the disclosure with it.
+ */
+test("the protected-targets disclosure matches what the focused writer refuses", async () => {
+  const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
+  const commit = await readFile(
+    new URL("../../../crates/speakeasy-windows/src/commit.rs", import.meta.url),
+    "utf8",
+  );
+
+  const disclosure = /protectedTargetsDetail:\s*"([^"]*)"/.exec(catalog)?.[1];
+  assert.ok(disclosure, "protectedTargetsDetail must exist in the catalog");
+
+  // Each of these is a real `classify_guard` refusal, so the copy keeps naming it.
+  for (const refused of ["Password fields", "secure desktop", "elevated windows", "read-only"]) {
+    assert.ok(
+      disclosure.includes(refused),
+      `the disclosure must keep naming ${refused}, which classify_guard refuses`,
+    );
+  }
+
+  // Terminals are not refused, so the copy must not say they are.
+  assert.doesNotMatch(
+    disclosure,
+    /terminals?[^.]*never receive/i,
+    "the focused writer pastes into terminals, so the disclosure must not exclude them",
+  );
+
+  const preflight = /fn validate_focused_preflight[\s\S]*?\n}/.exec(commit)?.[0];
+  assert.ok(preflight, "validate_focused_preflight must exist");
+  assert.doesNotMatch(
+    preflight,
+    /Terminal/,
+    "the focused writer now excludes terminals — update the protected-targets disclosure to say so",
+  );
 });

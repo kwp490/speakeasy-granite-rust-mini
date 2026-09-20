@@ -91,7 +91,7 @@ Settings has exactly six top-level groups:
 | General | Shortcut, the dock, recording sounds, Windows startup, keyboard access |
 | Audio | Microphone selection, input level, microphone status. **No capture controls.** |
 | Transcription | Language, the engine and model behind a Technical details disclosure, personalization |
-| Output & Privacy | Delivery choice, diagnostic log, protected targets |
+| Output & Privacy | Delivery choice, automatic paste, diagnostic log, protected targets |
 | Transcript log | Every completed transcript with Copy, the pin control, and retention |
 | Advanced | Runtime and performance, credentials as presence only, maintenance, About, and the Show raw values disclosure |
 
@@ -129,6 +129,25 @@ localized display names in the summary and exact identifiers retained behind
 from ordinary preferences. Complex model, personalization, meter and transcript
 content may stack inside their group rather than being forced into a two-column
 row.
+
+### Restart transcription engine claims nothing until the engine is ready
+
+Advanced → Maintenance carries the one control that recovers a quarantined
+engine. It runs `runtime_recover`, which takes an exclusive operation, clears
+`GraniteEngineCoordinator`'s crash quarantine, discards the resident worker and
+starts a fresh warm.
+
+**The command returning is not the restart.** It only starts the warm, which
+hashes the pack and loads roughly 2 GB, so the page waits on the same
+`capture_hud_status.engine` value the dock reads and reports success only on
+`ready`. While it waits the button is disabled and reads "Restarting…". Any
+other settled engine value, or the wait running out, is reported as that
+failure through the catalog — never as a restart.
+
+The control used to call a command that reset the *runtime wizard's* crash
+state, which no dictation consults, and then announce a restart. It is a
+worked example of the rule above: a control may not report an action it did
+not take, and "the command returned" is not evidence that it did.
 
 ### Reads that lose the startup race
 

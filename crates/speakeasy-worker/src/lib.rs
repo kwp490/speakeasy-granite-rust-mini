@@ -31,8 +31,8 @@ use speakeasy_domain::{
 pub use speakeasy_domain::{
     MAX_AUDIO_SAMPLES_PER_REQUEST, MAX_FRAME_BYTES, ProtocolError, RequestId,
     WORKER_PROTOCOL_VERSION, WorkerClient, WorkerCommand, WorkerErrorCode, WorkerEvent,
-    WorkerRequest, WorkerResponse, WorkerSessionId, read_frame, worker_response_is_terminal,
-    write_frame,
+    WorkerRequest, WorkerResponse, WorkerSessionId, frame_bytes, read_frame,
+    worker_response_is_terminal, write_frame,
 };
 
 mod finalization;

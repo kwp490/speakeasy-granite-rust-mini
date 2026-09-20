@@ -81,6 +81,23 @@ export function General({
       setHotkeyAction(messages.hotkeySaved);
     } catch {
       setHotkeyAction(messages.hotkeySaveFailed);
+      // `hotkey_configure` is transactional: a failure means the previous
+      // binding is registered and live again. Read that back and reset the
+      // form to it. Leaving the refused value on screen next to a failure
+      // message told the user their shortcut was now the one they had just
+      // been refused.
+      await readWithRetry<HotkeyStatus>("hotkey_status").then(
+        (status) => {
+          setHotkey(status);
+          setHotkeyUnavailable(false);
+          setBinding(status.binding);
+          setMode(status.mode);
+          setEnabled(status.enabled);
+        },
+        () => {
+          setHotkeyUnavailable(true);
+        },
+      );
     }
   }
 

@@ -190,6 +190,7 @@ pub fn run() {
         personalization_reset,
         history_configure,
         disk_logging_configure,
+        auto_paste_configure,
         delivery_configure,
         recording_feedback_configure,
         history_export,

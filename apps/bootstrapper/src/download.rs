@@ -114,13 +114,19 @@ pub struct Plan {
 }
 
 impl Plan {
-    /// Whether everything in this plan is already installed and verified.
+    /// Whether every file this plan would fetch is already on disk at its
+    /// recorded length.
     ///
-    /// Checked against the installed tree rather than a flag, because the honest
-    /// answer to "do I need to download this" is whether the files are there and
-    /// match their digests. A re-run of setup over a good installation should
-    /// transfer nothing and say so.
-    pub fn already_satisfied(&self) -> bool {
+    /// **Presence, not verification.** It stats; it hashes nothing. It decides
+    /// only what the download step *says first*, because it is called from the
+    /// message loop and hashing 2.30 GB there would stop the window answering.
+    ///
+    /// Whether retained bytes may be kept is decided by [`execute`], on the
+    /// worker thread, which reverifies them. This used to be the whole decision
+    /// and its own doc claimed the digests matched, which no code here had
+    /// checked: a same-length corruption passed, and the bytes went on to be
+    /// loaded natively and -- for the graphics-card payload -- executed.
+    pub fn everything_is_present(&self) -> bool {
         let manager = InstallManager::new(self.root.join("models"));
         self.items.iter().all(|item| manager.is_present(&item.spec))
     }
@@ -437,13 +443,20 @@ pub fn stage_graphics_card_payload(
     // the order to *place* in, and they are not the same question.
     for spec in specs.iter().rev() {
         let label = runtime_label(&spec.id);
-        if !manager.is_present(spec) {
-            // One half arrived and the other did not. Named rather than
-            // shrugged at: this is the state that starts and then fails at the
-            // first matmul.
+        // Reverify, not presence. This is the boundary where retained bytes
+        // become `granite-worker.exe` and the CUDA libraries beside it, and the
+        // engine smoke test then runs that worker. A successful transcription is
+        // not a digest check, so the digest has to happen here.
+        if !retained_artifact_is_usable(&manager, spec) {
+            // One half arrived and the other did not, or what arrived no longer
+            // matches its checksum. Named rather than shrugged at: this is the
+            // state that starts and then fails at the first matmul.
             return Err(catalog::gpu_staging_failed(
                 label,
-                &format!("{} was not installed.", spec.id),
+                &format!(
+                    "{} was not installed, or no longer matches its checksum.",
+                    spec.id
+                ),
             ));
         }
         let installed = models.join(&spec.id).join(&spec.revision);
@@ -546,6 +559,11 @@ pub struct Progress {
     verifying: AtomicBool,
     installing: AtomicBool,
     finished: AtomicBool,
+    /// Bytes this run actually fetched, as opposed to retained and verified.
+    ///
+    /// Separate from `completed_bytes`, which counts both: the completion
+    /// message may not describe a 2.30 GB download that did not happen.
+    transferred_bytes: AtomicU64,
     /// The partial file of whatever is transferring now.
     partial: Mutex<Option<PathBuf>>,
     failure: Mutex<Option<Failure>>,
@@ -596,6 +614,11 @@ impl Progress {
 
     pub fn finished(&self) -> bool {
         self.finished.load(Ordering::Relaxed)
+    }
+
+    /// Bytes this run fetched. Zero means everything was retained and verified.
+    pub fn transferred_bytes(&self) -> u64 {
+        self.transferred_bytes.load(Ordering::Relaxed)
     }
 
     pub fn failure(&self) -> Option<Failure> {
@@ -657,6 +680,21 @@ pub fn start(plan: Plan) -> Run {
     run
 }
 
+/// Whether bytes already on disk for `spec` may be reused without re-fetching.
+///
+/// **Presence is not enough, and that was the defect.** `is_present` compares
+/// recorded lengths and reads nothing, so a same-length corrupted or replaced
+/// file passed it — and what passed went on to be loaded natively and, for the
+/// graphics-card payload, copied into `proof` and executed by the engine smoke
+/// test. A successful transcription is not a digest check.
+///
+/// `reverify` reads and SHA-256s every required file, 2.30 GB for the shipped
+/// Granite pack. That cost is why this may only be called off the message loop,
+/// and why [`Plan::everything_is_present`] remains a stat.
+fn retained_artifact_is_usable(manager: &InstallManager, spec: &InstallSpec) -> bool {
+    manager.is_present(spec) && manager.reverify(spec).is_ok()
+}
+
 fn execute(plan: &Plan, progress: &Progress, cancel: &CancelToken) -> Result<(), Failure> {
     let policy = policy();
     let manager = InstallManager::new(plan.root.join("models"));
@@ -666,14 +704,30 @@ fn execute(plan: &Plan, progress: &Progress, cancel: &CancelToken) -> Result<(),
         progress.current.store(index, Ordering::Relaxed);
         progress.installing.store(false, Ordering::Relaxed);
 
-        // Already there and verified: transfer nothing. A user who runs setup
-        // twice, or who cancelled after the first artifact, must not be charged
-        // for the first one again.
-        if manager.is_present(&item.spec) {
+        // Already there: a user who runs setup twice, or who cancelled after
+        // the first artifact, must not be charged for it again -- but the bytes
+        // are kept only if they still hash to the manifest's digests.
+        //
+        // `is_present` compares recorded lengths and reads nothing, so a
+        // same-length corruption passed it, and what passed went on to be
+        // loaded natively and, for the graphics-card payload, executed. Reverify
+        // reads every required file, which is 2.30 GB for the shipped Granite
+        // pack; that is why this is here on the worker thread rather than in
+        // `Plan::everything_is_present`, which the message loop calls.
+        // `verifying` is true only while a present artifact is being hashed,
+        // which is the one long silence this branch can produce.
+        progress
+            .verifying
+            .store(manager.is_present(&item.spec), Ordering::Relaxed);
+        let retained = retained_artifact_is_usable(&manager, &item.spec);
+        progress.verifying.store(false, Ordering::Relaxed);
+        if retained {
             completed = completed.saturating_add(item.bytes);
             progress.completed_bytes.store(completed, Ordering::Relaxed);
             continue;
         }
+        // An invalid cache is not a failure. Falling through to the transfer
+        // below re-fetches it, and that *is* the retry path.
 
         for request in item.payload.requests() {
             if let Ok(mut slot) = progress.partial.lock() {
@@ -693,6 +747,9 @@ fn execute(plan: &Plan, progress: &Progress, cancel: &CancelToken) -> Result<(),
             progress.verifying.store(false, Ordering::Relaxed);
             completed = completed.saturating_add(request.expected_bytes);
             progress.completed_bytes.store(completed, Ordering::Relaxed);
+            progress
+                .transferred_bytes
+                .fetch_add(request.expected_bytes, Ordering::Relaxed);
         }
         if let Ok(mut slot) = progress.partial.lock() {
             *slot = None;
@@ -757,6 +814,7 @@ fn partial_path(destination: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use speakeasy_models::InstallFile;
 
     #[test]
     fn the_models_root_agrees_with_the_app() {
@@ -1087,5 +1145,67 @@ mod tests {
                 }
             }
         }
+    }
+    /// Ten bytes that hash to `INTACT_SHA256`, and ten that do not.
+    ///
+    /// The lengths are equal on purpose: that is the whole class of corruption
+    /// `is_present` cannot see, and the one the installer used to reuse.
+    const INTACT: &[u8] = b"GRANITE-OK";
+    const CORRUPT: &[u8] = b"GRANITE-XX";
+    const INTACT_SHA256: &str = "78b203e449cc25ea095633dce4d7aa922306c5c7b498b2ef1a174e15a860cbd8";
+
+    #[test]
+    fn a_same_length_corrupted_cache_is_present_but_not_reusable() {
+        let root = std::env::temp_dir().join(format!(
+            "speakeasy-mini-retained-cache-{}",
+            std::process::id()
+        ));
+        let models = root.join("models");
+        let spec = InstallSpec {
+            id: "retained-cache-test".to_owned(),
+            revision: "r1".to_owned(),
+            archive_prefix: PathBuf::from("unused"),
+            archive_bytes: 0,
+            archive_sha256: String::new(),
+            installed_bytes: INTACT.len() as u64,
+            required_files: vec![InstallFile {
+                path: PathBuf::from("weights.gguf"),
+                bytes: INTACT.len() as u64,
+                sha256: INTACT_SHA256.to_owned(),
+            }],
+        };
+        let installed = models.join(&spec.id).join(&spec.revision);
+        std::fs::create_dir_all(&installed).expect("create the install tree");
+        let file = installed.join("weights.gguf");
+        let manager = InstallManager::new(&models);
+
+        std::fs::write(&file, INTACT).expect("write the intact bytes");
+        let intact_is_reusable = retained_artifact_is_usable(&manager, &spec);
+
+        std::fs::write(&file, CORRUPT).expect("write the corruption");
+        let corrupt_is_present = manager.is_present(&spec);
+        let corrupt_is_reusable = retained_artifact_is_usable(&manager, &spec);
+
+        // Cleanup *before* the assertions, by exact name and never by
+        // enumeration, so a failing run does not leave this tree behind for the
+        // next one to inherit.
+        std::fs::remove_file(&file).expect("remove the test file");
+        std::fs::remove_dir(&installed).expect("remove the revision directory");
+        std::fs::remove_dir(models.join(&spec.id)).expect("remove the pack directory");
+        std::fs::remove_dir(&models).expect("remove the models directory");
+        std::fs::remove_dir(&root).expect("remove the test root");
+
+        assert!(
+            intact_is_reusable,
+            "intact retained bytes must still be reused rather than re-fetched"
+        );
+        assert!(
+            corrupt_is_present,
+            "the length check still passes -- which is exactly why reuse may not rest on it"
+        );
+        assert!(
+            !corrupt_is_reusable,
+            "a same-length corrupted cache must be re-fetched, not loaded and executed"
+        );
     }
 }

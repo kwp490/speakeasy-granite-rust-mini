@@ -98,6 +98,51 @@ test("an accepted delivery preference is adopted from the value the backend retu
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
+const automaticPaste = () => screen.getByRole("checkbox", { name: messages.autoPaste });
+
+/**
+ * Turning automatic paste off must reach the backend and be adopted from its
+ * answer.
+ *
+ * The backend has always branched on `delivery.auto_paste`, but nothing in
+ * these settings could reach it: a user who wanted to read an uncertain
+ * transcript before it went into another application had no way to ask for
+ * that. This is the control, and it writes the preference only -- the box
+ * moving is the backend's answer, never an assumption.
+ */
+test("turning automatic paste off is written and adopted from the backend answer", async () => {
+  const double = install(invokeDouble({ profile_status: profileStatus() }));
+  double.answer("auto_paste_configure", profileStatus({ auto_paste_enabled: false }));
+  render(<Page />);
+
+  await waitFor(() => {
+    expect(checked(automaticPaste())).toBe(true);
+  });
+  fireEvent.click(automaticPaste());
+
+  await waitFor(() => {
+    expect(checked(automaticPaste())).toBe(false);
+  });
+  expect(double.count("auto_paste_configure")).toBe(1);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+/** And a refused one is said, with the box left where the backend has it. */
+test("a refused automatic-paste change is reported and the box does not move", async () => {
+  const double = install(invokeDouble({ profile_status: profileStatus() }));
+  double.reject("auto_paste_configure", "profile_state_unavailable");
+  render(<Page />);
+
+  await waitFor(() => {
+    expect(checked(automaticPaste())).toBe(true);
+  });
+  fireEvent.click(automaticPaste());
+
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toBe(messages.errors.profile_state_unavailable);
+  expect(checked(automaticPaste())).toBe(true);
+});
+
 /**
  * The disk-logging toggle is the second privacy write, and it fails the same
  * way through the same mutation -- which is the point of there being one.

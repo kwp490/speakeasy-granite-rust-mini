@@ -18,6 +18,9 @@ path = "src/main.rs"
 tauri-build.workspace = true
 
 [dependencies]
+# Session identifiers. Already pinned at the workspace root and already in
+# `dependency-policy/build-scripts.json`, so this adds no crate to the graph.
+getrandom.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 speakeasy-domain.workspace = true

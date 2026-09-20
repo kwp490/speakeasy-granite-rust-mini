@@ -112,7 +112,20 @@ $allowedDependencies = @{
     # omission: Granite runs in a supervised child process, so the desktop crate
     # talks to it over the worker protocol and never links llama.cpp. It is the
     # reason a `cargo check` of this crate does not pay a C++ build.
+    #
+    # `getrandom` is the session identifier, and nothing else. Identifiers were
+    # a process-local counter plus `Instant::now().elapsed()` -- which measures
+    # the interval since the instant made on the same line, so it was neither a
+    # timestamp nor process-unique. The counter restarted at one every launch,
+    # and `transcript_history` keys on the value, so a repeat across launches
+    # silently overwrote an older transcript. It is taken here rather than in
+    # `speakeasy-domain` because that crate is deliberately dependency-free
+    # apart from the wire protocol's serde, and an OS randomness source is not
+    # a domain type. Already pinned at the workspace root and already recorded
+    # in `dependency-policy/build-scripts.json`, so it adds no package to the
+    # graph -- the `Cargo.lock` change is one line.
     'speakeasy-desktop' = @(
+        'getrandom',
         'serde', 'serde_json',
         'speakeasy-domain', 'speakeasy-audio', 'speakeasy-worker', 'speakeasy-models',
         'speakeasy-delivery', 'speakeasy-storage', 'speakeasy-transforms',

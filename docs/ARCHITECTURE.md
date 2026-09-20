@@ -335,7 +335,7 @@ modes) exist in the type system but aren't reachable in the current build;
 `CommitOnFinish` (paste after the final transcript is ready) is the only
 delivery mode that actually runs.
 
-Every other refusal — a read-only target, a terminal, an interrupted paste
+Every other refusal — a read-only target, an interrupted paste
 (focus changed, a modifier was held, the clipboard raced another writer), or
 a target that could not be inspected at all
 (`DeliveryRefusal::TargetInaccessible`) — falls back to an automatic
@@ -353,6 +353,30 @@ silently losing a dictation. The sanitized numeric OS error behind a
 `TargetInaccessible` refusal (never the OS-provided message text) is
 available via `TargetObserver::last_os_error()` and logged alongside the
 refusal reason.
+
+Delivery re-reads who holds the foreground before it types. The snapshot is
+taken when transcription finishes, and everything after it is a wait — for the
+activation modifiers to be released, and for the clipboard. `write_focused`
+therefore re-reads the foreground window, its process and that process's start
+time after the preflight, after the modifier wait, and as the last statement
+before the keystroke, refusing as `FocusChanged`, `ProcessChanged` or
+`WindowReused`. Identity only: it is four syscalls, where a full
+`TargetSnapshot` costs a UI Automation inspection measured at 68 ms into an
+empty Notepad and 12.8 s into a WebView2 window.
+
+**A focus change inside the target process is not caught**, because every one
+of those fields stays equal — moving into a password box in the same window is
+the case that matters. `classify_guard` still refuses a password field that was
+focused when the snapshot was taken; closing the rest needs a fresh UIA read of
+the focused element immediately before input, which cannot run at that cost.
+
+A terminal is not one of those refusals. `select_strategy` does keep terminals
+out of synthesized paste, but that planner is reachable only through
+`CommitWriter::write`, which has no production caller; the live path is
+`write_focused`, whose preflight applies `classify_guard` and rejects only the
+two live-editing capabilities that are themselves unreachable. Pasting into a
+console is therefore allowed, by owner decision on 2026-09-20, and Settings
+states it rather than promising an exclusion this build does not implement.
 
 ## Model
 

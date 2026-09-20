@@ -195,6 +195,11 @@
       "response": "unit",
       "window": "main|log",
       "mutates": false
+    },
+    "auto_paste_configure": {
+      "response": "ProfileView",
+      "window": "main",
+      "mutates": true
     }
   },
   "forbidden_frontend_authority": [

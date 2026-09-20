@@ -66,6 +66,10 @@ export function OutputPrivacy({ profile }: { profile: ProfileController }) {
 
   const delivery = profile.profile?.delivery_preference ?? "result_view_only";
 
+  function updateAutoPaste(event: ChangeEvent<HTMLInputElement>) {
+    void profile.setAutoPaste(event.target.checked);
+  }
+
   function updateDiskLogging(event: ChangeEvent<HTMLInputElement>) {
     void profile.setDiskLogging(event.target.checked);
   }
@@ -93,6 +97,21 @@ export function OutputPrivacy({ profile }: { profile: ProfileController }) {
           {messages.explicitCopy}
         </label>
         <p className="setting-detail">{messages.deliveryChoiceDetail}</p>
+        {/*
+          Its own control, below the radios, because it answers a different
+          question: the radios say what this window keeps, and this says whether
+          another application receives the text at all. The backend has always
+          branched on it; there was simply no way to reach it from here.
+        */}
+        <label className="confirmation">
+          <input
+            checked={profile.profile?.auto_paste_enabled ?? true}
+            onChange={updateAutoPaste}
+            type="checkbox"
+          />
+          {messages.autoPaste}
+        </label>
+        <p className="setting-detail">{messages.autoPasteDetail}</p>
         {delivery === "explicit_copy" && (
           <div className="actions">
             <button

@@ -272,7 +272,15 @@ function deliveryOutcomeOf(raw: string): DeliveryOutcome {
  * ability to dictate, so it must not park the button on a load that has already
  * given up.
  */
-const ENGINE_LOADING: ReadonlySet<string> = new Set(["cold", "warming"]);
+/**
+ * The two engine answers that mean "still coming up" rather than a verdict.
+ *
+ * Exported because Advanced settings waits on the same vocabulary after an
+ * explicit engine restart. Two copies of this set would drift, and the page
+ * that drifted would either give up on a warm still in progress or wait
+ * forever on a failure code.
+ */
+export const ENGINE_LOADING: ReadonlySet<string> = new Set(["cold", "warming"]);
 
 /** Derives the union from one backend snapshot, ignoring any optimistic overlay. */
 function stateFromStatus(status: HudStatus, dismissedSessionId: string | null): TranscriberState {

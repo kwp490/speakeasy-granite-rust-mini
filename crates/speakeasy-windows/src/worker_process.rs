@@ -14,11 +14,11 @@
 //! missing, and the symptom of that is a dictation delivered into a console
 //! window rather than an error.
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::thread;
 use std::time::Duration;
 
@@ -26,13 +26,26 @@ use crate::{OwnedProcessTree, ProcessSupervisor, StopOutcome};
 use speakeasy_domain::{CancelToken, Clock, Deadline, DomainError, ErrorCode};
 use speakeasy_worker::{
     ProtocolError, RequestId, WORKER_PROTOCOL_VERSION, WorkerClient, WorkerCommand,
-    WorkerErrorCode, WorkerEvent, WorkerRequest, WorkerResponse, read_frame,
-    worker_response_is_terminal, write_frame,
+    WorkerErrorCode, WorkerEvent, WorkerRequest, WorkerResponse, frame_bytes, read_frame,
+    worker_response_is_terminal,
 };
+
+/// One frame handed to the writer thread, with somewhere to report the result.
+struct FrameWrite {
+    frame: Vec<u8>,
+    response: SyncSender<Result<(), &'static str>>,
+}
 
 pub struct ProcessWorkerClient<K> {
     process: OwnedProcessTree,
-    input: ChildStdin,
+    /// Frames go to the thread that owns `ChildStdin`, never straight down it.
+    ///
+    /// `write_all` on a full pipe blocks until the child drains it. A worker
+    /// that completes the handshake and then stops reading fills the buffer on
+    /// an audio request, and the caller used to block there: before it could
+    /// poll cancellation, before `receive_until`'s deadline applied, and while
+    /// still owning the job object whose drop would have torn the tree down.
+    writes: Option<SyncSender<FrameWrite>>,
     responses: Receiver<Result<WorkerResponse, ProtocolError>>,
     supervisor: ProcessSupervisor,
     clock: Arc<K>,
@@ -100,11 +113,12 @@ impl<K: Clock + 'static> ProcessWorkerClient<K> {
             .take()
             .ok_or_else(|| domain_error(ErrorCode::AdapterFailed))?;
         spawn_stderr_forwarder(stderr, diagnostic_log.clone());
+        let writes = Some(spawn_frame_writer(input, diagnostic_log.clone()));
         let responses = spawn_protocol_reader(output);
         let started_at_ns = clock.now().0;
         let mut client = Self {
             process,
-            input,
+            writes,
             responses,
             supervisor,
             clock,
@@ -147,14 +161,17 @@ impl<K: Clock + 'static> ProcessWorkerClient<K> {
             request_id,
             command: WorkerCommand::Shutdown,
         };
-        if let Err(error) = write_frame(&mut self.input, &request) {
+        let frame = frame_bytes(&request).map_err(|error| {
             append_diagnostic_line(
                 self.diagnostic_log.as_deref(),
                 &format!("worker_write_failed kind={}", protocol_error_kind(&error)),
             );
-            return Err(domain_error(ErrorCode::AdapterFailed));
-        }
+            domain_error(ErrorCode::InvalidData)
+        })?;
         let cancel = CancelToken::default();
+        // Bounded by the same deadline the stop is: a worker that stops reading
+        // must not be able to hold shutdown open either.
+        self.write_within_deadline(frame, &cancel, deadline)?;
         let _ = self.receive_until(request_id, &WorkerCommand::Shutdown, &cancel, deadline)?;
         self.supervisor
             .stop(&mut self.process, || Ok(()))
@@ -165,6 +182,57 @@ impl<K: Clock + 'static> ProcessWorkerClient<K> {
         let request_id = RequestId(self.next_request_id);
         self.next_request_id = self.next_request_id.saturating_add(1);
         request_id
+    }
+
+    /// Hands one frame to the writer thread and waits, bounded like every other
+    /// step of a request.
+    ///
+    /// Terminating the process tree on expiry is not tidying up: it is the only
+    /// thing that can unblock a `write_all` sitting on a full pipe. Without it
+    /// this would trade a stuck caller for a stuck thread, and the thread owns
+    /// the pipe, so the next request would block too.
+    fn write_within_deadline(
+        &mut self,
+        frame: Vec<u8>,
+        cancel: &CancelToken,
+        deadline: Deadline,
+    ) -> Result<(), DomainError> {
+        let Some(writes) = self.writes.as_ref() else {
+            return Err(domain_error(ErrorCode::AdapterFailed));
+        };
+        let (response, result) = mpsc::sync_channel(1);
+        if writes.send(FrameWrite { frame, response }).is_err() {
+            return Err(domain_error(ErrorCode::AdapterFailed));
+        }
+        loop {
+            match result.recv_timeout(Duration::from_millis(10)) {
+                Ok(Ok(())) => return Ok(()),
+                Ok(Err(kind)) => {
+                    append_diagnostic_line(
+                        self.diagnostic_log.as_deref(),
+                        &format!("worker_write_failed kind={kind}"),
+                    );
+                    return Err(domain_error(ErrorCode::AdapterFailed));
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(domain_error(ErrorCode::AdapterFailed));
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    if cancel.is_cancelled() {
+                        let _ = self.process.terminate();
+                        return Err(domain_error(ErrorCode::Cancelled));
+                    }
+                    if deadline.expired(self.clock.now()) {
+                        append_diagnostic_line(
+                            self.diagnostic_log.as_deref(),
+                            "worker_write_stalled",
+                        );
+                        let _ = self.process.terminate();
+                        return Err(domain_error(ErrorCode::DeadlineExceeded));
+                    }
+                }
+            }
+        }
     }
 
     fn receive_until(
@@ -246,21 +314,51 @@ impl<K: Clock + 'static> WorkerClient for ProcessWorkerClient<K> {
         request
             .validate()
             .map_err(|_| domain_error(ErrorCode::InvalidData))?;
-        if let Err(error) = write_frame(&mut self.input, &request) {
+        let frame = frame_bytes(&request).map_err(|error| {
             append_diagnostic_line(
                 self.diagnostic_log.as_deref(),
                 &format!("worker_write_failed kind={}", protocol_error_kind(&error)),
             );
-            return Err(domain_error(ErrorCode::AdapterFailed));
-        }
+            domain_error(ErrorCode::InvalidData)
+        })?;
+        self.write_within_deadline(frame, cancel, deadline)?;
         self.receive_until(request_id, &request.command, cancel, deadline)
     }
 }
 
 impl<K> Drop for ProcessWorkerClient<K> {
     fn drop(&mut self) {
+        // The sender first, so a writer parked on `recv` ends on disconnect;
+        // then the tree, which is what releases one parked inside `write_all`.
+        self.writes.take();
         let _ = self.process.terminate();
     }
+}
+
+/// Owns `ChildStdin` and writes whatever frames it is handed.
+///
+/// A thread rather than the calling thread, because `write_all` on a full pipe
+/// is unbounded and a request has a deadline. The thread ends when its sender
+/// is dropped, or when a write fails — which is what terminating the process
+/// tree causes.
+fn spawn_frame_writer(
+    mut input: ChildStdin,
+    diagnostic_log: Option<PathBuf>,
+) -> SyncSender<FrameWrite> {
+    let (sender, receiver) = mpsc::sync_channel::<FrameWrite>(1);
+    std::thread::spawn(move || {
+        while let Ok(request) = receiver.recv() {
+            let outcome = input
+                .write_all(&request.frame)
+                .and_then(|()| input.flush())
+                .map_err(|_| "io");
+            if outcome.is_err() {
+                append_diagnostic_line(diagnostic_log.as_deref(), "worker_write_failed kind=io");
+            }
+            let _ = request.response.send(outcome);
+        }
+    });
+    sender
 }
 
 fn record_worker_error(diagnostic_log: Option<&Path>, code: WorkerErrorCode) {
@@ -344,6 +442,7 @@ mod tests {
     use super::*;
     use crate::{CrashThrottle, ProcessDeadlines};
     use speakeasy_domain::SystemClock;
+    use speakeasy_worker::{MAX_AUDIO_SAMPLES_PER_REQUEST, WorkerSessionId};
 
     fn supervisor() -> ProcessSupervisor {
         ProcessSupervisor::new(
@@ -435,5 +534,108 @@ mod tests {
         assert!(!contents.contains("Alice"));
         assert!(!contents.contains("main.rs"));
         assert!(contents.contains("<redacted-path>"));
+    }
+    /// A worker that answers the handshake and then never reads stdin again.
+    ///
+    /// The pipe buffer fills on the first audio request, which is where the
+    /// caller used to block: `write_all` is unbounded, so the deadline in
+    /// `receive_until` was never reached and cancellation was never polled.
+    fn stalled_reader() -> Command {
+        // Built from the constant rather than a literal: a protocol bump would
+        // otherwise turn this fixture into a `StaleEvent` that reads like a
+        // broken client. `request_id` is 1 because `spawn`'s `Hello` is the
+        // first request this client makes.
+        let script = format!(
+            concat!(
+                "$json='{{\"protocol_version\":{version},\"request_id\":1,",
+                "\"event\":{{\"type\":\"ready\",\"worker_version\":\"stalled\"}}}}';",
+                "$payload=[Text.Encoding]::UTF8.GetBytes($json);",
+                "$output=[Console]::OpenStandardOutput();",
+                "$length=[BitConverter]::GetBytes([uint32]$payload.Length);",
+                "$output.Write($length,0,$length.Length);",
+                "$output.Write($payload,0,$payload.Length);",
+                "$output.Flush();",
+                // Never reads stdin. The sleep outlasts every deadline below, so
+                // a test that finishes did so because the write was bounded.
+                "[Threading.Thread]::Sleep(120000)"
+            ),
+            version = WORKER_PROTOCOL_VERSION
+        );
+        let mut command = Command::new("powershell.exe");
+        command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+        command
+    }
+
+    /// Enough audio to overflow the pipe buffer on any Windows default.
+    fn audio_request() -> WorkerCommand {
+        WorkerCommand::PushAudio {
+            session_id: WorkerSessionId(1),
+            sequence: 1,
+            samples: vec![0.123_456_79_f32; MAX_AUDIO_SAMPLES_PER_REQUEST],
+        }
+    }
+
+    fn stalled_client() -> ProcessWorkerClient<SystemClock> {
+        let clock = Arc::new(SystemClock::default());
+        ProcessWorkerClient::spawn(
+            &mut stalled_reader(),
+            supervisor(),
+            Arc::clone(&clock),
+            Deadline::after(clock.as_ref(), Duration::from_secs(10)),
+            None,
+        )
+        .unwrap_or_else(|error| panic!("fixture handshake failed: {error:?}"))
+    }
+
+    #[test]
+    fn a_worker_that_stops_reading_expires_the_request_instead_of_blocking() {
+        let clock = Arc::new(SystemClock::default());
+        let mut client = stalled_client();
+
+        let started = std::time::Instant::now();
+        let error = client
+            .request(
+                audio_request(),
+                &CancelToken::default(),
+                Deadline::after(clock.as_ref(), Duration::from_millis(300)),
+            )
+            .expect_err("a worker that never reads cannot answer");
+
+        assert_eq!(error.code, ErrorCode::DeadlineExceeded);
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "the request must expire on its own deadline rather than on the child exiting: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_blocked_write_is_still_cancellable() {
+        let clock = Arc::new(SystemClock::default());
+        let mut client = stalled_client();
+        let cancel = CancelToken::default();
+        let trigger = cancel.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(150));
+            trigger.cancel();
+        });
+
+        let started = std::time::Instant::now();
+        let error = client
+            .request(
+                audio_request(),
+                &cancel,
+                // Far beyond the cancellation, so reaching `Cancelled` proves
+                // the cancel was polled rather than the deadline arriving.
+                Deadline::after(clock.as_ref(), Duration::from_secs(60)),
+            )
+            .expect_err("a cancelled request cannot succeed");
+
+        assert_eq!(error.code, ErrorCode::Cancelled);
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "cancellation must be reached while the write is blocked: {:?}",
+            started.elapsed()
+        );
     }
 }
