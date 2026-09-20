@@ -103,6 +103,14 @@ verify ambiguous test filters with `--list` before relying on them.
 - Delivery inspects the foreground when transcription finishes, not when
   recording starts. On a slow processor pass the user may have changed windows;
   automatic paste therefore targets the window that is foreground at completion.
+- Everything after that inspection is a wait, so the focused writer re-reads the
+  foreground window, its process and that process's start time after the
+  modifier wait, after the clipboard write, and as the statement immediately
+  before the keystroke. Nothing may be inserted between that last check and
+  `send_paste_shortcut`. It is identity only: a focus change *within* the target
+  process is not caught, because a full `TargetSnapshot` costs a UI Automation
+  inspection measured at 68 ms into an empty Notepad and 12.8 s into a WebView2
+  window. Keep that limitation beside the protection wherever it is described.
 - A password field or other protected target is excluded from persisted history
   only when delivery was attempted and classified. `NotAttempted` transcripts
   may be retained; public privacy documentation must keep that qualification.
@@ -115,6 +123,10 @@ verify ambiguous test filters with `--list` before relying on them.
 - Warm verification is returned per invocation; it is not shared mutable “last
   warm” state. Pack identity is id plus revision, and a resident mismatch refuses
   rather than executing the wrong adapter.
+- Installer cache reuse and graphics-card staging reverify digests; presence is
+  a length comparison and may not stand in for it at a boundary where bytes are
+  loaded natively or executed. `InstallManager::is_present` answers "which pack
+  to reach for", `reverify` answers "may these bytes be trusted".
 - The desktop hashes model files immediately before worker load, but the worker
   reopens them by path. This detects corrupt downloads, not execution-time file
   replacement; keep that limitation explicit.
@@ -266,6 +278,12 @@ Do not reopen these without new evidence or an explicit owner decision:
 - Builds and releases are local-only: no Actions, Dependabot, hosted runners.
 - Setup records what it proved was installed, not what the user selected.
 - Setup launches the app on success and reports when it cannot.
+- Pasting into a terminal is intentional (owner, 2026-09-20). The exclusion in
+  `select_strategy` never ran, and the Settings copy now says terminals are not
+  excluded rather than promising that they are.
+- Automatic paste is a user setting, on by default. It does not make history
+  safer: with it off nothing classifies a target, so `NotAttempted` rows are
+  still retained.
 - Wizard pages use the system-derived type scale and concise question/key/body
   copy; color is not the only signal.
 
