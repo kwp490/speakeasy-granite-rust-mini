@@ -66,32 +66,30 @@ SHA-256 `5c3f960b711836c27217730bceac6fe5f4ecd361a099a6d89b536e361ab75cb3`.
 It was built from an empty fresh-build root and the full repository gate passed,
 exiting 0 and ending `no leaks found`.
 
-**Both installer proofs are outstanding, and neither was skipped by choice.**
+**Both installer proofs ran against that artifact and passed**, on a host where
+`Test-HostProfilePathIdentity.ps1` passed first in the same shell. The lifecycle
+proof covered the Add/Remove Programs values, the running-app, same-version and
+downgrade refusals, the single-file payload and the derived default install
+root. `Test-SetupWizard.ps1` installed for real and transcribed the recording
+word for word on the graphics card, `device=cuda` with `bytes=verified`, then
+restored every captured config file byte-identically. All nine workflow
+controls passed.
 
-- `Test-InstallerLifecycle.ps1` refuses while any SpeakEasy Mini version stamp
-  exists under `HKCU:\Software\SpeakEasy Mini\LocalDevelopment`. The real
-  installation owns that stamp, and the script will not delete a stamp that may
-  belong to an installation someone uses. It needs a host with SpeakEasy Mini
-  uninstalled.
-- `Test-SetupWizard.ps1` refuses at its mandatory host-identity preflight,
-  because this shell cannot prove the profile through `\\localhost\C$`.
-
-Never bypass either guard. Before any release is cut from 1.9.1, run:
+Running those proofs required uninstalling the live installation, which was done
+with `--keep-user-data` and reinstalled afterwards; the 5.2 GB model cache and
+both config files came through byte-identical. If you need to repeat them, do
+the same, and never bypass the host-identity guard:
 
 ```powershell
 .\scripts\Test-HostProfilePathIdentity.ps1
 ```
 
-and only once it succeeds, on a host with the app uninstalled:
-
-```powershell
-.\scripts\Test-InstallerLifecycle.ps1 -ArtifactRoot 'target\local-development\1.9.1'
-.\scripts\Test-SetupWizard.ps1 -ArtifactRoot 'target\local-development\1.9.1'
-```
-
-No `v1.9.1` tag or GitHub Release exists. Do not create either unless the user
-explicitly asks to publish. If source or packaged inputs change, rebuild the
-installer and repeat its proofs; do not reuse the recorded digest.
+`v1.9.1` is tagged and released, from `76bf4c4`. The published asset was
+downloaded back and re-hashed to the digest above. Do not cut another release
+unless the user asks; the version must move first, because
+`install::decide_now` refuses an equal stamp. If source or packaged inputs
+change, rebuild the installer and repeat its proofs rather than reusing the
+recorded digest.
 
 ## Environment notes for this host
 

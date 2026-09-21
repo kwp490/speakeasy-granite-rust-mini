@@ -14,8 +14,8 @@ that closed it, and any hazard general enough to bite again lives in
 | | |
 | --- | --- |
 | Branch | `main`, on `kwp490/speakeasy-granite-rust-mini` (public) |
-| Latest release | `v1.9.0`, 2026-09-20, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
-| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.9.1`, one prepared increment ahead of the published `v1.9.0` release |
+| Latest release | `v1.9.1`, 2026-09-20, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
+| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.9.1`, equal to the published release, so the next build must move it first |
 | Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
 | Ignored tests | seven, all hardware or real-registry. See below |
 
@@ -53,7 +53,7 @@ release. They last ran against `v1.8.1`, the warm path did not move in `1.9.0`,
 and the wizard proof above exercised a real CUDA dictation against this
 artifact. Re-run them when the warm path next moves.
 
-### Prepared v1.9.1 state (2026-09-20)
+### What v1.9.1 shipped and what proved it (2026-09-20)
 
 An independent code review ("Astra") raised eight findings and all eight are
 fixed in the working tree, each with a red control that reproduced the defect
@@ -89,17 +89,28 @@ This is a local artifact, not a published release asset.
 The full `Invoke-ScaffoldChecks.ps1 -SkipNpmInstall` gate passed with exit 0 and
 ended `no leaks found`.
 
-**Neither installer proof has run against this build, and both refusals are
-correct.** `Test-InstallerLifecycle.ps1` refused because
-`HKCU:\Software\SpeakEasy Mini\LocalDevelopment` holds one machine-wide version
-stamp and the real installation owns it; the script will not delete a stamp that
-may belong to an installation someone uses, so the proof needs a host with
-SpeakEasy Mini uninstalled. `Test-SetupWizard.ps1` was not attempted: its
-mandatory host-identity preflight has already been observed to refuse on this
-shell, which cannot prove `%APPDATA%` through `\\localhost\C$`. Do not bypass
-either guard. **Both must pass on a suitable host before any release is cut
-from this version.**
+`v1.9.1` is published from `76bf4c4`. The release carries
+`SpeakEasyMiniSetup.exe`, 38,249,187 bytes, SHA-256
+`5c3f960b711836c27217730bceac6fe5f4ecd361a099a6d89b536e361ab75cb3`, with a
+one-line `SHA256SUMS`. The published asset was downloaded back and re-hashed to
+that value, so the bytes a stranger receives are the bytes that were proved.
 
+**Both installer proofs ran against that artifact and passed**, on a host where
+`Test-HostProfilePathIdentity.ps1` passed first in the same shell. The installer
+lifecycle proof covered the Add/Remove Programs values, the running-app,
+same-version and downgrade refusals, the single-file payload and the derived
+default install root. `Test-SetupWizard.ps1` installed for real and transcribed
+the recording word for word on the graphics card, `device=cuda` with
+`bytes=verified`, then restored every captured config file byte-identically.
+All nine workflow controls passed.
+
+The existing installation was uninstalled with `--keep-user-data` to let those
+proofs run, and reinstalled afterwards. The 5.2 GB model cache and both config
+files came through byte-identical, so no weights were re-fetched.
+
+The seven ignored hardware and real-registry tests were **not** re-run. The warm
+path did not move in `1.9.1`, and the wizard proof above drove a real CUDA
+dictation against this artifact. Re-run them when the warm path next moves.
 One UI measurement from the 1.9.0 handoff is not carried forward: the settings
 pages were re-laid-out only in so far as one checkbox and one button label
 changed, and the responsive and contrast sweeps were not re-run here. Re-run
@@ -127,7 +138,6 @@ It must end `no leaks found` and exit 0.
 | **GPU qualification cannot be proved** | Nothing can promote a card to proven, so the claim left the UI and then the payload |
 | **The Hugging Face CDN host may be regional** | One host is allowed and it looks US-specific. Affects any install that fetches the model, not only the graphics-card one |
 | **Five advisory allowlist entries expire 2026-10-19** | RUSTSEC-2025-0075/0080/0081/0098/0100, all `unic-*` crates reached through Tauri's `urlpattern`. The gate fails on the expiry date whether or not anything changed, so the entries need re-reviewing and re-dating, or dropping if Tauri has moved off them |
-| **v1.9.1 is prepared, not published** | Built and installed locally. **Neither installer proof has run against it** — see "Prepared v1.9.1 state" |
 | **Focused delivery re-checks identity, not sensitivity** | A focus change *within* the target process is not caught. Closing it needs a UI Automation read at input time, which costs up to seconds |
 
 Four of the five longstanding entries are **deliberate residuals carried forward
@@ -311,14 +321,9 @@ worker. Nothing here can test it from one country.
 
 Not blockers for the tree; blockers for cutting a build from it.
 
-For the prepared v1.9.1 build, steps 1 and 2 are complete and the fresh build in
-step 3 is complete. **Both proofs in step 3 are outstanding**, and neither was
-skipped by choice: `Test-InstallerLifecycle.ps1` refuses while any SpeakEasy
-Mini version stamp exists in `HKCU`, which the real installation owns, and
-`Test-SetupWizard.ps1` refuses on this shell's host-identity preflight. Both
-need a host with SpeakEasy Mini uninstalled and `\\localhost\C$` reachable.
-Nothing has been tagged, uploaded or published, and step 5 is not complete.
-Rebuild and repeat the proofs if source or packaged inputs change.
+All five steps are complete for `v1.9.1`, which is published. Nothing here is
+carried over: the next release starts at step 1, because the workspace version
+now equals the published one and `install::decide_now` refuses an equal stamp.
 
 1. **The version must move**, before anything is built. `install::decide_now`
    returns `RefuseSameVersion` on an equal stamp, so a rebuilt version cannot
