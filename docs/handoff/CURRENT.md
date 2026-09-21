@@ -14,8 +14,8 @@ that closed it, and any hazard general enough to bite again lives in
 | | |
 | --- | --- |
 | Branch | `main`, on `kwp490/speakeasy-granite-rust-mini` (public) |
-| Latest release | `v1.8.1`, 2026-08-30, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
-| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.9.0`, one prepared increment ahead of the published `v1.8.1` release |
+| Latest release | `v1.9.0`, 2026-09-20, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
+| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.9.0`, equal to the published release, so the next build must move it first |
 | Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
 | Ignored tests | seven, all hardware or real-registry. See below |
 
@@ -28,38 +28,30 @@ git log --oneline origin/main..HEAD
 git log --oneline $(git describe --tags --abbrev=0)..main
 ```
 
-### Prepared v1.9.0 state (2026-09-02)
+### What v1.9.0 shipped and what proved it (2026-09-20)
 
-The approved Settings workspace redesign is implemented on `main`. The feature
-landed in `9683d54` and the live contrast instrument was brought forward to the
-current dock/settings windows in `a761bc3`. At handoff, `main` and `origin/main`
-contain both commits and the working tree is expected to be clean after this
-documentation update is pushed; verify that rather than assuming it remains true.
+`v1.9.0` is published from `08942ed`: the Settings workspace redesign and the
+rustls fix for RUSTSEC-2026-0285. The release carries
+`SpeakEasyMiniSetup.exe`, 38,006,499 bytes, SHA-256
+`bb270a91d77739811211de969d57f427a976eb3e3345642a75c8eb9ea77fd91f`, with a
+one-line `SHA256SUMS`. The published asset was downloaded back and re-hashed to
+that value, so the bytes a stranger receives are the bytes that were proved.
 
-The workspace and installed application are `1.9.0`. The current-user install is
-at `%LOCALAPPDATA%\SpeakEasy Mini`, running as a normal production launch with no
-DevTools port. The processor provider was re-proved through the installed
-bootstrapper (`provider_recorded device=cpu`) after installation, and the dock
-reported `CPU / ready`. The existing personalization and provider records were
-preserved byte-for-byte across the v1.8.1 uninstall and v1.9.0 reinstall.
+`Build-LocalInstaller.ps1` produced the artifact from a fresh cold build, and
+every release proof ran against that artifact on an RTX 4070 Laptop GPU under
+Windows 11 Pro: the gate at exit 0 with `no leaks found`, the installer
+lifecycle, the four host proofs, and the stale-artifact, delete-containment,
+build-root, profile-capture and planted-directory controls.
 
-The local, unsigned development installer is
-`target\local-development\1.9.0\SpeakEasyMiniSetup.exe`, 37,930,723 bytes, SHA-256
-`4fc0d2f84b190aaeebd4d0f5b65118228250b67120c325d6022a6f6277589928`.
-`Build-LocalInstaller.ps1` produced it from an empty fresh-build root and
-`Test-InstallerLifecycle.ps1` passed against it. This is a local artifact, not a
-published release asset.
+`Test-SetupWizard.ps1` passed end to end this time, transcribing the recording
+word for word on the graphics card with `device=cuda` held by the worker's own
+pid. The host-identity preflight passed first, in the same shell; that guard is
+what refused the previous attempt, and it is never to be bypassed.
 
-The full `Invoke-ScaffoldChecks.ps1 -SkipNpmInstall` gate passed with exit 0 and
-ended `no leaks found`. The installed UI passed all six settings pages at 720,
-880 and 1200 CSS px with zero horizontal overflow and zero nested scroll regions;
-the dock and six pages passed WCAG AA across 14 light/dark surfaces.
-
-`Test-SetupWizard.ps1` did not reach the wizard. Its mandatory host-identity
-preflight correctly refused because this shell cannot prove `%APPDATA%` through
-`\\localhost\C$`. It changed no install or profile state. Do not bypass that
-guard: run the wizard proof only from a shell where
-`Test-HostProfilePathIdentity.ps1` passes.
+The seven ignored hardware and real-registry tests were **not** re-run for this
+release. They last ran against `v1.8.1`, the warm path did not move in `1.9.0`,
+and the wizard proof above exercised a real CUDA dictation against this
+artifact. Re-run them when the warm path next moves.
 
 Cutting a release from what the last one lists is a decision, not a formality —
 see "Before the next release". Test counts are deliberately not listed for the
@@ -82,7 +74,7 @@ It must end `no leaks found` and exit 0.
 | **`NotAttempted` transcripts are retained** | With auto-paste off nothing classifies the target, so history keeps the row. Disclosed rather than fixed |
 | **GPU qualification cannot be proved** | Nothing can promote a card to proven, so the claim left the UI and then the payload |
 | **The Hugging Face CDN host may be regional** | One host is allowed and it looks US-specific. Affects any install that fetches the model, not only the graphics-card one |
-| **v1.9.0 is prepared, not published** | The fresh installer and lifecycle proof passed; the guarded setup-wizard proof still needs a host where `\\localhost\C$` identity succeeds before any release is cut |
+| **Five advisory allowlist entries expire 2026-10-19** | RUSTSEC-2025-0075/0080/0081/0098/0100, all `unic-*` crates reached through Tauri's `urlpattern`. The gate fails on the expiry date whether or not anything changed, so the entries need re-reviewing and re-dating, or dropping if Tauri has moved off them |
 
 Four of the five longstanding entries are **deliberate residuals carried forward
 from 1.8.1**, not code left out by accident: the integrity gap and the
@@ -90,7 +82,7 @@ from 1.8.1**, not code left out by accident: the integrity gap and the
 decision, the GPU claim stays out of the UI until a real inference sample can
 support it, and the CDN allowlist is not widened by guesswork. Each is disclosed
 where a user would look. The clean-clone failure is contributor-only and watched
-rather than fixed. The v1.9.0 row is the current release milestone.
+rather than fixed. The allowlist row is the only one with a deadline attached.
 
 ### The seven ignored tests, and how to run them
 
@@ -254,11 +246,9 @@ worker. Nothing here can test it from one country.
 
 Not blockers for the tree; blockers for cutting a build from it.
 
-For the prepared v1.9.0 build, steps 1 and 2 are complete. The fresh build and
-installer lifecycle portion of step 3 are complete; `Test-SetupWizard.ps1` is
-still outstanding because the current shell failed the mandatory host-identity
-preflight. Nothing has been tagged, uploaded or published, and step 5 is not
-complete. Rebuild and repeat the proofs if source or packaged inputs change.
+All five steps are complete for `v1.9.0`, which is published. Nothing here is
+carried over: the next release starts at step 1, because the workspace version
+now equals the published one and `install::decide_now` refuses an equal stamp.
 
 1. **The version must move**, before anything is built. `install::decide_now`
    returns `RefuseSameVersion` on an equal stamp, so a rebuilt version cannot
