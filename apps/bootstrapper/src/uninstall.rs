@@ -318,18 +318,24 @@ const INSTALLED_PROOF_FILES: &[&str] = &["granite-worker.exe"];
 /// so the fetched runtime survives an upgrade — so an orphan is invisible to
 /// every rule above and survives forever until something names it.
 ///
-/// `granite-worker.cpu.exe` was left by `scripts/Enable-GraniteCuda.ps1`, which
-/// renamed the CPU worker aside before staging a CUDA one.
+/// `granite-worker.cpu.exe` was first left by `scripts/Enable-GraniteCuda.ps1`,
+/// which renamed the CPU worker aside before hand-staging a CUDA one. That
+/// script was retired on 2026-08-26, and this entry deliberately was not:
+/// dropping it would not leave the file behind on a machine the script already
+/// ran on — `copy_tree` merges, so no upgrade removes it — it would only move
+/// it into [`Outcome::removed_unrecognised`], which puts a question in front of
+/// the user about a file this project's own tooling created.
 ///
-/// **That script was retired on 2026-08-26 and this entry deliberately was
-/// not**, against its own earlier note saying the two would go together. That
-/// note assumed no machine would still be carrying the file, and that is false
-/// for every machine the script ever ran on — the file is still in `proof/`
-/// there, and `copy_tree` merges, so no upgrade removes it. Dropping the entry
-/// would not leave the file behind; the second pass takes it either way. It
-/// would move it into [`Outcome::removed_unrecognised`], which puts a question
-/// in front of the user about a file this project's own tooling created. Naming
-/// it here is the cheaper truth, and it costs one line until nobody has it.
+/// **`download::preserve_cpu_worker` now produces the same file on every
+/// current graphics-card install**, so this is no longer purely historical:
+/// every machine that chooses the graphics card keeps its CPU worker under
+/// this exact name, on purpose, so an in-app switch back to the processor has
+/// a verified binary to run. It stays named here rather than in
+/// [`INSTALLED_PROOF_FILES`] because it is not something the payload itself
+/// ships — that constant is pinned against the payload manifest and a
+/// processor-only install never has this file at all. Naming it here is what
+/// keeps a real, current program file from being reported to the user as
+/// something the installer does not recognise.
 const KNOWN_PROOF_ORPHANS: &[&str] = &["granite-worker.cpu.exe"];
 
 /// What setup *stages* into `proof/` rather than ships there.

@@ -2,14 +2,18 @@
 /// returns immediately; settings keeps reading `gpu_status` while the bounded
 /// worker operation completes.
 ///
-/// `gpu_override` used to sit beside this, letting the user pin the engine to
-/// CPU or CUDA. It is gone, because Granite's provider is not a preference:
-/// the GPU path exists only where a CUDA-capable *worker binary* was built,
-/// and no setting can conjure one. A control offering a choice the machine
-/// cannot honour is worse than no control -- it reports a state the engine
-/// will not be in. What this machine actually resolved to is reported by
-/// `diagnostics_status`, which reads it from the engine rather than from a
-/// preference.
+/// A `gpu_override` used to sit beside this, letting the user pin the engine
+/// to CPU or CUDA, and it was removed because Granite's provider was not a
+/// preference: the GPU path exists only where a CUDA-capable *worker binary*
+/// was built, and no setting could conjure one. `runtime_switch_engine_provider`
+/// is that control's narrower successor, restored on owner authorization once
+/// a graphics-card install keeps both binaries on disk (see
+/// `RuntimePaths::granite_worker_alternate`) -- it still cannot conjure a
+/// worker, it can only choose between two setup already staged and verified,
+/// and `gpu_status.alternate_provider_available` is what lets Settings refuse
+/// the choice on every machine that never had a second binary to offer. What
+/// this machine actually resolved to is still reported by `diagnostics_status`,
+/// which reads it from the engine rather than from the preference.
 #[tauri::command]
 fn gpu_retest(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<(), &'static str> {
     require_main_window(&window)?;

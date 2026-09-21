@@ -450,7 +450,7 @@ fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
 }
 
 /// Routes the tray menu's and the side dock's popup menu's clicks to the same
-/// three actions, since both attach to tauri's menu API at a different point
+/// actions, since both attach to tauri's menu API at a different point
 /// (tray-specific vs. app-wide) but the ids mean the same thing either way.
 fn dispatch_menu_action(app: &tauri::AppHandle, id: &str) {
     match id {
@@ -464,8 +464,78 @@ fn dispatch_menu_action(app: &tauri::AppHandle, id: &str) {
             shutdown_gracefully(app);
             app.exit(0);
         }
+        // Reuses `restart_granite_engine` verbatim -- see
+        // `docs/handoff/FEATURE-dock-engine-controls.md`: "Reuse it. Do not
+        // write a second recovery path." A press mid-dictation is refused by
+        // `operations.begin`, silently from this menu's point of view, exactly
+        // as a disabled Settings button would refuse it -- the dock's native
+        // menu cannot show a reason inline the way a React control can, and
+        // the equivalent Settings control (Advanced → Maintenance) is where a
+        // refusal actually gets explained.
+        "reload_engine" => {
+            let operations = app.state::<OperationCoordinator>();
+            if operations.begin(ExclusiveOperation::EngineRestart).is_ok() {
+                let _ = restart_granite_engine(app, &app.state::<RuntimeWizardCoordinator>());
+                operations.finish(ExclusiveOperation::EngineRestart);
+            }
+        }
+        // Built disabled by `hud_dock_context_menu`/the tray's own menu when
+        // `engine_switch_menu_state` has nothing to offer, so reaching this arm
+        // at all means a target was resolved when the menu was drawn. Resolved
+        // again here rather than carried from the click, because the menu can
+        // sit open for a while and the resolution must describe the machine as
+        // it is now, not as it was when the menu opened.
+        "switch_engine_provider" => {
+            if let Some(state) = engine_switch_menu_state(app) {
+                let operations = app.state::<OperationCoordinator>();
+                if operations.begin(ExclusiveOperation::EngineRestart).is_ok() {
+                    let _ = switch_engine_provider(
+                        app,
+                        &app.state::<RuntimeWizardCoordinator>(),
+                        &app.state::<ProfileCoordinator>(),
+                        state.target,
+                    );
+                    operations.finish(ExclusiveOperation::EngineRestart);
+                }
+            }
+        }
         _ => {}
     }
+}
+
+/// What the dock's and tray's "Switch to CPU/GPU" item should offer right now,
+/// if anything.
+///
+/// `None` disables the item: either the coordinators are not managed yet (the
+/// same startup race every mount-time read has to tolerate), or no alternate
+/// binary is staged, which is the ordinary state for every processor-only
+/// install. This project will not offer a choice the machine cannot honor.
+struct EngineSwitchMenuState {
+    /// The provider a click would move to.
+    target: EngineProvider,
+    /// Whether the binary that target names is actually on disk. The label
+    /// always describes `target`; only this decides whether the item is
+    /// enabled, so a disabled item still says what pressing it would do once
+    /// it is not disabled.
+    available: bool,
+}
+
+fn engine_switch_menu_state(app: &tauri::AppHandle) -> Option<EngineSwitchMenuState> {
+    let runtime = app.try_state::<RuntimeWizardCoordinator>()?;
+    let profile = app.try_state::<ProfileCoordinator>()?;
+    let paths = runtime.paths().ok()?;
+    let installed = installed_configuration(&profile.root);
+    let override_ = profile
+        .settings
+        .lock()
+        .ok()
+        .and_then(|settings| settings.engine_provider_override);
+    let current = resolve_active_worker(&paths, installed, override_).effective_provider;
+    let target = opposite_engine_provider(current)?;
+    Some(EngineSwitchMenuState {
+        target,
+        available: paths.granite_worker_alternate.is_some(),
+    })
 }
 
 /// Asks before ending the app mid-dictation. Returns whether to proceed.
@@ -622,8 +692,8 @@ fn hud_dock_placement_configure(
 
 /// Pops the side dock's right-click menu at the cursor.
 ///
-/// Both ids are the tray's — `dispatch_menu_action` already handles them, and
-/// "Close" here is genuinely the same action as the tray's "Quit," just
+/// All four ids are the tray's — `dispatch_menu_action` already handles them,
+/// and "Close" here is genuinely the same action as the tray's "Quit," just
 /// relabeled for where it's clicked from.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
@@ -640,6 +710,28 @@ fn hud_dock_context_menu(
         None::<&str>,
     )
     .map_err(|_| "menu_unavailable")?;
+    let reload = MenuItem::with_id(
+        &app,
+        "reload_engine",
+        native_catalog::HUD_DOCK_MENU_RELOAD,
+        true,
+        None::<&str>,
+    )
+    .map_err(|_| "menu_unavailable")?;
+    // Absent rather than disabled-with-no-reason when nothing can be resolved
+    // yet or this install has no recorded provider at all -- a native menu
+    // item cannot carry the explanation a disabled Settings control can, so an
+    // item nobody can ever act on is worse here than no item.
+    let switch = engine_switch_menu_state(&app)
+        .map(|state| {
+            let label = match state.target {
+                EngineProvider::Cuda => native_catalog::HUD_DOCK_MENU_SWITCH_TO_GPU,
+                EngineProvider::Cpu => native_catalog::HUD_DOCK_MENU_SWITCH_TO_CPU,
+            };
+            MenuItem::with_id(&app, "switch_engine_provider", label, state.available, None::<&str>)
+        })
+        .transpose()
+        .map_err(|_| "menu_unavailable")?;
     let close = MenuItem::with_id(
         &app,
         "quit",
@@ -648,7 +740,12 @@ fn hud_dock_context_menu(
         None::<&str>,
     )
     .map_err(|_| "menu_unavailable")?;
-    let menu = Menu::with_items(&app, &[&settings, &close]).map_err(|_| "menu_unavailable")?;
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<_>> = vec![&settings, &reload];
+    if let Some(switch) = &switch {
+        items.push(switch);
+    }
+    items.push(&close);
+    let menu = Menu::with_items(&app, &items).map_err(|_| "menu_unavailable")?;
     window.popup_menu(&menu).map_err(|_| "menu_unavailable")
 }
 
@@ -797,7 +894,23 @@ async fn run_retained_transcription(
     // to fall through to, so a rejected pass ends the dictation and its reason
     // becomes the error the user is shown rather than a footnote on a delivery.
     let outcome: Result<FinalTranscript, &'static str> = {
-        let granite_worker_exe = runtime.paths().ok().map(|paths| paths.granite_worker);
+        // Read once and reused for both the exe and the provider string fed to
+        // integrity checking below -- see the identical note in
+        // `warm_granite_engine`, which this must never disagree with.
+        let engine_provider_override = profile
+            .settings
+            .lock()
+            .ok()
+            .and_then(|settings| settings.engine_provider_override);
+        let installed = installed_configuration(&profile.root);
+        let active_worker = runtime
+            .paths()
+            .ok()
+            .map(|paths| resolve_active_worker(&paths, installed, engine_provider_override));
+        let granite_worker_exe = active_worker.as_ref().map(|active| active.exe.clone());
+        let effective_provider = active_worker
+            .as_ref()
+            .map_or(installed, |active| active.effective_provider);
         let pass = run_granite_final_pass(
             GraniteEnvironment {
                 granite_worker_exe: granite_worker_exe.as_deref(),
@@ -808,11 +921,13 @@ async fn run_retained_transcription(
                 // answering different questions about the same machine.
                 total_memory_bytes: memory,
                 diagnostic_log: diagnostic_log.clone(),
-                // What setup proved it installed. A dictation's own warm can be
-                // the first one of a process -- the launch warm is best-effort --
-                // so the comparison has to be available here too, or a machine
-                // whose startup warm failed would never notice the mismatch.
-                recorded_provider: installed_configuration(&profile.root),
+                // What setup proved it installed, unless a satisfiable in-app
+                // switch is active -- see `resolve_active_worker`. A
+                // dictation's own warm can be the first one of a process --
+                // the launch warm is best-effort -- so the comparison has to
+                // be available here too, or a machine whose startup warm
+                // failed would never notice the mismatch.
+                recorded_provider: effective_provider,
                 // As at the launch warm, and it has to be the same answer: a
                 // dictation's own warm can be the first of a process, so this is
                 // a second composition-root site rather than a second decision.

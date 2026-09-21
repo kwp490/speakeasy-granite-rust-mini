@@ -20,7 +20,7 @@ use granite_engine::{
     warm_granite_if_configured, GraniteSelection, ProviderIntegrity, WarmVerification,
     granite_selection,
 };
-use runtime_wizard::RuntimeWizardCoordinator;
+use runtime_wizard::{RuntimePaths, RuntimeWizardCoordinator};
 #[cfg(test)]
 use serde::Deserialize;
 use serde::Serialize;
@@ -47,9 +47,9 @@ use speakeasy_models::{
     Pack, RequiredFile, RuntimeEvidence, RuntimeState, bundled_manifest, download_to_file,
 };
 use speakeasy_storage::{
-    ActivationHotkeyMode, DEFAULT_ACTIVATION_HOTKEY, HistoryPolicy, HistoryRepository,
-    HistoryWrite, HudDockEdge, HudDockPlacement, PersonalizationRepository, ResultProvenance,
-    SafeDeliveryPreference, Settings, SettingsStore, TranscriptResult,
+    ActivationHotkeyMode, DEFAULT_ACTIVATION_HOTKEY, EngineProvider, HistoryPolicy,
+    HistoryRepository, HistoryWrite, HudDockEdge, HudDockPlacement, PersonalizationRepository,
+    ResultProvenance, SafeDeliveryPreference, Settings, SettingsStore, TranscriptResult,
     WritingRulePreferences, clear_pending_update_after_health_checks,
 };
 use speakeasy_transforms::{
@@ -242,6 +242,15 @@ pub struct GpuStatusView {
     /// is a second thing to get wrong, and the wrong answer here paints a
     /// warning over a machine that is working.
     provider_fault: bool,
+    /// Whether `RuntimePaths::granite_worker_alternate` resolved.
+    ///
+    /// `false` on every processor-only install, forever — this project fetches
+    /// the graphics-card worker only during setup, never on demand, so this is
+    /// not "not yet" the way an install progress field would be. The Settings
+    /// switch control reads this rather than inferring availability from
+    /// `active_device`, because presence of a binary and the device currently
+    /// running are two different facts and the page must not confuse them.
+    alternate_provider_available: bool,
 }
 
 impl GpuStatusView {
@@ -249,6 +258,7 @@ impl GpuStatusView {
         selection: Option<&GraniteSelection>,
         active_device: &str,
         provider_integrity: ProviderIntegrity,
+        alternate_provider_available: bool,
     ) -> Self {
         Self {
             pack_installed: selection.is_some(),
@@ -258,6 +268,7 @@ impl GpuStatusView {
             active_device: active_device.to_owned(),
             provider_integrity: provider_integrity.code().to_owned(),
             provider_fault: provider_integrity.is_fault(),
+            alternate_provider_available,
         }
     }
 }

@@ -66,6 +66,7 @@ function gpuStatus(overrides: Partial<GpuStatus> = {}): GpuStatus {
     active_device: "cpu",
     provider_integrity: "ok",
     provider_fault: false,
+    alternate_provider_available: false,
     ...overrides,
   };
 }

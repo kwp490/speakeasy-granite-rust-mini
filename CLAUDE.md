@@ -135,7 +135,11 @@ verify ambiguous test filters with `--list` before relying on them.
 - A CPU installation running on CPU is normal. A recorded CUDA installation
   that cannot load CUDA is a specific failure, not a silent CPU fallback.
 - GPU support is a worker build feature, not a model-pack preference. No setting
-  can turn a CPU worker into a CUDA worker.
+  can turn a CPU worker into a CUDA worker. A setting may choose between two
+  binaries a graphics-card install already staged and verified
+  (`engine_provider_override`, `RuntimePaths::granite_worker_alternate`) — that
+  is selection, not conjuring, and a processor-only install has nothing to
+  select between.
 
 ### Persistence and frontend state
 
@@ -268,8 +272,11 @@ Do not reopen these without new evidence or an explicit owner decision:
 - One Granite pass, no streaming engine and no fallback.
 - The dock never takes focus and is not a second keyboard-access surface;
   equivalent controls live in Settings.
-- No in-app setup wizard and no provider override. The installer provisions the
-  supported worker.
+- No in-app setup wizard. The installer provisions the supported worker(s); the
+  in-app dock/Settings switch (owner decision, 2026-09-20) only ever chooses
+  between binaries the installer already staged and verified — it never fetches,
+  stages, or provisions one, and a processor-only install still has nothing to
+  switch to.
 - Q4_K_M is install-eligible; Q8_0 remains catalogued but does not ship.
 - Retention defaults off and is implemented by never writing transcript text.
 - Uninstall removes program and user data by default. `--keep-user-data` is the

@@ -13,6 +13,7 @@ import {
   formatState,
 } from "./format";
 import { readWithRetry } from "./readWithRetry";
+import { awaitEngineReady } from "./engineReady";
 import { useMutation } from "./useMutation";
 import type {
   DiagnosticsStatus,
@@ -104,6 +105,7 @@ export function Transcription() {
   /** The install poll stopped answering. See the poll's own comment. */
   const [pollUnavailable, setPollUnavailable] = useState(false);
   const cancelInstall = useMutation<void>();
+  const switchProvider = useMutation<void>();
   // The export and the two destructive personalization commands. Each reports
   // its own refusal, and neither destructive one announces a deletion it has not
   // been told happened. The other four (`correction_record`, `snippet_save` and
@@ -465,18 +467,53 @@ export function Transcription() {
                   The button below stays and is not cosmetic: `gpu_retest`
                   invalidates the engine and re-warms it, so its effect lands on
                   both lines above. */}
-              {/* Auto / Use processor / Use graphics card used to sit here.
-                  Granite's provider is not a preference: the GPU path exists
-                  only where a CUDA-capable worker binary is installed, and no
-                  setting can conjure one. A control offering a choice the
-                  machine cannot honour reports a state the engine will not be
-                  in, so what is left is the engine's own answer above and a
-                  way to ask it again. */}
+              {/* Auto / Use processor / Use graphics card used to sit here and
+                  was removed: Granite's provider was not a preference while
+                  the GPU path existed only where a CUDA-capable worker binary
+                  was installed, and no setting could conjure one. The switch
+                  below is that control's narrower successor (owner decision,
+                  2026-09-20) — it still cannot conjure a worker, it can only
+                  choose between two binaries a graphics-card install already
+                  staged and verified, and it is disabled with a reason on
+                  every install that kept only one. */}
               <div className="actions">
                 <button onClick={() => void retestGpu()} type="button">
                   {messages.gpuRetest}
                 </button>
+                <button
+                  disabled={!gpu.alternate_provider_available || switchProvider.pending}
+                  onClick={() => {
+                    const target =
+                      gpu.active_device === "cuda" || gpu.active_device === "cuda_unverified"
+                        ? "cpu"
+                        : "cuda";
+                    void switchProvider.run(
+                      async () => {
+                        await invoke("runtime_switch_engine_provider", { provider: target });
+                        // As with `runtime_recover`: the command only starts the
+                        // warm, so success is the engine reporting `ready`, not
+                        // this command returning.
+                        const engine = await awaitEngineReady();
+                        if (engine !== "ready") throw engine;
+                      },
+                      () => messages.engineProviderSwitched,
+                    );
+                  }}
+                  type="button"
+                >
+                  {switchProvider.pending
+                    ? messages.engineProviderSwitching
+                    : gpu.active_device === "cuda" || gpu.active_device === "cuda_unverified"
+                      ? messages.switchToCpu
+                      : messages.switchToGpu}
+                </button>
               </div>
+              {!gpu.alternate_provider_available && (
+                <p className="setting-detail" data-testid="engine-switch-unavailable">
+                  {messages.engineProviderSwitchUnavailable}
+                </p>
+              )}
+              <output aria-live="polite">{switchProvider.error ?? switchProvider.message}</output>
             </article>
           </>
         )}

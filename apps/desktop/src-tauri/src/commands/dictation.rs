@@ -106,6 +106,114 @@ fn restart_granite_engine(
     Ok(())
 }
 
+/// Switches the resident worker to the other provider, when setup staged a
+/// binary for it.
+///
+/// The dock's right-click menu and the Settings equivalent both reach this
+/// through their own exclusivity wrapper -- see `runtime_switch_engine_provider`
+/// and `dispatch_menu_action` -- since a switch discards the resident worker
+/// exactly as `restart_granite_engine` does, under the same
+/// `ExclusiveOperation::EngineRestart` guard.
+///
+/// # Errors
+///
+/// `engine_provider_not_installed` when `provider` names a binary
+/// [`RuntimeWizardCoordinator::paths`] has not resolved -- this project will
+/// not claim a worker exists that setup never staged, so the check runs, and
+/// the preference is left unpersisted, before anything else here happens.
+fn switch_engine_provider(
+    app: &tauri::AppHandle,
+    runtime: &RuntimeWizardCoordinator,
+    profile: &ProfileCoordinator,
+    provider: EngineProvider,
+) -> Result<(), &'static str> {
+    let paths = runtime
+        .paths()
+        .map_err(|_| "engine_provider_not_installed")?;
+    let installed = installed_configuration(&profile.root);
+    // Switching "to" what is already installed clears the override rather than
+    // storing a redundant one that would just resolve to a no-op every warm.
+    let next_override = if provider.code() == installed {
+        None
+    } else {
+        if paths.granite_worker_alternate.is_none() {
+            return Err("engine_provider_not_installed");
+        }
+        Some(provider)
+    };
+    // The wizard's crash state, same as reload and for the same reason: it
+    // refuses while a dictation holds the runtime lease, which is the one
+    // condition under which tearing the worker down would be wrong.
+    runtime.recover_manually()?;
+    let mut settings = profile
+        .settings
+        .lock()
+        .map_err(|_| "profile_state_unavailable")?
+        .clone();
+    settings.engine_provider_override = next_override;
+    profile.save(&settings)?;
+    *profile
+        .settings
+        .lock()
+        .map_err(|_| "profile_state_unavailable")? = settings;
+    {
+        let granite = app
+            .try_state::<GraniteEngineCoordinator>()
+            .ok_or("granite_state_unavailable")?;
+        granite.clear_quarantine();
+        granite.invalidate();
+    }
+    warm_granite_engine(app);
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn runtime_switch_engine_provider(
+    provider: EngineProvider,
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    runtime: tauri::State<'_, RuntimeWizardCoordinator>,
+    operations: tauri::State<'_, OperationCoordinator>,
+    profile: tauri::State<'_, ProfileCoordinator>,
+) -> Result<(), &'static str> {
+    require_main_window(&window)?;
+    // Exclusive for the same reason reload is: this discards the resident
+    // worker, and doing that under a running pass would fail that dictation
+    // rather than switch the engine.
+    operations.begin(ExclusiveOperation::EngineRestart)?;
+    let outcome = switch_engine_provider(&app, &runtime, &profile, provider);
+    operations.finish(ExclusiveOperation::EngineRestart);
+    outcome
+}
+
+/// The provider a toggle click should move to, from the one currently running.
+///
+/// Two providers, so a toggle rather than a picker: the dock's native menu can
+/// only ever act on the one binary setup did not currently pick, and the
+/// Settings control offers the same single choice for the same reason. `None`
+/// for anything other than the two live codes, which keeps a caller from
+/// having to special-case `unrecorded`.
+fn opposite_engine_provider(current: &str) -> Option<EngineProvider> {
+    match current {
+        "cpu" => Some(EngineProvider::Cuda),
+        "cuda" => Some(EngineProvider::Cpu),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod switch_engine_provider_tests {
+    use super::*;
+
+    #[test]
+    fn opposite_provider_toggles_between_the_two_live_codes() {
+        assert_eq!(opposite_engine_provider("cpu"), Some(EngineProvider::Cuda));
+        assert_eq!(opposite_engine_provider("cuda"), Some(EngineProvider::Cpu));
+        assert_eq!(opposite_engine_provider("unrecorded"), None);
+    }
+}
+
 const fn domain_error_code(error: &DomainError) -> &'static str {
     match error.code {
         ErrorCode::Cancelled => "runtime_cancelled",
@@ -529,6 +637,138 @@ fn installed_configuration(app_root: &Path) -> &'static str {
         Ok("cpu") => "cpu",
         Ok("cuda") => "cuda",
         _ => "unrecorded",
+    }
+}
+
+/// What a warm should launch, and what provider it should be judged against.
+///
+/// Returned by [`resolve_active_worker`] rather than left to each call site,
+/// because there are two of them and they must never disagree about which
+/// binary a "switch" preference actually resolves to.
+struct ActiveWorker {
+    /// The worker binary to hand to `GraniteEnvironment.granite_worker_exe`.
+    exe: PathBuf,
+    /// What to hand `GraniteEnvironment.recorded_provider`.
+    ///
+    /// **This is the one detail the whole switch depends on, and it is easy to
+    /// get wrong**: the exe alone can be swapped correctly while this still
+    /// carries the raw `install-provider.txt` value, in which case
+    /// `assess_provider_integrity` compares a deliberate CPU run against a
+    /// `cuda` record and reports `gpu_install_not_operational` -- a real fault
+    /// banner for a user who asked for exactly what is running. This field
+    /// exists so that mistake is a wrong return value in one function, not a
+    /// wrong comparison spread across two warm call sites.
+    effective_provider: &'static str,
+    /// A persisted override could not be honored this warm because its binary
+    /// is no longer on disk. Distinct from "no override was requested" so a
+    /// caller can disclose the degradation rather than silently reverting to
+    /// whatever setup installed.
+    override_unmet: bool,
+}
+
+/// Resolves the worker binary and effective provider a warm should use,
+/// honoring a persisted switch only when the binary it names is actually
+/// staged.
+///
+/// Never conjures a path: an override naming a provider with no resolved
+/// [`RuntimePaths::granite_worker_alternate`] falls back to the installed
+/// binary exactly as if no override had been set, because the one thing this
+/// project will not do is claim a worker exists that setup never staged.
+fn resolve_active_worker(
+    paths: &RuntimePaths,
+    installed: &'static str,
+    override_: Option<EngineProvider>,
+) -> ActiveWorker {
+    let fall_back_to_installed = || ActiveWorker {
+        exe: paths.granite_worker.clone(),
+        effective_provider: installed,
+        override_unmet: false,
+    };
+    let Some(requested) = override_ else {
+        return fall_back_to_installed();
+    };
+    if requested.code() == installed {
+        // Switching "back" to what is already canonical is a no-op, not a
+        // request for the alternate -- there may not even be one.
+        return fall_back_to_installed();
+    }
+    let Some(alternate) = &paths.granite_worker_alternate else {
+        return ActiveWorker {
+            override_unmet: true,
+            ..fall_back_to_installed()
+        };
+    };
+    ActiveWorker {
+        exe: alternate.clone(),
+        effective_provider: requested.code(),
+        override_unmet: false,
+    }
+}
+
+#[cfg(test)]
+mod resolve_active_worker_tests {
+    use super::*;
+
+    fn paths_with(alternate: Option<&str>) -> RuntimePaths {
+        RuntimePaths {
+            root: PathBuf::from("root"),
+            proof: PathBuf::from("root/proof"),
+            granite_worker: PathBuf::from("root/proof/granite-worker.exe"),
+            granite_worker_alternate: alternate
+                .map(|name| PathBuf::from("root/proof").join(name)),
+        }
+    }
+
+    #[test]
+    fn no_override_runs_whatever_was_installed() {
+        let paths = paths_with(Some("granite-worker.cpu.exe"));
+        let active = resolve_active_worker(&paths, "cuda", None);
+        assert_eq!(active.exe, paths.granite_worker);
+        assert_eq!(active.effective_provider, "cuda");
+        assert!(!active.override_unmet);
+    }
+
+    #[test]
+    fn switching_back_to_the_installed_provider_is_a_no_op() {
+        let paths = paths_with(Some("granite-worker.cpu.exe"));
+        let active = resolve_active_worker(&paths, "cuda", Some(EngineProvider::Cuda));
+        assert_eq!(active.exe, paths.granite_worker);
+        assert_eq!(active.effective_provider, "cuda");
+        assert!(!active.override_unmet);
+    }
+
+    /// The regression this type exists to prevent: a switch that changes the
+    /// binary without also changing what it is judged against would still
+    /// launch the right worker while reporting a fault, because
+    /// `assess_provider_integrity` would be told the installation is `cuda`
+    /// while a plain processor worker just answered its handshake. Both fields
+    /// must move together.
+    #[test]
+    fn switching_to_the_alternate_moves_both_the_binary_and_the_provider() {
+        let paths = paths_with(Some("granite-worker.cpu.exe"));
+        let active = resolve_active_worker(&paths, "cuda", Some(EngineProvider::Cpu));
+        assert_eq!(
+            active.exe,
+            paths.granite_worker_alternate.expect("alternate staged")
+        );
+        assert_eq!(
+            active.effective_provider, "cpu",
+            "the effective provider must follow the binary, not the install record"
+        );
+        assert!(!active.override_unmet);
+    }
+
+    /// A preference that can never be honored -- the alternate vanished after
+    /// it was persisted -- must revert to the installed binary rather than
+    /// naming a path that does not exist, and must say so rather than pretend
+    /// the switch happened.
+    #[test]
+    fn an_override_with_no_staged_alternate_falls_back_and_reports_itself() {
+        let paths = paths_with(None);
+        let active = resolve_active_worker(&paths, "cuda", Some(EngineProvider::Cpu));
+        assert_eq!(active.exe, paths.granite_worker);
+        assert_eq!(active.effective_provider, "cuda");
+        assert!(active.override_unmet);
     }
 }
 

@@ -61,6 +61,13 @@ export type GpuStatus = {
   provider_integrity: string;
   /** Whether that is a condition someone has to act on. Decided in Rust. */
   provider_fault: boolean;
+  /**
+   * Whether a second, verified worker binary is staged for this install.
+   * `false` forever on a processor-only install — this project fetches the
+   * graphics-card worker only during setup, never on demand, so the switch
+   * control below reads this rather than guessing from `active_device`.
+   */
+  alternate_provider_available: boolean;
 };
 
 

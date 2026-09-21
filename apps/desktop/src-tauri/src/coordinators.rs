@@ -638,12 +638,27 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
         // The profile directory, which is also where setup left its record of
         // which configuration it installed. Cloned rather than held, so the
         // state borrow ends before the warm does.
-        let profile_root = app.state::<ProfileCoordinator>().root.clone();
-        let granite_worker_exe = app
+        let profile = app.state::<ProfileCoordinator>();
+        let profile_root = profile.root.clone();
+        // Read once and reused below for both the exe and the provider string
+        // fed to integrity checking -- two reads of the same preference a few
+        // lines apart could disagree about what this warm is doing.
+        let engine_provider_override = profile
+            .settings
+            .lock()
+            .ok()
+            .and_then(|settings| settings.engine_provider_override);
+        let installed = installed_configuration(&profile_root);
+        let active_worker = app
             .state::<RuntimeWizardCoordinator>()
             .paths()
             .ok()
-            .map(|paths| paths.granite_worker);
+            .map(|paths| resolve_active_worker(&paths, installed, engine_provider_override));
+        let granite_worker_exe = active_worker.as_ref().map(|active| active.exe.clone());
+        let effective_provider = active_worker
+            .as_ref()
+            .map_or(installed, |active| active.effective_provider);
+        let engine_override_unmet = active_worker.as_ref().is_some_and(|active| active.override_unmet);
         let models = app.state::<ModelCoordinator>();
         let outcome = warm_granite_if_configured(
             GraniteEnvironment {
@@ -653,11 +668,14 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
                 // rather than the full hardware inventory.
                 total_memory_bytes: Some(speakeasy_models::total_physical_memory_bytes()),
                 diagnostic_log: diagnostic_log_path(&app),
-                // What setup *proved*, read from disk. The warm compares it
-                // against what the worker turns out to be, which is the only
-                // place the two are ever seen together -- and they disagreeing
-                // silently is the defect this field exists to make impossible.
-                recorded_provider: installed_configuration(&profile_root),
+                // What setup *proved*, unless a satisfiable in-app switch is
+                // active, in which case this is what the user asked to run
+                // instead -- see `resolve_active_worker`. The warm compares
+                // this against what the worker turns out to be, which is the
+                // only place the two are ever seen together -- and they
+                // disagreeing silently is the defect this field exists to
+                // make impossible.
+                recorded_provider: effective_provider,
                 // The real probe, named at the composition root rather than
                 // inside the warm. This is the *only* place it is named, which
                 // is what makes a staged one possible without a switch in the
@@ -716,7 +734,7 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
                 // it is the expected outcome, and on a graphics-card install it
                 // is a fault. The app cannot re-derive which was chosen, so
                 // setup writes it down and this reads it back.
-                ("installed", installed_configuration(&profile_root)),
+                ("installed", installed),
                 // The comparison of the two, made once rather than left for a
                 // reader to make. Three correct fields whose combination is
                 // impossible is what this log carried on 2026-08-20 --
@@ -729,6 +747,21 @@ fn warm_granite_engine(app: &tauri::AppHandle) {
                 // otherwise indistinguishable from an ordinary repeat warm, and
                 // it is the one outcome nobody should have to infer.
                 ("bytes", outcome.verification.code()),
+                // Whether an in-app switch changed `installed` into
+                // `effective_provider` above, and whether a persisted one could
+                // actually be honored. `unmet` means the user's chosen provider
+                // is no longer staged and this warm silently reverted to
+                // `installed` -- silent to the engine, not to this log line.
+                (
+                    "engine_override",
+                    if engine_override_unmet {
+                        "unmet"
+                    } else if engine_provider_override.is_some() {
+                        "applied"
+                    } else {
+                        "none"
+                    },
+                ),
             ],
         );
     });

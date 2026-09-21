@@ -159,6 +159,38 @@ window — so a move into a password box *inside* the same window still passes.
 It is documented beside the protection in `docs/ARCHITECTURE.md` and in
 `validate_foreground_identity`.
 
+### Dock/Settings CPU↔GPU switch is implemented, uncommitted, and not yet proof-verified
+
+Owner-requested 2026-09-20 (`docs/handoff/FEATURE-dock-engine-controls.md`),
+implemented the same day against Option B of that brief: a graphics-card
+install now keeps the CPU worker beside the CUDA one
+(`download::preserve_cpu_worker` renames it to `granite-worker.cpu.exe` instead
+of `place_beside_the_worker` overwriting it), so an in-app switch
+(`runtime_switch_engine_provider`, `engine_provider_override`) can move between
+them without a new download. The dock's right-click menu and Settings →
+Transcription both carry the control; "Reload the model" reuses
+`runtime_recover` unchanged. A processor-only install still shows the switch
+absent or disabled, forever — this narrows "no provider override," it does not
+reopen "no on-demand fetch."
+
+**Observed:** the default gate (`Invoke-ScaffoldChecks.ps1 -SkipNpmInstall`)
+passed, including a new red-control test proving a deliberate CPU switch on a
+CUDA-recorded install reads as `Matches` rather than
+`gpu_install_not_operational` — the specific correctness risk this design
+exists to close, since the exe and the string fed to `assess_provider_integrity`
+have to move together (`resolve_active_worker` is the one function that owns
+that pairing).
+
+**Unverified:** the bootstrapper change touches the one path
+`Test-InstallerLifecycle.ps1` and `Test-SetupWizard.ps1` assert file-for-file —
+neither script has been run against this build, and both hardcode the placed
+file list for a graphics-card run (see "Before the next release" — they need
+`proof\granite-worker.cpu.exe` added). Nothing here has been proved on the RTX
+4070 Laptop or any other graphics-card host. **Do not cut a release from this
+tree** until those two proofs, plus a manual round-trip of the switch on real
+hardware, have run. The change is also uncommitted; `git status -sb` has the
+current answer.
+
 ### The seven ignored tests, and how to run them
 
 Seven tests are `#[ignore]`d, and five of them are the only proofs here that

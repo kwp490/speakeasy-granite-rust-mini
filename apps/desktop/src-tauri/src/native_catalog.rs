@@ -12,3 +12,6 @@ pub const QUIT_DURING_DICTATION_MESSAGE: &str = concat!(
 );
 pub const HUD_DOCK_MENU_SETTINGS: &str = "Settings";
 pub const HUD_DOCK_MENU_CLOSE: &str = "Close SpeakEasy";
+pub const HUD_DOCK_MENU_RELOAD: &str = "Reload the model";
+pub const HUD_DOCK_MENU_SWITCH_TO_GPU: &str = "Switch to GPU";
+pub const HUD_DOCK_MENU_SWITCH_TO_CPU: &str = "Switch to CPU";

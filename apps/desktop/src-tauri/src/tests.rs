@@ -1162,9 +1162,9 @@ mod tests {
         // the reading is worthless until both extractors are shown to work.
         assert!(
             built.len() >= 2,
-            "the id extractor found {} ids; the dock and the tray build four \
-             menu items between them, so it is broken rather than the code \
-             being clean",
+            "the id extractor found {} ids; the dock and the tray between them \
+             build settings, reload, switch-provider and close/quit, so it is \
+             broken rather than the code being clean",
             built.len()
         );
         assert!(

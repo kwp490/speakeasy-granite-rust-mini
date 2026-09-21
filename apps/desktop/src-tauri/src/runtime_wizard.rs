@@ -74,6 +74,21 @@ pub struct RuntimePaths {
     /// Granite's GPU support is llama.cpp's, and needs the catalog's pinned
     /// CUDA libraries in `proof` rather than an execution-provider DLL.
     pub granite_worker: PathBuf,
+    /// The other build, when a graphics-card install kept it.
+    ///
+    /// `None` on an ordinary install — a processor-only machine never fetches
+    /// the graphics-card configuration, so it never has a second binary to
+    /// keep, and this is not an error the way a missing `granite_worker` is.
+    /// `Some` only when `download::preserve_cpu_worker` renamed the CPU build
+    /// aside during graphics-card setup, which means `granite_worker` above is
+    /// the CUDA build and this is the CPU one, verified present the same way.
+    ///
+    /// This is what an in-app CPU/GPU switch resolves against: it can only ever
+    /// choose between binaries setup already staged and this field already
+    /// proves are on disk, never conjure one that is not — a switch that named
+    /// a path without checking it first would be indistinguishable from the
+    /// provider-override control this project removed on the same grounds.
+    pub granite_worker_alternate: Option<PathBuf>,
 }
 
 pub struct RuntimeWizardCoordinator {
@@ -173,6 +188,7 @@ impl RuntimeWizardCoordinator {
         let paths = RuntimePaths {
             proof: canonical_directory(&root.join("proof"))?,
             granite_worker: canonical_file(&root, "proof/granite-worker.exe")?,
+            granite_worker_alternate: soft_canonical_file(&root, "proof/granite-worker.cpu.exe"),
             root: root.clone(),
         };
         // Canonicalization resolves symlinks and `..`, so this is asked after
@@ -204,6 +220,12 @@ fn canonical_file(root: &Path, relative: &str) -> Result<PathBuf, &'static str> 
                 .then_some(path)
                 .ok_or("runtime_resources_unavailable")
         })
+}
+
+/// The same resolution as [`canonical_file`], for a file whose absence is
+/// ordinary rather than a failure — see [`RuntimePaths::granite_worker_alternate`].
+fn soft_canonical_file(root: &Path, relative: &str) -> Option<PathBuf> {
+    canonical_file(root, relative).ok()
 }
 
 #[cfg(test)]
@@ -288,6 +310,49 @@ mod tests {
             "the worker must resolve under the resource root"
         );
         assert_eq!(paths.granite_worker.parent(), Some(paths.proof.as_path()));
+    }
+
+    /// An ordinary, processor-only install never fetched a second binary, so
+    /// resolving it must be an ordinary `None` rather than the failure a
+    /// missing `granite_worker` would be.
+    #[test]
+    fn a_processor_only_install_has_no_alternate_worker() {
+        let root = tempfile::tempdir().expect("resource root");
+        let proof = root.path().join("proof");
+        std::fs::create_dir_all(&proof).expect("proof directory");
+        std::fs::write(proof.join("granite-worker.exe"), b"not a real binary")
+            .expect("staged worker");
+
+        let scheduler = RuntimeWizardCoordinator::new(root.path().to_path_buf());
+        let paths = scheduler.paths().expect("a staged root must resolve");
+        assert_eq!(paths.granite_worker_alternate, None);
+    }
+
+    /// The shape a graphics-card install leaves behind once
+    /// `download::preserve_cpu_worker` has renamed the CPU build aside: both
+    /// binaries present, `granite_worker` still the one at the canonical name,
+    /// the CPU build resolved separately rather than assumed.
+    #[test]
+    fn a_graphics_card_install_resolves_both_workers() {
+        let root = tempfile::tempdir().expect("resource root");
+        let proof = root.path().join("proof");
+        std::fs::create_dir_all(&proof).expect("proof directory");
+        std::fs::write(proof.join("granite-worker.exe"), b"cuda build")
+            .expect("staged cuda worker");
+        std::fs::write(proof.join("granite-worker.cpu.exe"), b"cpu build")
+            .expect("preserved cpu worker");
+
+        let scheduler = RuntimeWizardCoordinator::new(root.path().to_path_buf());
+        let paths = scheduler.paths().expect("a staged root must resolve");
+        let alternate = paths
+            .granite_worker_alternate
+            .expect("the preserved cpu worker must resolve");
+        assert_eq!(
+            alternate.file_name().and_then(|name| name.to_str()),
+            Some("granite-worker.cpu.exe")
+        );
+        assert!(alternate.starts_with(&paths.root));
+        assert_ne!(alternate, paths.granite_worker);
     }
 
     #[test]

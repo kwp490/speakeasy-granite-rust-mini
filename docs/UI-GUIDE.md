@@ -298,6 +298,24 @@ effect lands on both lines above. Claiming a model has executed on the card need
 an `ExecutionEvidence` with a true `inference_sample_count`, which nothing at warm
 time has; that is an open gap in `docs/handoff/CURRENT.md`, not a thing to fake.
 
+**A second button sits beside it: Switch to graphics card / Switch to
+processor** (owner decision, 2026-09-20), narrowing rather than reversing "No
+provider-override control." An Auto/CPU/GPU picker sat here once and was
+removed, on the grounds that the GPU path existed only where a CUDA-capable
+worker binary was staged and no setting could conjure one — a choice the
+machine could not honour is worse than no choice. That physical fact has not
+changed; what changed is that a graphics-card install now keeps *both*
+binaries (`RuntimePaths::granite_worker_alternate`), so the switch can only
+ever choose between two a graphics-card install already staged and verified —
+it still cannot fetch, stage, or conjure a worker. Rendered only when
+`gpu.alternate_provider_available` is true; every processor-only install shows
+the button disabled with `engineProviderSwitchUnavailable`, forever, since this
+project fetches the graphics-card worker only during setup and never on
+demand. Like the reload button, the command only starts a warm — success is
+`awaitEngineReady` reporting `ready`, never the command returning, and the
+same poll is shared with Advanced's Restart transcription engine
+(`./settings/engineReady.ts`).
+
 Beneath them, and **only when it says something**, sits the provider-integrity
 line. Three of the five states have copy: `gpu_install_not_operational`, the
 actionable fault, which carries what to do about it; `running_beyond_record`,
@@ -937,8 +955,27 @@ settings to learn why. That is worse discoverability and not a false claim.
 Stop is on the dock despite dictation being hotkey-driven; why, and how it is
 painted, are in "The dock's geometry" below rather than stated twice.
 
-Right-click opens the native menu (Settings, Close). There is deliberately no
-left-click equivalent, so a drag in progress can never be mistaken for either.
+Right-click opens the native menu: Settings, Reload the model, Switch to
+CPU/GPU (present only when a second verified worker binary is staged — see
+below — and grayed out otherwise, since a native menu item cannot carry an
+inline reason the way a Settings control can), and Close. There is
+deliberately no left-click equivalent, so a drag in progress can never be
+mistaken for either.
+
+**Reload the model** reuses `runtime_recover` verbatim — the same command and
+the same "the command returning is not the reload" contract Advanced →
+Maintenance's Restart transcription engine already uses (below). **Switch to
+CPU/GPU** is a real, working toggle only on a machine that installed the
+graphics-card configuration: setup keeps the CPU worker beside the CUDA one
+rather than overwriting it (`granite-worker.cpu.exe`), so both are staged and
+verified and a switch never needs a new download. It fetches nothing and never
+will — a processor-only install still shows the item absent or disabled,
+matching the same rule "No provider-override control" states for every other
+surface, narrowed rather than reversed: no setting may conjure a worker binary,
+but a setting may now choose between two a graphics-card install already has.
+Both actions have a Settings equivalent (Transcription → the engine
+disclosure), per the rule that the dock is not a second keyboard-access
+surface.
 
 **The pinned transcript log.** A second always-on-top window, shown only when
 the user pins it from settings, holding the same list the Transcript log page
@@ -1180,6 +1217,8 @@ somewhere else, so each one is:
 | Close / quit | Settings › General › Keyboard access, which takes the same confirmed graceful path |
 | Read a past transcript | Settings › Transcript log |
 | Pin the log on top | Settings › Transcript log |
+| Reload the model | Settings › Advanced › Maintenance, Restart transcription engine |
+| Switch to CPU/GPU | Settings › Transcription, beside the engine disclosure |
 
 The table shrank when the large HUD went. Minimize and reset-position were that
 window's, and listing a keyboard path to a control nobody can reach by mouse

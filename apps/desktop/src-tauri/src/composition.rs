@@ -139,9 +139,11 @@ pub fn run() {
         // Shared by the tray's own menu-event hook below and the side dock's
         // popup menu (`hud_dock_context_menu`), which dispatches through the
         // app-wide handler rather than a tray-specific one — the two are
-        // different attachment points in tauri's menu API, but the same two
-        // ids should mean the same thing regardless of where they were
-        // clicked.
+        // different attachment points in tauri's menu API, but an id built on
+        // both surfaces means the same thing regardless of which one it was
+        // clicked from. Not every id is built on both: `switch_engine_provider`
+        // is dock-only, because the tray's menu is built once here and never
+        // rebuilt, and that item's label depends on state that changes.
         app.on_menu_event(|app, event| dispatch_menu_action(app, event.id().as_ref()));
         let settings = MenuItem::with_id(
             app,
@@ -150,8 +152,24 @@ pub fn run() {
             true,
             None::<&str>,
         )?;
+        // "Reload the model" only, not "Switch to CPU/GPU": the tray's menu is
+        // built once here and never rebuilt, unlike the dock's own popup
+        // (`hud_dock_context_menu`), which is a command reissued fresh on every
+        // right-click. A switch item's label and enabled state depend on which
+        // provider is currently active, and a label built once at launch would
+        // go stale the moment a switch happened -- reading "Switch to GPU"
+        // forever after the user already switched to it. Reload has no such
+        // state, so it is safe here; the switch stays dock-and-Settings-only
+        // until the tray menu is worth rebuilding on state changes.
+        let reload = MenuItem::with_id(
+            app,
+            "reload_engine",
+            native_catalog::HUD_DOCK_MENU_RELOAD,
+            true,
+            None::<&str>,
+        )?;
         let quit = MenuItem::with_id(app, "quit", native_catalog::TRAY_QUIT, true, None::<&str>)?;
-        let menu = Menu::with_items(app, &[&settings, &quit])?;
+        let menu = Menu::with_items(app, &[&settings, &reload, &quit])?;
         // Tauri does not default the tray to the app icon, and `tray_icon`
         // registers the shell entry *without* `NIF_ICON` when none is supplied
         // rather than failing — so the notification area drew an empty cell that
@@ -227,6 +245,7 @@ pub fn run() {
         capture_notice_dismiss,
         capture_transcribe_cancel,
         runtime_recover,
+        runtime_switch_engine_provider,
         result_status,
         result_copy,
         session_transcript_log,

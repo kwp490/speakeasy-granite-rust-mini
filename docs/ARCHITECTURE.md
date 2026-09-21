@@ -154,14 +154,33 @@ CUDA libraries the catalog pins.
 
 Two consequences follow, and both are deliberate:
 
-- **There is no provider-override setting.** One existed for the streaming
-  engine, where both packs were downloadable and preferring either was
-  meaningful. Here no setting can conjure a worker binary, so a control offering
-  the choice would report a state the engine will not be in.
+- **No setting can conjure a worker binary.** One provider-override setting
+  existed for the streaming engine, where both packs were downloadable and
+  preferring either was meaningful, and an equivalent for Granite was removed on
+  the same grounds this one restates: a control offering a choice the machine
+  cannot honour reports a state the engine will not be in.
 - **Setup records which configuration it installed.** Without that, "running on
   CPU because you chose CPU" and "running on CPU because the GPU worker will not
   load" are the same silent outcome. With it, the first is normal and the second
   is an error with instructions.
+
+**A narrower in-app switch exists as of 2026-09-20** (owner decision,
+`docs/handoff/FEATURE-dock-engine-controls.md`), and it does not contradict the
+first bullet: it cannot conjure a binary either. `download::preserve_cpu_worker`
+now renames the CPU worker to `granite-worker.cpu.exe` instead of letting the
+CUDA copy overwrite it, so a graphics-card install keeps both, verified, on
+disk. `RuntimePaths::granite_worker_alternate` resolves the second one when it
+exists; `engine_provider_override` (a `Settings` field, default `None`) is a
+runtime preference layered on top of `install-provider.txt`, never a
+replacement for it — the record still says what setup proved, and
+`resolve_active_worker` is the one function that decides which binary a warm
+launches and which provider string `assess_provider_integrity` judges it
+against, so a deliberate CPU run on a CUDA-recorded install reads as `Matches`
+rather than the `gpu_install_not_operational` fault a raw comparison would
+report. A processor-only install resolves no alternate, ever, because this
+project fetches the graphics-card worker only during setup and never on
+demand — the switch is bidirectional exactly on the population that already
+paid for both binaries, and absent everywhere else.
 
 #### The record is proof, and it takes three facts
 

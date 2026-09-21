@@ -284,8 +284,39 @@ pub struct Settings {
     /// failing the parse, so an older profile still opens.
     #[serde(default)]
     pub hud_dock: HudDockPlacement,
+    /// A deliberate, revocable choice to run a worker other than the one setup
+    /// installed. `None` — the default, and every profile written before this
+    /// field existed — means "use what setup installed", which is exactly
+    /// today's behavior with nothing new to opt into.
+    ///
+    /// This is not `install-provider.txt`: that file is a permanent record of
+    /// what setup's own engine check proved; this is a mutable preference read
+    /// fresh at every warm, and it can only ever select a binary setup already
+    /// staged and verified. See `RuntimePaths::granite_worker_alternate`.
+    #[serde(default)]
+    pub engine_provider_override: Option<EngineProvider>,
     #[serde(default, flatten)]
     pub extensions: BTreeMap<String, Value>,
+}
+
+/// A worker binary the in-app switch can select, when setup staged it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EngineProvider {
+    Cpu,
+    Cuda,
+}
+
+impl EngineProvider {
+    /// The same vocabulary `install-provider.txt` and `recorded_provider`
+    /// already speak, so a caller can compare the two without a second mapping.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Cpu => "cpu",
+            Self::Cuda => "cuda",
+        }
+    }
 }
 
 /// Which screen edge the side dock is flush against.
@@ -329,6 +360,7 @@ impl Default for Settings {
             theme: ThemePreference::System,
             preferred_capture_device_id: None,
             hud_dock: HudDockPlacement::default(),
+            engine_provider_override: None,
             extensions: BTreeMap::new(),
         }
     }
@@ -628,6 +660,29 @@ mod tests {
         assert_eq!(existing.hud_dock, HudDockPlacement::default());
         assert_eq!(existing.hud_dock.edge, HudDockEdge::Right);
         assert!(existing.hud_dock.position_y.is_none());
+
+        // A profile written before this field existed must load as "use what
+        // setup installed" -- the same behavior as before this field existed --
+        // not as an unconfigured or invalid state.
+        assert_eq!(existing.engine_provider_override, None);
+    }
+
+    #[test]
+    fn engine_provider_override_round_trips_and_defaults_to_none() {
+        let settings = Settings {
+            engine_provider_override: Some(EngineProvider::Cuda),
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).expect("serialize");
+        let reloaded: Settings = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(
+            reloaded.engine_provider_override,
+            Some(EngineProvider::Cuda)
+        );
+        assert_eq!(EngineProvider::Cuda.code(), "cuda");
+        assert_eq!(EngineProvider::Cpu.code(), "cpu");
+
+        assert_eq!(Settings::default().engine_provider_override, None);
     }
 
     #[test]

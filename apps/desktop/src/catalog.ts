@@ -526,6 +526,12 @@ export const messages = {
   engineNone: "Nothing yet",
   engineReasonUnknown: "The reason is unavailable.",
   gpuRetest: "Re-test graphics-card engine",
+  switchToGpu: "Switch to graphics card",
+  switchToCpu: "Switch to processor",
+  engineProviderSwitching: "Switching…",
+  engineProviderSwitched: "Dictation now runs on the switched engine.",
+  engineProviderSwitchUnavailable:
+    "This installation kept only one engine, so there is nothing to switch to. Reinstall with the graphics-card option to add the other one.",
   /**
    * Why this machine landed on this engine.
    *
@@ -747,6 +753,8 @@ export const messages = {
       "Transcription is paused after repeated engine failures. Use Restart engine in Advanced settings.",
     granite_state_unavailable:
       "The transcription engine state is unavailable. Wait a moment and retry.",
+    engine_provider_not_installed:
+      "This installation does not have the other engine. Reinstall with the graphics-card option to add it.",
     dictation_active_operation_deferred:
       "A dictation is running. This can be done once it finishes.",
     runtime_busy: "Another runtime operation is already running. Wait for it to finish, then retry.",

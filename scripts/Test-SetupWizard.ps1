@@ -622,6 +622,19 @@ try {
             throw "Setup reported success without placing $relative."
         }
     }
+    # A graphics-card install must keep the CPU worker beside the CUDA one
+    # rather than losing it to the overwrite `place_beside_the_worker` used to
+    # perform -- `download::preserve_cpu_worker` renames it aside first. This is
+    # what the in-app CPU/GPU switch resolves as its alternate binary, so its
+    # absence here would mean that switch silently has nothing to offer on the
+    # one population it is supposed to serve.
+    if ($expectedProvider -eq 'cuda') {
+        $preservedCpuWorker = Join-Path $installRoot 'proof\granite-worker.cpu.exe'
+        if (-not (Test-Path -LiteralPath $preservedCpuWorker -PathType Leaf)) {
+            throw ('A graphics-card install did not preserve the CPU worker at ' +
+                "$preservedCpuWorker, so the in-app CPU/GPU switch has nothing to offer.")
+        }
+    }
     $expectedSeeds = @{
         'install-hotkey.txt'     = 'Ctrl+Alt+P'
         'install-logging.txt'    = '1'

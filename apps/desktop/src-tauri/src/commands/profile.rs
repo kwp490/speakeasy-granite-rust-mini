@@ -823,13 +823,18 @@ fn gpu_status(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, ModelCoordinator>,
     granite: tauri::State<'_, GraniteEngineCoordinator>,
+    runtime: tauri::State<'_, RuntimeWizardCoordinator>,
 ) -> Result<GpuStatusView, &'static str> {
     require_main_window(&window)?;
     let selection = granite_selection(&state.root.join("models"), granite.cuda_worker_available());
+    let alternate_provider_available = runtime
+        .paths()
+        .is_ok_and(|paths| paths.granite_worker_alternate.is_some());
     Ok(GpuStatusView::from_selection(
         selection.as_ref(),
         granite.device(),
         granite.provider_integrity(),
+        alternate_provider_available,
     ))
 }
 

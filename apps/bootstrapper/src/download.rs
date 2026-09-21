@@ -431,6 +431,13 @@ pub fn stage_graphics_card_payload(
     std::fs::create_dir_all(&proof).map_err(|error| {
         catalog::gpu_staging_failed(catalog::ARTIFACT_GPU_ENGINE, &error.to_string())
     })?;
+    // Best-effort, and deliberately not `?`: a machine that cannot preserve the
+    // CPU worker here still gets a fully working graphics-card install, it just
+    // loses the in-app CPU/GPU switch for this session. The desktop side reads
+    // presence rather than trusting a flag, so a failed preservation here
+    // surfaces as the switch control being unavailable rather than as a second,
+    // separate failure mode to report.
+    let _ = preserve_cpu_worker(&proof);
     // **The worker goes last, and the order is the safety property.** Every
     // failure here leaves the install root part-way through, and the two
     // orderings leave very different machines behind. Libraries first: a failure
@@ -469,6 +476,36 @@ pub fn stage_graphics_card_payload(
         }
     }
     Ok(true)
+}
+
+/// Keeps the CPU worker [`crate::install::perform`] just laid, before the CUDA
+/// build takes its name.
+///
+/// `perform` merges the payload tree over the install root on every install,
+/// repair and upgrade, and the payload always carries the CPU worker at
+/// `proof/granite-worker.exe` — so whatever is at that path the instant this
+/// function runs is always that build, never a CUDA one left over from an
+/// earlier staging. Preserved under the name `uninstall::KNOWN_PROOF_ORPHANS`
+/// (private to that module, so not linked from here) already recognises, so an
+/// in-app CPU/GPU switch has a verified alternate to resolve and uninstall
+/// already removes it without flagging it as unrecognised.
+///
+/// Renamed rather than copied: the same crash-safety [`place_beside_the_worker`]
+/// gives its destination applies here, for one filesystem operation instead of
+/// a copy the caller would then have to delete.
+///
+/// A missing source is not an error: nothing reaches this function without
+/// `perform` having just placed the CPU worker, so its absence would mean that
+/// invariant already broke, and the CUDA copy immediately after this call is
+/// what will actually report the missing worker.
+fn preserve_cpu_worker(proof: &Path) -> Result<(), String> {
+    let cpu_worker = proof.join("granite-worker.exe");
+    if !cpu_worker.is_file() {
+        return Ok(());
+    }
+    let preserved = proof.join("granite-worker.cpu.exe");
+    std::fs::rename(&cpu_worker, &preserved)
+        .map_err(|error| format!("{}: {error}", preserved.display()))
 }
 
 /// Copy one file into `proof/`, atomically as far as any reader is concerned.
