@@ -33,17 +33,25 @@ Once a remote exists, this is what lists commits that are in no release:
 git log --oneline origin/main..HEAD
 ```
 
-**This checkout has no git remote and only a short history.** At the 2026-09-20
-handoff it was on `master` with two commits: a baseline snapshot of the tree as
-received, and the review-fix batch on top of it. It is not a clone of
-`kwp490/speakeasy-granite-rust-mini`, so it has none of that repository's
-ancestry. Do not add a remote and push without the owner deciding how the two
-histories reconcile — a force-push from here would discard the published
-history and the v1.8.1 release's ancestry. Ask before touching remote state.
+**This working folder began as a copy rather than a clone.** It carried no git
+history until 2026-09-20, when a baseline commit captured the tree as received;
+that baseline turned out to match `origin/main` exactly, so the review work was
+replayed onto the real history with `cherry-pick` and `origin` now points at
+`kwp490/speakeasy-granite-rust-mini`. Nothing was rewritten and no force-push
+was used. If you find the remote missing again, do not force anything: compare
+the tree against `origin/main` first, and ask the owner before touching remote
+state.
 
-The workspace version is `1.9.1`; verify it. An independent review raised eight
+The workspace version is `1.9.1`; verify it. `v1.9.0` is published, so `1.9.1`
+is one prepared increment ahead of it. An independent review raised eight
 findings and all eight are fixed, each with a regression test proved by a red
-control. The same batch took RUSTSEC-2026-0285 by moving `rustls` to 0.23.45.
+control.
+
+**RUSTSEC-2026-0285 was fixed twice, differently.** `1.9.0` updated `Cargo.lock`
+to `rustls` 0.23.45 but left the workspace pin in `Cargo.toml` at `=0.23.42`;
+`1.9.1` moves the pin so the manifest and lockfile agree. Nothing resolves that
+pin today because no crate takes `rustls` directly, so the disagreement was
+latent rather than broken.
 `docs/handoff/CURRENT.md` has the detail under "Prepared v1.9.1 state".
 
 SpeakEasy Mini 1.9.1 is installed for the current user at
