@@ -31,13 +31,13 @@
     },
     {
       "name": "aws-lc-rs",
-      "version": "1.17.3",
+      "version": "1.18.1",
       "source": "crates.io",
       "network_indicator": false
     },
     {
       "name": "aws-lc-sys",
-      "version": "0.43.0",
+      "version": "0.45.0",
       "source": "crates.io",
       "network_indicator": false
     },
@@ -368,7 +368,7 @@
     },
     {
       "name": "rustls",
-      "version": "0.23.42",
+      "version": "0.23.45",
       "source": "crates.io",
       "network_indicator": false
     },
