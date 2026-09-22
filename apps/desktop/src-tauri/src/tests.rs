@@ -1204,6 +1204,65 @@ mod tests {
         }
     }
 
+    /// `dispatch_menu_action` is registered with tauri exactly once.
+    ///
+    /// `TrayIconBuilder::on_menu_event` does not scope anything to the tray.
+    /// It pushes its handler onto `manager.menu.global_event_listeners` — the
+    /// same list `AppHandle::on_menu_event` appends to (tauri 2.11.5,
+    /// `src/tray/mod.rs`, `TrayIcon::register`) — and the event loop calls
+    /// every listener on that list for every menu event, whichever surface it
+    /// came from. Registering the dispatcher on both therefore ran it twice
+    /// per click.
+    ///
+    /// Twice is not harmless for an action that reads state the previous pass
+    /// just wrote. Measured 2026-09-22 on the dock's "Switch to CPU": pass one
+    /// stored the processor override, pass two re-resolved the target, saw the
+    /// processor already effective, asked for the graphics card instead, and
+    /// cleared the preference. The menu went on offering "Switch to CPU" while
+    /// the processor was what was running.
+    ///
+    /// A source assertion because the defect is in composition: the duplicate
+    /// registration happens once at startup, produces no error, and is visible
+    /// only as a second dispatch that a unit test of the dispatcher cannot
+    /// see. `every_menu_id_that_is_built_has_a_handler` above guards the other
+    /// half — that each id reaches the dispatcher at all.
+    #[test]
+    fn the_menu_dispatcher_is_registered_exactly_once() {
+        let composition = include_str!("composition.rs");
+
+        // Registrations, not mentions: only lines that actually hand the
+        // dispatcher to one of tauri's two `on_menu_event` entry points count,
+        // and the prose above deliberately names both of them.
+        let registrations = composition
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .filter(|line| line.contains("on_menu_event"))
+            .collect::<Vec<_>>();
+
+        // Instrument self-check: an extractor that reads nothing would assert
+        // "exactly once" by finding zero and comparing wrong, so prove it sees
+        // the registration that must be there before trusting the count.
+        assert!(
+            registrations
+                .iter()
+                .any(|line| line.contains("dispatch_menu_action")),
+            "the extractor found no menu-event registration at all, so it is \
+             broken rather than the composition root being clean: \
+             {registrations:?}"
+        );
+
+        assert_eq!(
+            registrations.len(),
+            1,
+            "dispatch_menu_action must be registered exactly once. \
+             TrayIconBuilder::on_menu_event appends to the same global \
+             listener list as AppHandle::on_menu_event, so a second \
+             registration runs every menu click twice — and a click that \
+             reads back what the previous pass wrote then undoes itself. \
+             Found: {registrations:?}"
+        );
+    }
+
     /// Setup's words become entries, and a compound also gets its spaced
     /// companion so a recogniser that heard two words is corrected.
     #[test]

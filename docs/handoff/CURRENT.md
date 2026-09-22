@@ -14,8 +14,8 @@ that closed it, and any hazard general enough to bite again lives in
 | | |
 | --- | --- |
 | Branch | `main`, on `kwp490/speakeasy-granite-rust-mini` (public) |
-| Latest release | `v1.9.1`, 2026-09-20, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
-| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.10.0`, ahead of the published `v1.9.1`, so a build may proceed once the proofs below have run |
+| Latest release | `v1.10.0`, 2026-09-22, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
+| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.10.1`, ahead of the published `v1.10.0`, so a build may proceed once the proofs below have run |
 | Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
 | Ignored tests | seven, all hardware or real-registry. See below |
 
@@ -159,36 +159,42 @@ window — so a move into a password box *inside* the same window still passes.
 It is documented beside the protection in `docs/ARCHITECTURE.md` and in
 `validate_foreground_identity`.
 
-### Dock/Settings CPU↔GPU switch is implemented but not yet proof-verified
+### One menu click was dispatched twice, and a switch undid itself
 
-Owner-requested 2026-09-20 (`docs/handoff/FEATURE-dock-engine-controls.md`),
-implemented the same day against Option B of that brief: a graphics-card
-install now keeps the CPU worker beside the CUDA one
-(`download::preserve_cpu_worker` renames it to `granite-worker.cpu.exe` instead
-of `place_beside_the_worker` overwriting it), so an in-app switch
-(`runtime_switch_engine_provider`, `engine_provider_override`) can move between
-them without a new download. The dock's right-click menu and Settings →
-Transcription both carry the control; "Reload the model" reuses
-`runtime_recover` unchanged. A processor-only install still shows the switch
-absent or disabled, forever — this narrows "no provider override," it does not
-reopen "no on-demand fetch."
+Found by the owner on the installed `v1.10.0`, 2026-09-22: after switching to
+the processor the dock badge read `CPU`, and the dock's right-click menu went
+on offering **Switch to CPU**.
 
-**Observed:** the default gate (`Invoke-ScaffoldChecks.ps1 -SkipNpmInstall`)
-passed, including a new red-control test proving a deliberate CPU switch on a
-CUDA-recorded install reads as `Matches` rather than
-`gpu_install_not_operational` — the specific correctness risk this design
-exists to close, since the exe and the string fed to `assess_provider_integrity`
-have to move together (`resolve_active_worker` is the one function that owns
-that pairing).
+`TrayIconBuilder::on_menu_event` does not scope anything to the tray. It pushes
+its handler onto `manager.menu.global_event_listeners`, the same list
+`AppHandle::on_menu_event` appends to (tauri 2.11.5, `src/tray/mod.rs`,
+`TrayIcon::register`), and the event loop calls every listener on it for every
+menu event from any surface. `composition.rs` registered
+`dispatch_menu_action` on both, so every click ran it twice.
 
-**Unverified:** the bootstrapper change touches the one path
-`Test-InstallerLifecycle.ps1` and `Test-SetupWizard.ps1` assert file-for-file —
-neither script has been run against this build, and both hardcode the placed
-file list for a graphics-card run (see "Before the next release" — they need
-`proof\granite-worker.cpu.exe` added). Nothing here has been proved on the RTX
-4070 Laptop or any other graphics-card host. **Do not cut a release from this
-tree** until those two proofs, plus a manual round-trip of the switch on real
-hardware, have run.
+For an action that reads back what the previous pass wrote, twice is not
+harmless. Pass one stored the processor override; pass two re-resolved the
+target, saw the processor already effective, asked for the graphics card
+instead, and cleared the preference. The resident CPU worker survived only
+because the second warm found it already loaded, which is why the engine looked
+switched while the preference was not. The diagnostic log carried both warms a
+millisecond apart, `engine_override=applied` then `engine_override=none`.
+**Reload the model** and **Close SpeakEasy** ran twice for the same reason.
+
+Fixed in `v1.10.1` by deleting the tray builder's registration. Guarded by
+`the_menu_dispatcher_is_registered_exactly_once`, a source assertion because
+the defect is in composition: it happens once at startup, errors nothing, and
+shows up only as a second dispatch no unit test of the dispatcher can see. It
+was proved with a red control that restored the duplicate registration.
+
+**Still unverified:** the label is derived from the resolved preference, while
+the dock badge is derived from the device the worker actually ran on. Those two
+agree again now that the double dispatch is gone, but nothing asserts they
+must. `CLAUDE.md`'s "UI provider reporting uses the device, never the pack"
+covers the badge; whether the menu's label should be re-derived from the device
+as well is open, and the answer is not obviously yes — a label that names the
+device can offer a switch that resolves to a no-op when a preference and a
+device disagree for any other reason.
 
 ### The seven ignored tests, and how to run them
 

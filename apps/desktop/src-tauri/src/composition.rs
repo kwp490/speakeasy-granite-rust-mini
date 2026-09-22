@@ -136,14 +136,29 @@ pub fn run() {
         app.manage(ClipboardWriter::spawn().map_err(|_| "clipboard_writer_unavailable")?);
         app.manage(CommitWriter::spawn().map_err(|_| "commit_writer_unavailable")?);
         configure_hud(app)?;
-        // Shared by the tray's own menu-event hook below and the side dock's
-        // popup menu (`hud_dock_context_menu`), which dispatches through the
-        // app-wide handler rather than a tray-specific one — the two are
-        // different attachment points in tauri's menu API, but an id built on
-        // both surfaces means the same thing regardless of which one it was
-        // clicked from. Not every id is built on both: `switch_engine_provider`
-        // is dock-only, because the tray's menu is built once here and never
-        // rebuilt, and that item's label depends on state that changes.
+        // **The one and only menu-event registration in this process**, for
+        // the tray's menu and the side dock's popup (`hud_dock_context_menu`)
+        // alike. An id built on either surface means the same thing, so one
+        // dispatcher serves both. Not every id is built on both:
+        // `switch_engine_provider` is dock-only, because the tray's menu is
+        // built once here and never rebuilt, and that item's label depends on
+        // state that changes.
+        //
+        // `TrayIconBuilder::on_menu_event` must **not** also be used, however
+        // tray-scoped its name reads. It pushes its handler onto this very
+        // list — `manager.menu.global_event_listeners`, see tauri 2.11.5
+        // `src/tray/mod.rs` `TrayIcon::register` — and the event loop then
+        // calls every listener on it for *every* menu event. Registering here
+        // and there ran `dispatch_menu_action` twice per click, from both
+        // surfaces, which no id survived intact: measured 2026-09-22, one
+        // click on the dock's "Switch to CPU" resolved its target twice, and
+        // the second pass, seeing the first pass's CPU already in effect,
+        // asked for the graphics card again and cleared the preference it had
+        // just written. The log carried both warms a millisecond apart,
+        // `engine_override=applied` then `engine_override=none`, and the
+        // resident CPU worker survived only because the second warm found it
+        // already loaded. The user was left on the processor with a menu still
+        // offering to switch to it.
         app.on_menu_event(|app, event| dispatch_menu_action(app, event.id().as_ref()));
         let settings = MenuItem::with_id(
             app,
@@ -180,12 +195,15 @@ pub fn run() {
         //
         // The icon comes from the windows' own default rather than a second read
         // of `icons/icon.ico`, so the tray can never disagree with the taskbar.
+        // The tray must never become the only way back to the app, but it is a
+        // reasonable second route to settings. Its menu's clicks reach
+        // `dispatch_menu_action` through the app-wide registration above;
+        // `.on_menu_event` deliberately does not appear here, because it would
+        // be a *second* entry on the same global listener list rather than a
+        // tray-scoped one. See that registration for what the duplicate cost.
         let mut tray = TrayIconBuilder::new()
             .tooltip(native_catalog::TRAY_TOOLTIP)
-            .menu(&menu)
-            // The tray must never become the only way back to the app, but it
-            // is a reasonable second route to settings.
-            .on_menu_event(|app, event| dispatch_menu_action(app, event.id().as_ref()));
+            .menu(&menu);
         if let Some(icon) = app.default_window_icon().cloned() {
             tray = tray.icon(icon);
         }

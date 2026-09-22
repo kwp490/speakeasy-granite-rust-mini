@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFile as readFileRaw, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
@@ -39,25 +40,42 @@ async function readSources(extensions) {
 }
 
 /**
- * Every `.rs` in the workspace, as `[repo-relative path, body]` pairs, skipping
- * `target/`.
+ * Every tracked `.rs` in the workspace, as `[repo-relative path, body]` pairs.
  *
  * Pairs rather than one concatenation because the rules that need this are about
  * *where* something appears, not merely whether it does — the single-spawn rule
  * below has to be able to name the file that broke it.
+ *
+ * Enumerated from `git ls-files`, which is the repository's rule for a scan and
+ * not merely the tidier option here. Walking the tree and excluding `target/`
+ * was the previous shape, and `target/` is not the only directory in a working
+ * checkout that holds `.rs` files it does not own: a workspace-local toolchain
+ * under `.tools/cargo/registry/src/` holds a vendored copy of every dependency,
+ * so the scan read third-party crates as though they were this repository's
+ * sources. It also opened all of them at once and died `EMFILE` at about eight
+ * thousand — but the wrong corpus was the worse half, because a rule asserted
+ * against `mio` is a rule that passes for reasons nobody chose. `.tools` is
+ * untracked, so `git ls-files` excludes it, `target/` and anything else
+ * transient without naming any of them.
  */
 async function readAllRustSources() {
   const root = fileURLToPath(new URL("../../../", import.meta.url));
-  const entries = await readdir(root, { recursive: true, withFileTypes: true });
-  const files = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".rs"))
-    .map((entry) => join(entry.parentPath, entry.name))
-    .filter((file) => !file.slice(root.length).replace(/\\/g, "/").startsWith("target/"));
+  const listed = execFileSync("git", ["ls-files", "-z", "*.rs"], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const files = listed.split("\0").filter((path) => path.length > 0);
+  // Self-check: a scan that reads nothing satisfies every "no file does X"
+  // rule below by vacuum. `git ls-files` returning empty is what a wrong `cwd`
+  // or a missing git looks like, and it is indistinguishable from a clean
+  // repository unless it is asserted here.
+  assert.ok(
+    files.length > 50,
+    `git ls-files found ${files.length} tracked .rs files, so the scan is broken rather than the workspace being small`,
+  );
   return Promise.all(
-    files.map(async (file) => [
-      file.slice(root.length).replace(/\\/g, "/"),
-      await readFile(file, "utf8"),
-    ]),
+    files.map(async (path) => [path, await readFile(join(root, path), "utf8")]),
   );
 }
 

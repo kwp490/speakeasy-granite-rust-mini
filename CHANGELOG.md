@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.10.1 — 2026-09-22
+
+Switching between the processor and the graphics card now stays switched. One
+click was being acted on twice: the first pass stored the provider you asked
+for and the second, seeing it already in effect, asked for the other one back
+and cleared the preference. The engine was left on whichever worker was already
+loaded, and the dock's right-click menu went on offering the provider you had
+just chosen. Every dock and tray menu item was affected — **Reload the model**
+reloaded twice, and **Close SpeakEasy** ran its shutdown twice.
+
 ## 1.10.0 — 2026-09-21
 
 The dock's right-click menu gains two items: **Reload the model**, for when
