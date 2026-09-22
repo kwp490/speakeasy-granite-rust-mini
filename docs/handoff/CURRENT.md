@@ -15,7 +15,7 @@ that closed it, and any hazard general enough to bite again lives in
 | --- | --- |
 | Branch | `main`, on `kwp490/speakeasy-granite-rust-mini` (public) |
 | Latest release | `v1.9.1`, 2026-09-20, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
-| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.9.1`, equal to the published release, so the next build must move it first |
+| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.10.0`, ahead of the published `v1.9.1`, so a build may proceed once the proofs below have run |
 | Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
 | Ignored tests | seven, all hardware or real-registry. See below |
 
@@ -159,7 +159,7 @@ window — so a move into a password box *inside* the same window still passes.
 It is documented beside the protection in `docs/ARCHITECTURE.md` and in
 `validate_foreground_identity`.
 
-### Dock/Settings CPU↔GPU switch is implemented, uncommitted, and not yet proof-verified
+### Dock/Settings CPU↔GPU switch is implemented but not yet proof-verified
 
 Owner-requested 2026-09-20 (`docs/handoff/FEATURE-dock-engine-controls.md`),
 implemented the same day against Option B of that brief: a graphics-card
@@ -188,8 +188,7 @@ file list for a graphics-card run (see "Before the next release" — they need
 `proof\granite-worker.cpu.exe` added). Nothing here has been proved on the RTX
 4070 Laptop or any other graphics-card host. **Do not cut a release from this
 tree** until those two proofs, plus a manual round-trip of the switch on real
-hardware, have run. The change is also uncommitted; `git status -sb` has the
-current answer.
+hardware, have run.
 
 ### The seven ignored tests, and how to run them
 

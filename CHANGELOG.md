@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.10.0 — 2026-09-21
+
+The dock's right-click menu gains two items: **Reload the model**, for when
+the engine has stopped working, and **Switch to CPU/GPU**, a real toggle on a
+graphics-card install. Setup now keeps the processor worker beside the
+graphics-card one instead of discarding it, so switching between them costs no
+new download and works in both directions. A processor-only install still has
+nothing to switch to — this does not add an on-demand graphics-card download.
+Both controls are also on Settings → Transcription, beside the existing engine
+disclosure.
+
 ## 1.9.1 — 2026-09-20
 
 An independent code review found eight issues and all eight are fixed. The ones

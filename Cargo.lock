@@ -4142,7 +4142,7 @@ dependencies = [
 
 [[package]]
 name = "speakeasy-audio"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "allocation-counter",
  "cpal",
@@ -4151,7 +4151,7 @@ dependencies = [
 
 [[package]]
 name = "speakeasy-bootstrapper"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "semver",
  "sha2",
@@ -4167,7 +4167,7 @@ dependencies = [
 
 [[package]]
 name = "speakeasy-delivery"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "speakeasy-domain",
  "unicode-segmentation",
@@ -4175,7 +4175,7 @@ dependencies = [
 
 [[package]]
 name = "speakeasy-desktop"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "getrandom 0.4.3",
  "serde",
@@ -4197,7 +4197,7 @@ dependencies = [
 
 [[package]]
 name = "speakeasy-domain"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4205,14 +4205,14 @@ dependencies = [
 
 [[package]]
 name = "speakeasy-granite"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "llama-cpp-2",
 ]
 
 [[package]]
 name = "speakeasy-granite-worker"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "speakeasy-domain",
  "speakeasy-granite",
@@ -4220,7 +4220,7 @@ dependencies = [
 
 [[package]]
 name = "speakeasy-models"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "bzip2",
  "flate2",
@@ -4242,7 +4242,7 @@ dependencies = [
 
 [[package]]
 name = "speakeasy-storage"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "rusqlite",
  "serde",
@@ -4255,7 +4255,7 @@ dependencies = [
 
 [[package]]
 name = "speakeasy-test-support"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "speakeasy-domain",
  "speakeasy-windows",
@@ -4263,7 +4263,7 @@ dependencies = [
 
 [[package]]
 name = "speakeasy-transforms"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4274,7 +4274,7 @@ dependencies = [
 
 [[package]]
 name = "speakeasy-windows"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "keyring",
  "sha2",
@@ -4290,7 +4290,7 @@ dependencies = [
 
 [[package]]
 name = "speakeasy-worker"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "speakeasy-domain",
 ]
