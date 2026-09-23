@@ -14,8 +14,8 @@ that closed it, and any hazard general enough to bite again lives in
 | | |
 | --- | --- |
 | Branch | `main`, on `kwp490/speakeasy-granite-rust-mini` (public) |
-| Latest release | `v1.10.2`, 2026-09-22, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
-| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.10.3`, ahead of the published `v1.10.2`, so a build may proceed once the proofs below have run |
+| Latest release | `v1.10.3`, 2026-09-22, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
+| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.10.3`, equal to the published release, so the next build must move it first |
 | Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
 | Ignored tests | nine, all hardware or real-registry. See below |
 
@@ -27,6 +27,29 @@ git status -sb
 git log --oneline origin/main..HEAD
 git log --oneline $(git describe --tags --abbrev=0)..main
 ```
+
+### What v1.10.3 shipped and what proved it (2026-09-22)
+
+One device walk per dictation instead of three, and the start cue played from
+the first block of audio rather than from the request. Tag `v1.10.3` is at
+`dce3e93`; `SpeakEasyMiniSetup.exe` is 38,285,027 bytes, SHA-256
+`eb41c6610ad3c28f648543210b6fef61ca1e08cd10d0da104e8613c8af8783a9`, downloaded
+back and re-hashed to that value. The CUDA worker did not change and is still
+the one pinned for `v1.10.2`.
+
+Measured on the installed release build, RTX 5090 host, SteelSeries Sonar
+default input, five dictations driven by the real shortcut into a scratch
+Notepad file: `capture_first_audio` reported `first_audio_ms` 76 on the first
+dictation after launch and 28-31 on the other four, with `select_ms` 35 and
+then 15-16. Device selection alone measured 43 ms median before and 14 ms
+after, in a release probe on the same machine.
+
+The gate, the lifecycle proof and the wizard proof passed, the latter on the
+graphics card; the live installation was reinstalled through the wizard and
+its config restored byte-identical. `Increment-ProductVersion.ps1` reported
+refreshing `Cargo.lock` but left it at the old version on this run; a second
+`cargo update --workspace --offline` moved exactly the 13 workspace crates.
+Check `git diff Cargo.lock` after a bump rather than trusting its message.
 
 ### What v1.10.2 shipped and what proved it (2026-09-22)
 
@@ -407,7 +430,7 @@ worker. Nothing here can test it from one country.
 
 Not blockers for the tree; blockers for cutting a build from it.
 
-All five steps are complete for `v1.10.2`, which is published. Nothing here is
+All five steps are complete for `v1.10.3`, which is published. Nothing here is
 carried over: the next release starts at step 1, because the workspace version
 now equals the published one and `install::decide_now` refuses an equal stamp.
 
