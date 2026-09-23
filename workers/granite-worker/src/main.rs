@@ -203,6 +203,7 @@ impl Worker {
             &GraniteOptions::default(),
         )
         .map_err(|error| granite_worker_error(&error))?;
+        prime(&model);
         self.artifact_id = Some(artifact_id.to_owned());
         self.model_root = Some(model_root.to_path_buf());
         self.model = Some(model);
@@ -358,6 +359,30 @@ impl Worker {
 }
 
 type WorkerResult = Result<Vec<WorkerEvent>, WorkerFailure>;
+
+/// One second of silence, run once through a freshly loaded model so the
+/// first dictation does not pay for the backend's first-use setup.
+///
+/// Loading the weights is not the whole cost of a cold engine. On CUDA the
+/// first pass after a load also pays one-time setup the load does not, and
+/// the dictation that pays it is the user's first one: measured 2026-09-22 on
+/// an RTX 5090 with the `Q4_K_M` pack, `smoke.wav` took 356-371 ms on its first
+/// pass and 123-146 ms on every pass after. With this at load the first
+/// dictation took 152 ms, and this pass took ~280 ms of the launch warm
+/// instead. The processor build showed no first-pass penalty (1.24 s every
+/// pass), so there it costs one short pass at launch and buys nothing.
+///
+/// One token is enough: the setup is in evaluating the audio, not in
+/// generating, and a transcript of silence is not wanted. Its result is
+/// discarded, error included -- a real failure fails the real pass too, and
+/// reports itself there with the dictation it belongs to.
+fn prime(model: &GraniteModel) {
+    let options = GraniteOptions {
+        max_new_tokens: 1,
+        ..GraniteOptions::default()
+    };
+    let _ = model.transcribe_samples(&vec![0.0; SAMPLE_RATE_HZ as usize], &options);
+}
 
 struct WorkerFailure {
     code: WorkerErrorCode,

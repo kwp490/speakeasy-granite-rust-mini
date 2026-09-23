@@ -58,6 +58,22 @@ error — had the whole recording discarded. It is 128 MiB now, and
 config the code actually builds rather than holding its own copy of the number,
 which is how it passed through the entire period the relationship was broken.
 
+**Granite hears 300 ms of silence before every recording.** Capture starts at
+the key press, so speech can begin at sample zero with the start of the first
+word already lost while the microphone opens (the stream delivers its first
+samples 33-120 ms after it is asked to, measured on four devices). Granite
+drops or replaces a first word that starts mid-phoneme. `LEAD_IN_SAMPLES` in
+`speakeasy-granite` adds the silence at the one point the worker hands samples
+to the model; its doc comment has the measurement, including why 500 ms is
+worse. It does not recover speech that arrived before the stream opened.
+
+**The worker runs one silent pass when it loads the model.** On CUDA the first
+pass after a load pays one-time backend setup that the load itself does not:
+356-371 ms against 123-146 ms for later passes, on an RTX 5090. `prime` in
+`workers/granite-worker` spends that at the launch warm, so the first
+dictation runs at the resident speed. The processor build showed no such
+penalty.
+
 **A finished capture reports one failure and five annotations.** Only
 `frames_buffered == 0` means there is nothing to transcribe. A dropped callback
 block, a processing overrun and the three buffer limits all describe audio that

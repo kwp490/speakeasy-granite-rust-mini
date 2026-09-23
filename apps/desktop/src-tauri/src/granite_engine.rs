@@ -2762,6 +2762,82 @@ mod tests {
         assert!(!coordinator.is_quarantined());
     }
 
+    /// The fixture as a dictation actually arrives when someone starts talking
+    /// as they press the key: speech from sample zero, with the start of the
+    /// first word already gone because the microphone was still opening.
+    ///
+    /// `smoke.wav`'s speech begins 140 ms in; dropping its first 230 ms starts
+    /// the clip 90 ms into "The". Without `speakeasy_granite::LEAD_IN_SAMPLES`
+    /// Granite returns "quick brown fox jumps..." -- the first word gone, which
+    /// is the reported defect -- and with it the whole sentence comes back.
+    /// Same fixture requirements as
+    /// [`granite_final_pass_transcribes_the_fixture_through_the_real_worker_process`].
+    ///
+    /// ```text
+    /// cargo test -p speakeasy-desktop --lib granite_final_pass_hears -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore = "hardware: needs target/debug/proof/granite-worker.exe and the staged GGUF files"]
+    fn granite_final_pass_hears_a_first_word_spoken_at_the_key_press() {
+        /// 230 ms at 16 kHz: the fixture's 140 ms of leading quiet plus 90 ms
+        /// of its first word.
+        const CLIPPED_SAMPLES: usize = 3_680;
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("..")
+            .canonicalize()
+            .expect("repository root");
+        let target_debug = repository.join("target").join("debug");
+        let worker_exe = target_debug.join("proof").join("granite-worker.exe");
+        let install_root = target_debug.join("model-lifecycle").join("models");
+        let wav = repository
+            .join("apps")
+            .join("bootstrapper")
+            .join("fixtures")
+            .join("smoke.wav");
+        for path in [&worker_exe, &wav] {
+            assert!(
+                path.is_file(),
+                "missing {}; see this test's documentation",
+                path.display()
+            );
+        }
+
+        let coordinator = GraniteEngineCoordinator::default();
+        let samples = read_wave(&wav).split_off(CLIPPED_SAMPLES);
+        let session_id = speakeasy_domain::SessionId::from_bytes([0x5c; 16]);
+        let outcome = tauri::async_runtime::block_on(run_granite_final_pass(
+            GraniteEnvironment {
+                granite_worker_exe: Some(&worker_exe),
+                install_root: &install_root,
+                total_memory_bytes: AMPLE_MEMORY,
+                diagnostic_log: None,
+                recorded_provider: "unrecorded",
+                cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                verifier: &TrustedDigestVerifier,
+            },
+            &coordinator,
+            UtteranceAudio {
+                session_id,
+                sample_rate_hz: 16_000,
+                samples,
+            },
+            AsrRequest {
+                correlation_id: speakeasy_domain::CorrelationId::from_bytes([0x5d; 16]),
+                session_id,
+                language: AsrLanguage::English,
+                task: AsrTask::Transcribe,
+            },
+            CancelToken::default(),
+        ))
+        .expect("Granite must transcribe the clipped fixture without error")
+        .expect("Granite must be configured given the staged files");
+        // Whole transcript: a `contains("quick brown fox")` would pass on
+        // exactly the output this test exists to reject.
+        assert_eq!(outcome.text, SMOKE_CLIP_TRANSCRIPT);
+    }
+
     /// The direct proof that `run_granite_final_pass` reuses the resident
     /// worker rather than spawning a fresh one per call: drives it twice
     /// against the *same* coordinator and asserts `Arc::ptr_eq` on the
@@ -2887,6 +2963,114 @@ mod tests {
             "two independent dictations against the resident worker must produce the identical transcript"
         );
         assert!(!coordinator.is_quarantined());
+    }
+
+    /// The first dictation after launch must be as fast as the ones after it:
+    /// the launch warm is what the user waits through, not their first
+    /// dictation.
+    ///
+    /// Warms the way `warm_granite_engine` does, then times two dictations. The
+    /// worker's `prime` runs a pass at load for this; without it a CUDA worker's
+    /// first pass took 356-371 ms against 123-146 ms after (RTX 5090, 2026-09-22),
+    /// with this the two measured 174 and 184 ms, and without it the same harness
+    /// measured 380 against 195 -- so the bound is 1.5x, halfway between. 2x let
+    /// one of two red runs through. **Only a CUDA worker can fail this**:
+    /// the processor build showed no first-pass penalty, so against the worker
+    /// `Stage-DevRuntime.ps1` stages it passes with or without `prime`. Stage
+    /// the CUDA worker as the handoff describes for `a_cuda_worker_reports`,
+    /// and say which worker was in place.
+    ///
+    /// ```text
+    /// cargo test -p speakeasy-desktop --lib a_warmed_engine -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore = "hardware: needs target/debug/proof/granite-worker.exe (a CUDA build to discriminate) and the staged GGUF files"]
+    fn a_warmed_engine_runs_its_first_dictation_as_fast_as_its_second() {
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("..")
+            .canonicalize()
+            .expect("repository root");
+        let target_debug = repository.join("target").join("debug");
+        let worker_exe = target_debug.join("proof").join("granite-worker.exe");
+        let install_root = target_debug.join("model-lifecycle").join("models");
+        let wav = repository
+            .join("apps")
+            .join("bootstrapper")
+            .join("fixtures")
+            .join("smoke.wav");
+        for path in [&worker_exe, &wav] {
+            assert!(
+                path.is_file(),
+                "missing {}; see this test's documentation",
+                path.display()
+            );
+        }
+        let manifest = bundled_manifest().expect("the bundled manifest must parse");
+        let pack = granite_pack(&manifest);
+        let choice = cpu_choice(pack, &install_root);
+        let coordinator = GraniteEngineCoordinator::default();
+        coordinator
+            .ensure_ready(
+                &worker_exe,
+                &choice,
+                None,
+                "unrecorded",
+                &speakeasy_models::NvmlCudaContextProbe,
+                &TrustedDigestVerifier,
+            )
+            .adapter
+            .expect("the launch warm must succeed");
+
+        let samples = read_wave(&wav);
+        let run = |seed: u8| {
+            let session_id = speakeasy_domain::SessionId::from_bytes([seed; 16]);
+            let started = std::time::Instant::now();
+            let outcome = tauri::async_runtime::block_on(run_granite_final_pass(
+                GraniteEnvironment {
+                    granite_worker_exe: Some(&worker_exe),
+                    install_root: &install_root,
+                    total_memory_bytes: AMPLE_MEMORY,
+                    diagnostic_log: None,
+                    recorded_provider: "unrecorded",
+                    cuda_context_probe: &speakeasy_models::NvmlCudaContextProbe,
+                    verifier: &TrustedDigestVerifier,
+                },
+                &coordinator,
+                UtteranceAudio {
+                    session_id,
+                    sample_rate_hz: 16_000,
+                    samples: samples.clone(),
+                },
+                AsrRequest {
+                    correlation_id: speakeasy_domain::CorrelationId::from_bytes(
+                        [seed.wrapping_add(1); 16],
+                    ),
+                    session_id,
+                    language: AsrLanguage::English,
+                    task: AsrTask::Transcribe,
+                },
+                CancelToken::default(),
+            ))
+            .expect("Granite must transcribe the fixture without error")
+            .expect("Granite must be configured given the staged files");
+            (outcome.text, started.elapsed())
+        };
+        let (first_text, first) = run(0x7a);
+        let (second_text, second) = run(0x7c);
+        println!(
+            "device={} first={first:?} second={second:?}",
+            coordinator.device()
+        );
+
+        assert_eq!(first_text, SMOKE_CLIP_TRANSCRIPT);
+        assert_eq!(second_text, SMOKE_CLIP_TRANSCRIPT);
+        assert!(
+            first * 2 < second * 3,
+            "the first dictation after the warm took {first:?} against {second:?} for the \
+             second: the warm left first-use setup for the user's first dictation to pay"
+        );
     }
 
     /// Reproduction harness for the stale-clock deadline bug: on the installed

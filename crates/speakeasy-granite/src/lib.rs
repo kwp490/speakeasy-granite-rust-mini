@@ -196,6 +196,41 @@ pub struct GraniteOptions {
     pub use_gpu: bool,
 }
 
+/// Silence placed ahead of every utterance before Granite hears it: 300 ms at
+/// the 16 kHz the projector expects.
+///
+/// # Why
+///
+/// A dictation's recording starts at the key press, so speech can begin at
+/// sample zero -- and some of the first syllable is already gone, because the
+/// microphone takes tens of milliseconds to open. Granite reads audio that
+/// starts mid-phoneme badly: it drops the first word or replaces it with a
+/// different one. Silence ahead of the onset gives the encoder something to
+/// hear the word *start* against.
+///
+/// Measured 2026-09-22 on the `Q4_K_M` pack, CPU worker, with a recorded voice
+/// cut so speech began at sample zero with 0, 60 and 120 ms of the first word
+/// removed. With no lead-in, "Ever tried? Ever failed?" came back as "tried,
+/// ever failed." at 60 ms. 100 ms fixed 60 but not 120; 200 and 300 ms fixed
+/// all three; **500 ms turned the 120 ms cut into "Never tried"**, so more is
+/// not safer and this is not a value to raise without re-measuring. The
+/// committed `smoke.wav` reproduces the dropped word too (see
+/// `granite_final_pass_hears_a_first_word_spoken_at_the_key_press`), and its
+/// unclipped transcript is unchanged by the lead-in.
+///
+/// Only [`GraniteModel::transcribe_samples`] applies it, which is the path the
+/// worker runs. `transcribe_wav_file` hands a path to llama.cpp's own decoder
+/// and does not.
+pub const LEAD_IN_SAMPLES: usize = 4_800;
+
+/// `samples` with [`LEAD_IN_SAMPLES`] of silence in front of them.
+fn with_lead_in(samples: &[f32]) -> Vec<f32> {
+    let mut padded = Vec::with_capacity(LEAD_IN_SAMPLES + samples.len());
+    padded.resize(LEAD_IN_SAMPLES, 0.0);
+    padded.extend_from_slice(samples);
+    padded
+}
+
 /// Threads to transcribe with, derived from the machine rather than fixed.
 ///
 /// # Why this is not simply "all of them"
@@ -386,7 +421,7 @@ impl GraniteModel {
     }
 
     /// Transcribes already-decoded 16 kHz mono PCM against this already-loaded
-    /// model.
+    /// model, behind [`LEAD_IN_SAMPLES`] of silence.
     ///
     /// # Errors
     ///
@@ -396,8 +431,9 @@ impl GraniteModel {
         samples: &[f32],
         options: &GraniteOptions,
     ) -> Result<String, GraniteError> {
+        let padded = with_lead_in(samples);
         self.transcribe(options, |_projector| {
-            MtmdBitmap::from_audio_data(samples)
+            MtmdBitmap::from_audio_data(&padded)
                 .map_err(|error| GraniteError::at(GraniteStage::AudioDecode, error))
         })
     }
@@ -604,4 +640,28 @@ fn piece_bytes(model: &LlamaModel, token: LlamaToken) -> Result<Vec<u8>, Granite
 fn utf8_path(path: &Path, stage: GraniteStage) -> Result<&str, GraniteError> {
     path.to_str()
         .ok_or_else(|| GraniteError::at(stage, "path is not valid UTF-8"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LEAD_IN_SAMPLES, with_lead_in};
+
+    /// The shape only. Whether the lead-in actually recovers a clipped first
+    /// word needs the model, and is proved end to end through the real worker
+    /// by `granite_final_pass_hears_a_first_word_spoken_at_the_key_press` in
+    /// `apps/desktop`.
+    #[test]
+    fn the_lead_in_is_silence_ahead_of_every_sample_and_nothing_else() {
+        let samples = [0.5, -0.25, 1.0];
+        let padded = with_lead_in(&samples);
+        assert_eq!(padded.len(), LEAD_IN_SAMPLES + samples.len());
+        assert!(
+            padded[..LEAD_IN_SAMPLES]
+                .iter()
+                .all(|&sample| sample == 0.0)
+        );
+        assert_eq!(&padded[LEAD_IN_SAMPLES..], &samples);
+        // 300 ms at 16 kHz: the value measured, not a round number.
+        assert_eq!(LEAD_IN_SAMPLES, 16_000 * 300 / 1_000);
+    }
 }

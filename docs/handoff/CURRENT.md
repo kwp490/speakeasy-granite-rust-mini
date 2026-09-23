@@ -17,7 +17,7 @@ that closed it, and any hazard general enough to bite again lives in
 | Latest release | `v1.10.0`, 2026-09-22, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
 | Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.10.1`, ahead of the published `v1.10.0`, so a build may proceed once the proofs below have run |
 | Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
-| Ignored tests | seven, all hardware or real-registry. See below |
+| Ignored tests | nine, all hardware or real-registry. See below |
 
 **Ask git, not this file**, where the branch stands and whether it carries
 commits in no release — both change with every commit:
@@ -196,11 +196,15 @@ as well is open, and the answer is not obviously yes — a label that names the
 device can offer a switch that resolves to a no-op when a preference and a
 device disagree for any other reason.
 
-### The seven ignored tests, and how to run them
+### The nine ignored tests, and how to run them
 
-Seven tests are `#[ignore]`d, and five of them are the only proofs here that
-drive a real worker process. **All seven ran against `v1.8.1`** on an RTX 4070
-Laptop: the three processor desktop passes (including the 300 s idle gap), the
+Nine tests are `#[ignore]`d, and seven of them are the only proofs here that
+drive a real worker process. Two were added after `v1.10.1` and ran on an RTX
+5090 against both the processor and the CUDA worker:
+`granite_final_pass_hears_a_first_word_spoken_at_the_key_press` (the 300 ms
+lead-in) and `a_warmed_engine_runs_its_first_dictation_as_fast_as_its_second`
+(the worker's warm-up pass at load). **The other seven ran against `v1.8.1`** on
+an RTX 4070 Laptop: the three processor desktop passes (including the 300 s idle gap), the
 bootstrapper engine smoke, the real-`HKCU` registry test, the pinned NVIDIA
 archive, and the CUDA proof, which reported `device=cuda` from NVML placing the
 worker's own pid on the card.
@@ -212,11 +216,11 @@ a signature change that compiles is not a signature change that works.
 worker fails as `StaleEvent`, which names the protocol rather than the binary.
 Re-stage first.
 
-**Six of the seven do not require a CUDA worker.** Four of them drive the
-processor worker -- the three desktop passes and the bootstrapper's engine
+**Seven of the nine do not require a CUDA worker.** Five of them drive the
+processor worker -- the four desktop passes and the bootstrapper's engine
 smoke -- and two drive no worker at all: `registry_hive` writes to the real
 `HKCU`, and `the_real_nvidia` extracts a pinned NVIDIA archive. These four
-commands cover all six, and no other filter does:
+commands cover all seven, and no other filter does:
 
 ```powershell
 . .\scripts\Enter-DevEnvironment.ps1
@@ -227,14 +231,18 @@ cargo test -p speakeasy-bootstrapper registry_hive -- --ignored --nocapture
 cargo test -p speakeasy-models the_real_nvidia -- --ignored --nocapture
 ```
 
-**The filter matters.** `granite_final_pass` selects exactly the three
-processor-only desktop tests. The broader `granite` also selects
+**The filter matters.** `granite_final_pass` selects exactly the four
+processor-only desktop tests, including the 300 s idle gap (add
+`--skip survives_an_idle_gap` to leave it out). The broader `granite` also selects
 `a_cuda_worker_reports_the_device_its_context_probe_can_prove`, which **asserts**
 rather than skips when the staged worker is not a CUDA build — so running it
 after `Stage-DevRuntime.ps1`, which stages the processor worker, produces a
 failure that means "wrong binary" and reads like a broken engine.
 
-**The seventh needs a CUDA worker staged by hand.**
+**Two need a CUDA worker staged by hand.** `a_cuda_worker_reports` asserts on
+it. `a_warmed_engine` *passes* on the processor worker whether or not the
+warm-up exists, because the processor build has no first-pass penalty to hide;
+only a CUDA worker can fail it.
 `Enable-GraniteCuda.ps1` did this and was retired on 2026-08-26 when
 setup learned to fetch a published worker, so there is no script for it. The
 three CUDA libraries are already in `target\debug\proof\`; only the worker has
@@ -246,6 +254,7 @@ cargo build --release -p speakeasy-granite-worker --features cuda
 Copy-Item target\release\speakeasy-granite-worker.exe `
   target\debug\proof\granite-worker.exe -Force
 cargo test -p speakeasy-desktop --lib a_cuda_worker_reports -- --ignored --nocapture
+cargo test -p speakeasy-desktop --lib a_warmed_engine -- --ignored --nocapture
 ```
 
 That build takes about two minutes cold. Afterwards the staged worker is a CUDA
