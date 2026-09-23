@@ -55,7 +55,7 @@ function Get-GraniteWorkerProvider {
 
         The marker is `ggml-cuda`, which is what `granite_engine`'s own hardware
         tests use to identify a staged worker. Size would also separate them today
-        (57 MB against 4 MB) and is exactly the kind of threshold that stops
+        (156 MB against 4 MB) and is exactly the kind of threshold that stops
         being true.
     #>
     param([Parameter(Mandatory)][string]$WorkerPath)

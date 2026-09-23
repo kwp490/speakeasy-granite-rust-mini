@@ -108,8 +108,8 @@ verified copy of the model on disk:
 
 A user who chooses the graphics-card configuration additionally downloads:
 
-  granite-worker-cuda-windows-x64.zip (42.2 MB, one granite-worker.exe of
-  57,052,672 bytes)
+  granite-worker-cuda-windows-x64.zip (140.8 MB, one granite-worker.exe of
+  156,284,416 bytes)
   Host: Hugging Face, huggingface.co/orangeblue39/speakeasy-mini-runtime,
   pinned at an immutable commit.
   This archive is built and published by this project from the same llama.cpp

@@ -13,6 +13,10 @@ On a graphics-card install, the first dictation after the app starts is now as
 fast as the ones after it. Loading the model at launch left a one-time setup
 cost for the first transcription to pay; the app now pays it while it starts.
 
+The graphics-card worker setup downloads is rebuilt with both fixes, and now
+carries code for RTX 30, 40 and 50 series cards rather than for the 40 series
+alone. It is a larger download: 140.8 MB instead of 42.2 MB.
+
 ## 1.10.1 — 2026-09-22
 
 Switching between the processor and the graphics card now stays switched. One

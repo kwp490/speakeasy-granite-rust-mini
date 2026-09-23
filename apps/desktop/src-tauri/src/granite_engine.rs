@@ -2980,6 +2980,9 @@ mod tests {
     /// the CUDA worker as the handoff describes for `a_cuda_worker_reports`,
     /// and say which worker was in place.
     ///
+    /// Run it alone: another GPU test sharing the card in the same process
+    /// slows the first pass and fails this for a reason that is not the warm.
+    ///
     /// ```text
     /// cargo test -p speakeasy-desktop --lib a_warmed_engine -- --ignored --nocapture
     /// ```

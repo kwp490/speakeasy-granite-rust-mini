@@ -257,6 +257,21 @@ cargo test -p speakeasy-desktop --lib a_cuda_worker_reports -- --ignored --nocap
 cargo test -p speakeasy-desktop --lib a_warmed_engine -- --ignored --nocapture
 ```
 
+Run `a_warmed_engine` on its own. Filtered together with `a_cuda_worker_reports`
+it shares the card and failed once at 308 ms against 197 ms; alone it passed
+three of three.
+
+**The published CUDA worker is rebuilt on every change to the worker or
+`speakeasy-granite`**, because setup downloads it rather than taking it from the
+installer: a release that changes only the payload leaves graphics-card
+installs on the old worker. It is built with `CMAKE_CUDA_ARCHITECTURES` unset,
+which gives ggml's redistributable list (native `sm_86`/`89`/`120`/`121`, PTX
+for `75`/`80`/`90`). The 1.5.1 worker had been built with only `sm_89`, which an
+RTX 30-series card cannot run. Zip it as `granite-worker.exe`, upload with
+`hf upload orangeblue39/speakeasy-mini-runtime`, download the pinned revision
+back and compare digests, then re-pin `granite-worker-cuda-windows-x64` in
+`models/trusted-manifest.json`.
+
 That build takes about two minutes cold. Afterwards the staged worker is a CUDA
 build, so `Stage-DevRuntime.ps1` or `npm run tauri -- dev` silently reverts it to
 the processor one — re-stage deliberately when you are done, and say which worker
