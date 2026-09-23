@@ -241,6 +241,10 @@ verify ambiguous test filters with `--list` before relying on them.
 
 ### Windows, PowerShell, and packaging
 
+- `| Select-Object -First N` stops the upstream pipeline once it has N items,
+  and that includes a script or native command still running. A bump script
+  piped into it was killed before `cargo update` wrote `Cargo.lock`, and the
+  only sign was a missing last line. Use `-Last N` or capture the output first.
 - `Start-Process -ArgumentList` does not reliably preserve argument quoting.
   Use argument arrays only where the receiving command's parsing is proved.
 - `Set-Location` does not change a child process's native working directory in

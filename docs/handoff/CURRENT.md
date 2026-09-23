@@ -46,10 +46,12 @@ after, in a release probe on the same machine.
 
 The gate, the lifecycle proof and the wizard proof passed, the latter on the
 graphics card; the live installation was reinstalled through the wizard and
-its config restored byte-identical. `Increment-ProductVersion.ps1` reported
-refreshing `Cargo.lock` but left it at the old version on this run; a second
+its config restored byte-identical. The version bump first left `Cargo.lock`
+at the old version, and the script was not at fault: it was run piped into
+`Select-Object -First 3`, which stops the pipeline — and the script — once it
+has three lines, so `cargo update` was killed before it wrote the lockfile. Its
+closing "Cargo.lock refreshed" line never printed, which is the tell. Re-running
 `cargo update --workspace --offline` moved exactly the 13 workspace crates.
-Check `git diff Cargo.lock` after a bump rather than trusting its message.
 
 ### What v1.10.2 shipped and what proved it (2026-09-22)
 
@@ -320,7 +322,9 @@ RTX 30-series card cannot run. Zip it as `granite-worker.exe`, upload with
 back and compare digests, then re-pin `granite-worker-cuda-windows-x64` in
 `models/trusted-manifest.json`.
 
-That build takes about two minutes cold. Afterwards the staged worker is a CUDA
+That build took about two minutes cold for a single architecture. With
+`CMAKE_CUDA_ARCHITECTURES` unset, which is how the published worker is built, it
+ran past ten minutes cold here on 2026-09-22; run it in the background. Afterwards the staged worker is a CUDA
 build, so `Stage-DevRuntime.ps1` or `npm run tauri -- dev` silently reverts it to
 the processor one — re-stage deliberately when you are done, and say which worker
 was in place for any measurement you report.
