@@ -1,20 +1,23 @@
 # Changelog
 
+## 1.11.1 — 2026-09-23
+
+The CPU or GPU indicator now sits directly above the dock's button, so the
+device and the button that uses it read together. It has extra space above it,
+so even the widest level bars stay clear of it.
+
 ## 1.11.0 — 2026-09-23
 
 The dock's level meter is larger and easier to read while you dictate. It now
-uses the whole height between the name and the button: a spacing rule meant for
-the settings window was also adding empty space at the top and bottom of the
+uses space that used to be empty: a spacing rule meant for the settings window was also adding empty space at the top and bottom of the
 dock, and a row that was usually empty sat above the button. The bars are fewer
 and much thicker, and they adjust to your microphone, so ordinary speech fills
 the dock whether the microphone is quiet or loud. A quiet room still shows
 only the resting line.
 
-The CPU or GPU indicator is now at the top of the dock, under the settings and
-close buttons, so the bars no longer run into it. The recording time and the
-mark for a dictation that failed or could not be pasted now appear inside the
-button, and the button's tooltip says which failure it was. While the
-microphone is recording, the dock has a red outline.
+The recording time and the mark for a dictation that failed or could not be
+pasted now appear inside the button, and the button's tooltip says which
+failure it was. While the microphone is recording, the dock has a red outline.
 
 ## 1.10.3 — 2026-09-22
 
