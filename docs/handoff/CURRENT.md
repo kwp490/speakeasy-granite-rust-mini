@@ -14,8 +14,8 @@ that closed it, and any hazard general enough to bite again lives in
 | | |
 | --- | --- |
 | Branch | `main`, on `kwp490/speakeasy-granite-rust-mini` (public) |
-| Latest release | `v1.11.1`, 2026-09-23, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
-| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.12.0` (the Settings rework), built and installed locally, not published |
+| Latest release | `v1.12.0`, 2026-09-23, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
+| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.12.0`, equal to the published release, so the next build must move it first |
 | Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
 | Ignored tests | nine, all hardware or real-registry. See below |
 
@@ -27,6 +27,25 @@ git status -sb
 git log --oneline origin/main..HEAD
 git log --oneline $(git describe --tags --abbrev=0)..main
 ```
+
+### What v1.12.0 shipped and what proved it (2026-09-23)
+
+The Settings rework: five pages (General, Microphone, Transcription, History,
+Advanced) built from one row pattern, instant apply, switches, and a neutral
+palette with one blue accent. See `docs/UI-GUIDE.md` "Information architecture"
+and `docs/design/settings-simplified.html`. Tag `v1.12.0` is at `69ab1a3`;
+`SpeakEasyMiniSetup.exe` is 38,227,171 bytes, SHA-256
+`d0772436b79ab8a26ad0d4f4b986f25d7dadae3c3bd1af39cc26f187187edb23`, downloaded
+back and re-hashed to that value, from `Build-LocalInstaller.ps1`'s fresh
+build. The gate, `Test-InstallerLifecycle.ps1`, the host identity preflight and
+`Test-SetupWizard.ps1` passed against it, the wizard on the graphics card (RTX
+5090 host) with the config restored byte-identical. The published installer was
+then installed through the wizard on the same host, graphics card chosen: the
+download page reused the cached model and graphics-card files after re-hashing
+them, the engine check transcribed word for word on the card, and the app
+warmed with `device=cuda installed=cuda`. The owner reviewed the new Settings on
+the installed build before release. The pages were also checked in a browser
+against mocked commands in light and dark; no screen reader pass was made.
 
 ### What v1.11.1 shipped and what proved it (2026-09-23)
 
@@ -456,7 +475,7 @@ worker. Nothing here can test it from one country.
 
 Not blockers for the tree; blockers for cutting a build from it.
 
-All five steps are complete for `v1.11.1`, which is published. Nothing here is
+All five steps are complete for `v1.12.0`, which is published. Nothing here is
 carried over: the next release starts at step 1, because the workspace version
 now equals the published one and `install::decide_now` refuses an equal stamp.
 
