@@ -36,7 +36,7 @@ button, and the meter is 182px of normalised, full-height bars. See
 `docs/UI-GUIDE.md` "The dock's geometry". No tag, no GitHub release and no
 `SHA256SUMS` exist for it; publishing is step 5 of "Before the next release".
 
-Local artifact `target\local-development.11.0\SpeakEasyMiniSetup.exe`,
+Local artifact `target\local-development\1.11.0\SpeakEasyMiniSetup.exe`,
 38,231,267 bytes, SHA-256
 `dc27e2d84072479b222c38294236293e8acf1f038778e9aa58221c08eded6de9`, from
 `Build-LocalInstaller.ps1`'s fresh build. The gate, `Test-InstallerLifecycle.ps1`
