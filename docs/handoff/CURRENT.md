@@ -28,6 +28,28 @@ git log --oneline origin/main..HEAD
 git log --oneline $(git describe --tags --abbrev=0)..main
 ```
 
+### What v1.11.0 carries, not yet released (2026-09-23)
+
+The dock redesign: the narrow-width `main` padding rule no longer reaches the
+dock, the engine chip is under the chrome, the status row folded into the
+button, and the meter is 182px of normalised, full-height bars. See
+`docs/UI-GUIDE.md` "The dock's geometry". No tag, no GitHub release and no
+`SHA256SUMS` exist for it; publishing is step 5 of "Before the next release".
+
+Local artifact `target\local-development.11.0\SpeakEasyMiniSetup.exe`,
+38,231,267 bytes, SHA-256
+`dc27e2d84072479b222c38294236293e8acf1f038778e9aa58221c08eded6de9`, from
+`Build-LocalInstaller.ps1`'s fresh build. The gate, `Test-InstallerLifecycle.ps1`
+and `Test-SetupWizard.ps1` passed against it, the wizard on the graphics card
+(RTX 5090 host) with the config restored byte-identical. It was then installed
+through the wizard on the same host, graphics card chosen; the engine check
+transcribed word for word on the card. The installed dock was screen-captured
+at 78x500 physical (62x400 logical at 125%) showing the new row order.
+
+Not yet measured: the meter against real speech, and the listening state (red
+ring, clock inside Stop) in the installed window. The rendered layout and all
+five states were checked only in a browser against a mocked status poll.
+
 ### What v1.10.3 shipped and what proved it (2026-09-22)
 
 One device walk per dictation instead of three, and the start cue played from
