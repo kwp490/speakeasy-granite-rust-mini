@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.11.0 — 2026-09-23
+
+The dock's level meter is larger and easier to read while you dictate. It now
+uses the whole height between the name and the button: a spacing rule meant for
+the settings window was also adding empty space at the top and bottom of the
+dock, and a row that was usually empty sat above the button. The bars are fewer
+and much thicker, and they adjust to your microphone, so ordinary speech fills
+the dock whether the microphone is quiet or loud. A quiet room still shows
+only the resting line.
+
+The CPU or GPU indicator is now at the top of the dock, under the settings and
+close buttons, so the bars no longer run into it. The recording time and the
+mark for a dictation that failed or could not be pasted now appear inside the
+button, and the button's tooltip says which failure it was. While the
+microphone is recording, the dock has a red outline.
+
 ## 1.10.3 — 2026-09-22
 
 The microphone opens sooner after you press the shortcut: choosing it now takes
