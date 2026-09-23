@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.10.2 — 2026-09-22
+
+The first word of a dictation is no longer dropped or misheard when you start
+speaking as you press the shortcut. The recording starts at the key press, so
+the beginning of that word could be cut off, and the model then skipped the
+word or guessed a different one. It now hears a short moment of silence before
+every recording, which is enough for it to recognise a word that starts
+abruptly. Speech made before the microphone has opened is still not recorded.
+
+On a graphics-card install, the first dictation after the app starts is now as
+fast as the ones after it. Loading the model at launch left a one-time setup
+cost for the first transcription to pay; the app now pays it while it starts.
+
 ## 1.10.1 — 2026-09-22
 
 Switching between the processor and the graphics card now stays switched. One
