@@ -18,7 +18,8 @@ pub use callback::{
 };
 pub use cpal_capture::{
     CaptureFault, CaptureIdentity, CpalCaptureError, CpalCaptureRequest, CpalCaptureSession,
-    InputDeviceDescriptor, enumerate_input_devices,
+    InputDeviceDescriptor, InputSelectionSource, SelectedInput, enumerate_input_devices,
+    select_input_device,
 };
 pub use cue::{RecordingFeedback, play_recording_feedback, render_cue};
 pub use format::{

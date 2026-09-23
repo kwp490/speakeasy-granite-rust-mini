@@ -1190,6 +1190,14 @@ Still required:
   redundant to the visual state, and playback never blocks or fails a
   transition: it runs on its own thread and every error is dropped, because a
   machine with no output device must still record.
+- **The start cue sounds when the microphone is recording, not when it was
+  asked to.** It plays on the first block of audio the capture stream delivers,
+  so hearing it means the words that follow are being captured. It used to play
+  the moment a capture was requested, while the stream was still being opened on
+  another thread, so the cue could promise a recording that had not begun. The
+  same moment is logged as `capture_first_audio` with `first_audio_ms`, the time
+  from the start request to the first sample, and `select_ms`, the part of it
+  spent choosing the device. If no audio ever arrives the cue does not play.
 - **A cue is held open until the device has taken it, not for as long as it
   lasts.** The first version of this shipped silent: it slept for the cue's own
   duration plus a margin and then closed the stream, and on the machine it was

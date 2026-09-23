@@ -449,3 +449,64 @@ fn two_hundred_fixture_activations_preserve_first_word_and_bounds() {
     assert_eq!(worker.counters().utterances_started, 200);
     assert_eq!(worker.callback_counters().queue_overflows, 0);
 }
+
+/// The device a dictation opens, chosen by the rule the old three-walk path
+/// used: the saved preference, else the system default, else the first device
+/// with a usable format.
+#[test]
+fn input_selection_prefers_the_saved_device_then_the_default_then_any() {
+    use crate::cpal_capture::choose_input;
+    let devices = [
+        ("a".to_owned(), true),
+        ("b".to_owned(), false),
+        ("c".to_owned(), true),
+    ];
+    let usable = |ok: &bool| ok.then_some(());
+    let chosen = |preferred, default| {
+        choose_input(&devices, preferred, default, usable)
+            .map(|(index, (), source)| (index, source))
+    };
+    assert_eq!(
+        chosen(Some("c"), Some("a")),
+        Some((2, InputSelectionSource::Preferred))
+    );
+    // A saved device that is present but unusable is passed over, not opened.
+    assert_eq!(
+        chosen(Some("b"), Some("c")),
+        Some((2, InputSelectionSource::SystemDefault))
+    );
+    // A saved device that has gone, and a default that cannot record.
+    assert_eq!(
+        chosen(Some("gone"), Some("b")),
+        Some((0, InputSelectionSource::FirstSupported))
+    );
+    assert_eq!(
+        chosen(None, None),
+        Some((0, InputSelectionSource::FirstSupported))
+    );
+    let nothing_usable = [("b".to_owned(), false)];
+    assert_eq!(choose_input(&nothing_usable, None, Some("b"), usable), None);
+}
+
+/// Asking a device for its format is the expensive part of a device walk, and
+/// every millisecond of it sits between the key press and the first sample. So
+/// only the device that is chosen, and any tried before it, may be asked.
+#[test]
+fn input_selection_asks_only_the_devices_it_needs() {
+    use crate::cpal_capture::choose_input;
+    let devices: Vec<(String, u8)> = (0..6).map(|index| (format!("d{index}"), index)).collect();
+    let mut asked = Vec::new();
+    let chosen = choose_input(&devices, Some("d4"), Some("d1"), |index| {
+        asked.push(*index);
+        Some(())
+    });
+    assert_eq!(
+        chosen.map(|(index, (), source)| (index, source)),
+        Some((4, InputSelectionSource::Preferred))
+    );
+    assert_eq!(
+        asked,
+        [4],
+        "only the preferred device should have been asked"
+    );
+}

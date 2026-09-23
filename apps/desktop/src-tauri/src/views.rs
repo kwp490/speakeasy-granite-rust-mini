@@ -30,7 +30,10 @@ use speakeasy_worker::{
 // The start/stop cues are synthesised tones now rather than two Windows system
 // sounds, so they live with the audio stack that already owns `cpal` — see
 // `speakeasy-audio/src/cue.rs` for why they are not a `PlaySound` call.
-use speakeasy_audio::{RecordingFeedback, play_recording_feedback};
+use speakeasy_audio::{
+    CpalCaptureError, InputSelectionSource, RecordingFeedback, SelectedInput,
+    play_recording_feedback, select_input_device,
+};
 use speakeasy_domain::{
     ActivationEffect, ActivationInput, ActivationMode, ActivationReducer, AsrLanguage, AsrRequest,
     AsrTask, CancelToken, CorrelationId, DOMAIN_SCHEMA_VERSION, Deadline, DeliveryRefusal,
@@ -804,45 +807,27 @@ fn register_activation_hotkey(app: &tauri::AppHandle) -> Result<(), &'static str
 /// settings), since that is not necessarily the OS-reported default device.
 /// Falls back to guessing a default when no preference is saved, or when the
 /// saved device has disappeared or is no longer supported.
-fn hotkey_capture_device(app: &tauri::AppHandle) -> Result<String, &'static str> {
-    let devices = CaptureWizardCoordinator::devices()?;
+///
+/// One device walk, and the device it returns is the one the stream opens on:
+/// see `speakeasy_audio::SelectedInput` for the two walks this replaced.
+fn hotkey_capture_device(app: &tauri::AppHandle) -> Result<SelectedInput, &'static str> {
     let preferred = app
         .state::<ProfileCoordinator>()
         .settings
         .lock()
         .ok()
         .and_then(|settings| settings.preferred_capture_device_id.clone());
-    if let Some(preferred_id) = preferred.as_deref()
-        && let Some(device) = devices
-            .iter()
-            .find(|device| device.id == preferred_id && device.supported)
-    {
-        log_event(
-            app,
-            "hotkey_capture_device_selected",
-            &[("source", "preferred_setting")],
-        );
-        return Ok(device.id.clone());
-    }
-    let fallback = devices
-        .iter()
-        .find(|device| device.is_default && device.supported)
-        .or_else(|| devices.iter().find(|device| device.supported))
-        .map(|device| device.id.clone())
-        .ok_or("capture_device_unavailable");
-    log_event(
-        app,
-        "hotkey_capture_device_selected",
-        &[(
-            "source",
-            if preferred.is_some() {
-                "fallback_preferred_unavailable"
-            } else {
-                "fallback_no_preference_saved"
-            },
-        )],
-    );
-    fallback
+    let selected = select_input_device(preferred.as_deref()).map_err(|error| match error {
+        CpalCaptureError::EnumerationFailed => "capture_device_enumeration_failed",
+        _ => "capture_device_unavailable",
+    });
+    let source = match selected.as_ref().map(SelectedInput::source) {
+        Ok(InputSelectionSource::Preferred) => "preferred_setting",
+        _ if preferred.is_some() => "fallback_preferred_unavailable",
+        _ => "fallback_no_preference_saved",
+    };
+    log_event(app, "hotkey_capture_device_selected", &[("source", source)]);
+    selected
 }
 
 /// Starts one dictation. The single implementation behind both the global
@@ -860,6 +845,7 @@ fn hotkey_capture_device(app: &tauri::AppHandle) -> Result<String, &'static str>
 /// dictation was still finishing and the shortcut did not, so the two disagreed
 /// about the same key. Both converge here, so the rule can only be stated once.
 fn start_dictation(app: &tauri::AppHandle, session_id: SessionId) -> Result<(), &'static str> {
+    let started = Instant::now();
     // Refused, not queued. Recording has stopped and the transcript has not
     // landed, so a press now is the second press of a toggle for a dictation
     // that has already ended -- most often after a ceiling stop, where the
@@ -899,18 +885,48 @@ fn start_dictation(app: &tauri::AppHandle, session_id: SessionId) -> Result<(), 
         log_event_for_session(app, session_id, "dictation_start", &[("result", reason)]);
         return Err(reason);
     }
-    let device_id = hotkey_capture_device(app)?;
+    let input = hotkey_capture_device(app)?;
+    let selected_ms = started.elapsed().as_millis();
     let capture = app.state::<CaptureWizardCoordinator>();
     let operations = app.state::<OperationCoordinator>();
     app.state::<CaptureHudCoordinator>().begin(session_id);
+    let feedback_enabled = app
+        .state::<ProfileCoordinator>()
+        .settings
+        .lock()
+        .is_ok_and(|settings| settings.delivery.feedback_enabled);
+    let first_audio_app = app.clone();
     let result = capture.start_for_session(
-        &device_id,
+        input,
         DICTATION_CEILING_SECONDS,
         session_id,
         // No tap. This took a live streaming tap that fed words to the HUD as
         // the user spoke; capture now just records, and the transcript exists
         // only after the recording stops.
         None,
+        // **The start cue sounds when the microphone is recording, not when it
+        // was asked to.** It used to play as soon as this function asked for a
+        // capture, while the stream was still being built on another thread, so
+        // "I heard the cue" did not yet mean "I am being recorded" -- and on a
+        // slow device the gap between the two was speech the user believed was
+        // captured. The same moment is logged, because the whole distance from
+        // the press to the first sample is the number that says how much of a
+        // first word a dictation can lose, and nothing else measures it.
+        Box::new(move || {
+            let first_audio_ms = started.elapsed().as_millis().to_string();
+            log_event_for_session(
+                &first_audio_app,
+                session_id,
+                "capture_first_audio",
+                &[
+                    ("select_ms", &selected_ms.to_string()),
+                    ("first_audio_ms", &first_audio_ms),
+                ],
+            );
+            if feedback_enabled {
+                play_recording_feedback(RecordingFeedback::Started);
+            }
+        }),
         || operations.replace_completed_dictation(session_id),
     );
     log_event_for_session(
@@ -922,14 +938,6 @@ fn start_dictation(app: &tauri::AppHandle, session_id: SessionId) -> Result<(), 
     if result.is_err() {
         operations.finish_dictation();
         return result;
-    }
-    if app
-        .state::<ProfileCoordinator>()
-        .settings
-        .lock()
-        .is_ok_and(|settings| settings.delivery.feedback_enabled)
-    {
-        play_recording_feedback(RecordingFeedback::Started);
     }
     watch_for_unattended_capture_end(app, session_id);
     Ok(())

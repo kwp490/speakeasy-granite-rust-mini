@@ -89,6 +89,120 @@ pub fn enumerate_input_devices() -> Result<Vec<InputDeviceDescriptor>, CpalCaptu
         .collect()
 }
 
+/// Which rule chose a [`SelectedInput`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InputSelectionSource {
+    /// The device the caller asked for by stable id.
+    Preferred,
+    /// The system default input.
+    SystemDefault,
+    /// The first device with a usable format, because neither of the above was.
+    FirstSupported,
+}
+
+/// An input device chosen in one walk and ready to start, without looking it
+/// up again.
+///
+/// # Why this exists beside [`enumerate_input_devices`]
+///
+/// Starting a dictation used to walk the devices three times before the first
+/// sample: once to choose one, once to read its format, and once more inside
+/// [`CpalCaptureSession::start`] to find it again by id. A full walk asks every
+/// device for its description and default format, and measured 17-63 ms here,
+/// all of it between the key press and the microphone opening -- speech the
+/// user had already begun. This asks only the devices it needs, once, and
+/// hands the device itself to [`CpalCaptureSession::start_selected`].
+pub struct SelectedInput {
+    device: Device,
+    supported: cpal::SupportedStreamConfig,
+    descriptor: InputDeviceDescriptor,
+    source: InputSelectionSource,
+}
+
+impl SelectedInput {
+    pub const fn descriptor(&self) -> &InputDeviceDescriptor {
+        &self.descriptor
+    }
+
+    pub const fn source(&self) -> InputSelectionSource {
+        self.source
+    }
+}
+
+/// Chooses the capture device in a single walk: `preferred_id` when it is
+/// present and has a usable format, else the system default, else the first
+/// device that has one.
+///
+/// # Errors
+///
+/// [`CpalCaptureError::EnumerationFailed`] when the host cannot list devices,
+/// and [`CpalCaptureError::DeviceUnavailable`] when none has a usable format.
+pub fn select_input_device(preferred_id: Option<&str>) -> Result<SelectedInput, CpalCaptureError> {
+    let host = cpal::default_host();
+    let default_id = host
+        .default_input_device()
+        .and_then(|device| device.id().ok())
+        .map(|id| id.to_string());
+    let devices: Vec<(String, Device)> = host
+        .input_devices()
+        .map_err(|_| CpalCaptureError::EnumerationFailed)?
+        .filter_map(|device| device.id().ok().map(|id| (id.to_string(), device)))
+        .collect();
+    let Some((index, (supported, native), source)) =
+        choose_input(&devices, preferred_id, default_id.as_deref(), |device| {
+            device.default_input_config().ok().and_then(|supported| {
+                native_config(&supported)
+                    .ok()
+                    .map(|native| (supported, native))
+            })
+        })
+    else {
+        return Err(CpalCaptureError::DeviceUnavailable);
+    };
+    let (id, device) = &devices[index];
+    let display_name = device
+        .description()
+        .map_err(|_| CpalCaptureError::DeviceDescriptionUnavailable)?
+        .name()
+        .to_owned();
+    Ok(SelectedInput {
+        descriptor: InputDeviceDescriptor {
+            stable_id: id.clone(),
+            display_name,
+            is_default: default_id.as_deref() == Some(id.as_str()),
+            default_config: Some(native),
+        },
+        device: device.clone(),
+        supported,
+        source,
+    })
+}
+
+/// The rule behind [`select_input_device`], apart from the hardware so it can
+/// be tested: the preferred id, then the default id, then the first device, each
+/// taken only if `usable` says so.
+///
+/// `usable` is the expensive question -- it asks the device for its format -- so
+/// it is asked lazily, in that order, and never of a device after one has
+/// answered. Returns the chosen index, what `usable` said about it, and why it
+/// was chosen.
+pub(crate) fn choose_input<D, U>(
+    devices: &[(String, D)],
+    preferred_id: Option<&str>,
+    default_id: Option<&str>,
+    mut usable: impl FnMut(&D) -> Option<U>,
+) -> Option<(usize, U, InputSelectionSource)> {
+    let position = |wanted: &str| devices.iter().position(|(id, _)| id == wanted);
+    [
+        (preferred_id, InputSelectionSource::Preferred),
+        (default_id, InputSelectionSource::SystemDefault),
+    ]
+    .into_iter()
+    .filter_map(|(wanted, source)| Some((position(wanted?)?, source)))
+    .chain((0..devices.len()).map(|index| (index, InputSelectionSource::FirstSupported)))
+    .find_map(|(index, source)| usable(&devices[index].1).map(|answer| (index, answer, source)))
+}
+
 fn describe_device(
     device: &Device,
     default_id: Option<&str>,
@@ -159,26 +273,52 @@ impl CpalCaptureSession {
         let supported = device
             .default_input_config()
             .map_err(|_| CpalCaptureError::DefaultConfigUnavailable)?;
+        Self::start_on(&device, supported, request.identity, callback)
+    }
+
+    /// Starts `input` without walking the devices again. See [`SelectedInput`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a sanitized adapter error when stream construction or start
+    /// fails.
+    pub fn start_selected(
+        input: SelectedInput,
+        identity: CaptureIdentity,
+        callback: CaptureCallback,
+    ) -> Result<Self, CpalCaptureError> {
+        let SelectedInput {
+            device, supported, ..
+        } = input;
+        Self::start_on(&device, supported, identity, callback)
+    }
+
+    fn start_on(
+        device: &Device,
+        supported: cpal::SupportedStreamConfig,
+        identity: CaptureIdentity,
+        callback: CaptureCallback,
+    ) -> Result<Self, CpalCaptureError> {
         let native = native_config(&supported)?;
         let faulted = Arc::new(AtomicBool::new(false));
         let started = Instant::now();
         let stream = match supported.sample_format() {
             SampleFormat::F32 => build_stream::<f32>(
-                &device,
+                device,
                 supported.config(),
                 callback,
                 Arc::clone(&faulted),
                 started,
             ),
             SampleFormat::I16 => build_stream::<i16>(
-                &device,
+                device,
                 supported.config(),
                 callback,
                 Arc::clone(&faulted),
                 started,
             ),
             SampleFormat::U16 => build_stream::<u16>(
-                &device,
+                device,
                 supported.config(),
                 callback,
                 Arc::clone(&faulted),
@@ -190,7 +330,7 @@ impl CpalCaptureSession {
             .play()
             .map_err(|_| CpalCaptureError::StreamStartFailed)?;
         Ok(Self {
-            identity: request.identity,
+            identity,
             native,
             faulted,
             stream: Some(stream),

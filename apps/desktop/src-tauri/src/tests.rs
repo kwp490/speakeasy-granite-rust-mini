@@ -1263,6 +1263,63 @@ mod tests {
         );
     }
 
+    /// The start cue says "you are being recorded", so it may only sound once
+    /// audio is arriving. It used to play as soon as `start_dictation` asked for
+    /// a capture, while the stream was still being built on another thread, and
+    /// speech a user began on the cue could land before the first sample.
+    ///
+    /// Structural because the moment it guards -- the first block from a real
+    /// microphone -- is only reachable with hardware: the start cue has to be
+    /// played from inside the closure handed to `start_for_session` as its
+    /// first-audio hook, which the capture thread runs on the first block, and
+    /// from nowhere else in the dictation path.
+    #[test]
+    fn the_start_cue_sounds_only_once_audio_is_arriving() {
+        let views = include_str!("views.rs");
+        let start = views
+            .find("fn start_dictation(")
+            .expect("start_dictation must exist");
+        let body_end = views[start..]
+            .find("\n}\n")
+            .or_else(|| views[start..].find("\n}\r\n"))
+            .expect("start_dictation must end");
+        let body = &views[start..start + body_end];
+        let code: Vec<&str> = body
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect();
+        let cue_lines: Vec<usize> = code
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.contains("RecordingFeedback::Started"))
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(
+            cue_lines.len(),
+            1,
+            "start_dictation must play the start cue exactly once: {cue_lines:?}"
+        );
+        let hook = code
+            .iter()
+            .position(|line| line.contains("Box::new(move ||"))
+            .expect("start_dictation must hand start_for_session a first-audio hook");
+        let hook_end = code[hook..]
+            .iter()
+            .position(|line| line.trim() == "}),")
+            .map(|offset| hook + offset)
+            .expect("the first-audio hook must close");
+        assert!(
+            (hook..hook_end).contains(&cue_lines[0]),
+            "the start cue must be played inside the first-audio hook, not when \
+             the capture is requested"
+        );
+        let capture = include_str!("capture_wizard.rs");
+        assert!(
+            capture.contains("if let Some(first_audio) = first_audio.take()"),
+            "the capture loop must run the first-audio hook when a block arrives"
+        );
+    }
+
     /// Setup's words become entries, and a compound also gets its spaced
     /// companion so a recogniser that heard two words is corrected.
     #[test]

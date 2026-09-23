@@ -67,6 +67,16 @@ drops or replaces a first word that starts mid-phoneme. `LEAD_IN_SAMPLES` in
 to the model; its doc comment has the measurement, including why 500 ms is
 worse. It does not recover speech that arrived before the stream opened.
 
+**The gap before the stream opens is kept short and measured.** A dictation
+chooses its device in one walk (`select_input_device`) and opens the stream on
+that device handle; it used to walk every device three times first, measured at
+a 43 ms median against 14 ms now. The start cue plays on the first block of
+audio rather than on the request, and `capture_first_audio` logs `first_audio_ms`
+from the start request to that block, so the gap is a number in the log rather
+than an estimate. The microphone is not held open between dictations: that would
+remove the gap entirely, at the cost of a permanently lit microphone indicator
+and degraded Bluetooth headset audio, and it was declined (owner, 2026-09-22).
+
 **The worker runs one silent pass when it loads the model.** On CUDA the first
 pass after a load pays one-time backend setup that the load itself does not:
 356-371 ms against 123-146 ms for later passes, on an RTX 5090. `prime` in

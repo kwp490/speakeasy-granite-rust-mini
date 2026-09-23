@@ -6,10 +6,14 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use speakeasy_audio::{
-    AudioPipelineConfig, CaptureIdentity, CaptureStreamId, ChannelPolicy, CpalCaptureRequest,
-    CpalCaptureSession, InputDeviceDescriptor, NativeStreamConfig, UtteranceIssues,
+    AudioPipelineConfig, CaptureIdentity, CaptureStreamId, ChannelPolicy, CpalCaptureSession,
+    InputDeviceDescriptor, NativeStreamConfig, SelectedInput, UtteranceIssues,
     build_audio_pipeline, enumerate_input_devices,
 };
+
+/// Run once, on the capture thread, when the first block of audio has arrived:
+/// the moment the microphone is actually recording rather than asked to.
+pub type FirstAudio = Box<dyn FnOnce() + Send>;
 use speakeasy_domain::{CorrelationId, ProducerId, SessionId, UtteranceAudio};
 
 const TARGET_RATE_HZ: u32 = 16_000;
@@ -246,38 +250,39 @@ impl CaptureWizardCoordinator {
 
     pub fn start_for_session(
         &self,
-        device_id: &str,
+        input: SelectedInput,
         maximum_seconds: u32,
         session_id: SessionId,
         tap: Option<Box<dyn CaptureTap>>,
+        first_audio: FirstAudio,
         acquire_operation: impl FnOnce() -> Result<(), &'static str>,
     ) -> Result<(), &'static str> {
         let identity_number = self.next_identity.fetch_add(1, Ordering::Relaxed);
         self.start_with_identity(
-            device_id,
+            input,
             maximum_seconds,
             capture_identity(identity_number, session_id),
             tap,
+            first_audio,
             acquire_operation,
         )
     }
 
     fn start_with_identity(
         &self,
-        device_id: &str,
+        input: SelectedInput,
         maximum_seconds: u32,
         identity: CaptureIdentity,
         tap: Option<Box<dyn CaptureTap>>,
+        first_audio: FirstAudio,
         acquire_operation: impl FnOnce() -> Result<(), &'static str>,
     ) -> Result<(), &'static str> {
         if !(1..=MAX_CAPTURE_SECONDS).contains(&maximum_seconds) {
             return Err("capture_duration_out_of_range");
         }
-        let devices = enumerate_input_devices().map_err(|_| "capture_device_enumeration_failed")?;
-        let descriptor = devices
-            .into_iter()
-            .find(|device| device.stable_id == device_id)
-            .ok_or("capture_device_unavailable")?;
+        // Already chosen, in the one device walk a dictation takes -- see
+        // `SelectedInput`. This used to walk every device again to find it.
+        let descriptor = input.descriptor().clone();
         let native = descriptor
             .default_config
             .ok_or("capture_device_format_unsupported")?;
@@ -316,6 +321,8 @@ impl CaptureWizardCoordinator {
         cancelled.store(false, Ordering::Release);
         thread::spawn(move || {
             let outcome = capture(
+                input,
+                first_audio,
                 &descriptor,
                 native,
                 identity,
@@ -596,6 +603,8 @@ impl From<&InputDeviceDescriptor> for CaptureDeviceView {
 
 #[allow(clippy::too_many_arguments)]
 fn capture(
+    input: SelectedInput,
+    first_audio: FirstAudio,
     descriptor: &InputDeviceDescriptor,
     native: NativeStreamConfig,
     identity: CaptureIdentity,
@@ -614,14 +623,9 @@ fn capture(
     worker
         .begin_utterance()
         .map_err(|_| "capture_utterance_rejected")?;
-    let mut session = CpalCaptureSession::start(
-        &CpalCaptureRequest {
-            identity,
-            device_stable_id: descriptor.stable_id.clone(),
-        },
-        callback,
-    )
-    .map_err(|_| "capture_start_failed")?;
+    let mut session = CpalCaptureSession::start_selected(input, identity, callback)
+        .map_err(|_| "capture_start_failed")?;
+    let mut first_audio = Some(first_audio);
     set_status(
         status,
         CaptureWizardView::progress("capturing", &descriptor.display_name, true),
@@ -642,6 +646,9 @@ fn capture(
             Ordering::Release,
         );
         while let Some(block) = worker.process_next() {
+            if let Some(first_audio) = first_audio.take() {
+                first_audio();
+            }
             bucket_peak = bucket_peak.max(block_peak(block.samples));
             if let Some(tap) = tap.as_mut() {
                 quantized.clear();
