@@ -14,8 +14,8 @@ that closed it, and any hazard general enough to bite again lives in
 | | |
 | --- | --- |
 | Branch | `main`, on `kwp490/speakeasy-granite-rust-mini` (public) |
-| Latest release | `v1.10.3`, 2026-09-22, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
-| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.11.1`, ahead of the published `v1.10.3`, so a build may proceed once the proofs below have run |
+| Latest release | `v1.11.1`, 2026-09-23, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
+| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.11.1`, equal to the published release, so the next build must move it first |
 | Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
 | Ignored tests | nine, all hardware or real-registry. See below |
 
@@ -28,28 +28,27 @@ git log --oneline origin/main..HEAD
 git log --oneline $(git describe --tags --abbrev=0)..main
 ```
 
-### What v1.11.1 carries, not yet released (2026-09-23)
+### What v1.11.1 shipped and what proved it (2026-09-23)
 
 The dock redesign: the narrow-width `main` padding rule no longer reaches the
 dock, the status row folded into the button, the meter is 178px of normalised,
 full-height bars, and the engine chip sits directly above the button. See
 `docs/UI-GUIDE.md` "The dock's geometry". `v1.11.0` was built and installed on
-the owner's machine only; neither version has a tag, a GitHub release or
-`SHA256SUMS`. Publishing is step 5 of "Before the next release".
-
-Local artifact `target\local-development\1.11.1\SpeakEasyMiniSetup.exe`,
+the owner's machine only and never published; the `v1.11.1` release notes carry
+its changes. Tag `v1.11.1` is at `d0ac491`; `SpeakEasyMiniSetup.exe` is
 38,231,267 bytes, SHA-256
-`ec0571443a9315e7f1b26fc37cc4ec5035b6271fc4b419887d0a4efed52b8d29`, from
-`Build-LocalInstaller.ps1`'s fresh build. The gate, `Test-InstallerLifecycle.ps1`
+`ec0571443a9315e7f1b26fc37cc4ec5035b6271fc4b419887d0a4efed52b8d29`, downloaded
+back and re-hashed to that value, from `Build-LocalInstaller.ps1`'s fresh
+build. The gate, `Test-InstallerLifecycle.ps1`
 and `Test-SetupWizard.ps1` passed against it, the wizard on the graphics card
 (RTX 5090 host) with the config restored byte-identical. It was then installed
 through the wizard on the same host, graphics card chosen; the engine check
 transcribed word for word on the card. The installed dock was screen-captured
 at 78x500 physical (62x400 logical at 125%) showing the new row order.
 
-Not yet measured: the meter against real speech, and the listening state (red
-ring, clock inside Stop) in the installed window. The rendered layout and all
-five states were checked only in a browser against a mocked status poll.
+The owner then dictated on the installed build and reported the dock working
+as intended; no measurement of the meter against real speech was recorded. The
+five states were also checked in a browser against a mocked status poll.
 
 ### What v1.10.3 shipped and what proved it (2026-09-22)
 
@@ -457,7 +456,7 @@ worker. Nothing here can test it from one country.
 
 Not blockers for the tree; blockers for cutting a build from it.
 
-All five steps are complete for `v1.10.3`, which is published. Nothing here is
+All five steps are complete for `v1.11.1`, which is published. Nothing here is
 carried over: the next release starts at step 1, because the workspace version
 now equals the published one and `install::decide_now` refuses an equal stamp.
 
