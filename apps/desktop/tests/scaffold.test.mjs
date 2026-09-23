@@ -877,16 +877,22 @@ test("the side dock is a transparent card that can end the dictation it shows", 
   assert.doesNotMatch(dock, /className="hud-dock-status"/);
   assert.match(dock, /data-testid="hud-dock-timer"/);
 
-  // The engine chip sits under the chrome, above the wordmark. Asserted as
-  // *order* rather than as geometry because the placement is the whole point:
-  // between the wordmark and the meter it severed the name from the waveform
-  // (2026-08-28), and directly under the meter the loudest bars ran into it
-  // (owner, 2026-09-22).
+  // The engine chip sits directly above the button (owner, 2026-09-23).
+  // Asserted as *order* rather than as geometry because the placement is the
+  // whole point: between the wordmark and the meter it severed the name from
+  // the waveform (2026-08-28).
+  const order = [
+    'className="hud-dock-wordmark"',
+    'className="hud-dock-level-wrap"',
+    "<EngineChip",
+    'className="hud-dock-action"',
+  ].map((marker) => dock.indexOf(marker));
   assert.ok(
-    dock.indexOf("<EngineChip") < dock.indexOf('className="hud-dock-wordmark"') &&
-      dock.indexOf('className="hud-dock-wordmark"') < dock.indexOf('className="hud-dock-level-wrap"'),
-    "the engine chip must render above the wordmark, and the wordmark above the waveform",
+    order.every((position, index) => position >= 0 && (index === 0 || position > order[index - 1])),
+    "the rows must run wordmark, meter, engine chip, button",
   );
+  // Clear of the widest bar: 4px more than the other rows' gap.
+  assert.match(styles, /\.hud-dock-engine \{[^}]*margin-top: var\(--space-1\);/);
 
   // The card's padding is its own. The settings page's narrow-width rule,
   // `main:not(.settings)` inside `max-width: 560px`, matches a 62px window and
@@ -925,8 +931,8 @@ test("the side dock is a transparent card that can end the dictation it shows", 
   const SPACE_2 = 8;
   const fixedRowSelectors = [
     "hud-dock-chrome",
-    "hud-dock-engine",
     "hud-dock-wordmark",
+    "hud-dock-engine",
     "hud-dock-action",
   ];
   const fixedRows = fixedRowSelectors.reduce((total, selector) => total + height(selector), 0);
@@ -934,9 +940,11 @@ test("the side dock is a transparent card that can end the dictation it shows", 
   // all the rows number as many as the fixed rows.
   const gaps = fixedRowSelectors.length;
   const cardHeight = window_.height - CARD_GUTTER * 2;
-  const waveform = cardHeight - fixedRows - SPACE_2 * 2 - SPACE_2 * gaps;
+  // The engine row's 4px top margin separates it from the meter.
+  const SPACE_1 = 4;
+  const waveform = cardHeight - fixedRows - SPACE_2 * 2 - SPACE_2 * gaps - SPACE_1;
   assert.ok(Number.isFinite(fixedRows), "every fixed dock row must declare a height");
-  assert.equal(waveform, 182, "the waveform gets whatever the fixed rows do not");
+  assert.equal(waveform, 178, "the waveform gets whatever the fixed rows do not");
 
   // The wordmark was 0.62rem — smaller than any other type in the app, on the
   // one surface where it is the only thing that says what the surface is.

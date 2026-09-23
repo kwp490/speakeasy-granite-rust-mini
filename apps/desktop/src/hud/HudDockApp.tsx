@@ -20,16 +20,16 @@ import { useDragToMove } from "./useDragToMove";
  * one changes with state:
  *
  *     20px  chrome    settings and close
- *     14px  engine    which device Granite runs on, and whether it is up
  *     90px  wordmark  vertical, and this undecorated window's whole titlebar
- *      1fr  meter     the waveform — 182px in a 400px window
+ *      1fr  meter     the waveform — 178px in a 400px window
+ *     14px  engine    which device Granite runs on, and whether it is up
  *     36px  action    the one button, with the clock or outcome mark inside it
  *
- * **The engine row sits at the top, above the wordmark** (owner, 2026-09-22).
- * Directly under the meter, the loudest bars ran into it. Between the wordmark
- * and the meter it severed the name from the waveform (2026-08-28). Above the
- * wordmark it touches neither: the top of the card is what the app is and where
- * it runs, and the bottom is what the user is doing.
+ * **The engine row sits directly above the button** (owner, 2026-09-23), so
+ * the device and the control that uses it read as one group. It has 4px more
+ * clearance from the meter than the other rows have from each other: the
+ * crowding reported here before came from bars that overflowed a meter too
+ * short to hold them, and the extra gap keeps even the widest bar clear.
  *
  * **The action row's button is present in every state** (owner, 2026-08-28), and
  * that is why the window grew from 360 to 400. It used to appear only while
@@ -123,11 +123,11 @@ export function HudDockApp() {
           <CloseGlyph />
         </button>
       </header>
-      <EngineChip engine={model.engine} device={model.engineDevice} />
       <div className="hud-dock-wordmark">{messages.productName}</div>
       <div className="hud-dock-level-wrap">
         <DockLevelMeter active={listening} level={model.level} />
       </div>
+      <EngineChip engine={model.engine} device={model.engineDevice} />
       <div className="hud-dock-action">
         <DockActionButton elapsedMs={elapsedMs} model={model} onStart={start} onStop={stop} />
       </div>

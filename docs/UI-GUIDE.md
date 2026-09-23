@@ -912,10 +912,10 @@ calls `show()` and `set_focus()` together.
 **The dock.** The app's only HUD and its permanent furniture. A narrow strip
 that clings to a screen edge, always-on-top, moved by dragging it, with no
 taskbar button. Five rows in a fixed order, none of them conditional: the chrome
-row (settings and close), the engine indicator, the vertical wordmark (which is
-also this undecorated window's whole titlebar), the level meter, and the action
-row. The top three say what the app is and where it runs; the bottom two are
-what the user is doing.
+row (settings and close), the vertical wordmark (which is also this undecorated
+window's whole titlebar), the level meter, the engine indicator, and the action
+row. The engine indicator sits directly above the button, so the device and the
+control that uses it read as one group.
 
 **The action row holds one button, and it is present in every state**
 (2026-08-28). It reads `Ready`, `Stop`, or the working dots, and pressing it
@@ -1043,8 +1043,8 @@ from the config rather than restated in Rust.
 **The height was 360 and is 400** (owner, 2026-08-28). The 40px pays for the
 action button being present in every state; the meter is the only `1fr` row.
 
-**The rows are 20 / 14 / 90 / 1fr / 36, and the meter is 182px** (owner,
-2026-09-22). Two things were taking space from it. The settings page's
+**The rows are 20 / 90 / 1fr / 14 / 36, and the meter is 178px** (owner,
+2026-09-22; the engine row moved 2026-09-23). Two things were taking space from it. The settings page's
 narrow-width rule, `main:not(.settings)` inside `max-width: 560px`, matches a
 62px window and outranks `.hud-dock`, so the card had 24px of padding top and
 bottom instead of 8 — measured in the rendered dock, the meter was 120px while
@@ -1052,9 +1052,12 @@ every comment and test said 152. That rule now excludes the dock. And the status
 row was empty most of the time; it moved into the button. The wordmark row is
 90px, its measured 88px text plus 2 for rounding, where it was 104.
 
-The engine row moved to the top in the same change. Under the meter the loudest
-bars ran into it; between the wordmark and the meter (before 2026-08-28) it
-severed the name from the waveform. Under the chrome it touches neither.
+The engine row sits directly above the button (owner, 2026-09-23), with a 4px
+top margin on top of the usual 8px gap. Between the wordmark and the meter
+(before 2026-08-28) it severed the name from the waveform. The crowding once
+reported below the meter came from 21 fixed bars overflowing a meter the stray
+padding had shrunk; the bars now fit their box, and the margin keeps even the
+widest one clear of the chip.
 
 **The chrome row holds two controls and its icons are 20px, not the shared
 24px.** The row's content box is 44px at a 52px card, so two 24px buttons want 48
@@ -1075,8 +1078,8 @@ text in the window that says what pressing it does.
 
 The window is transparent and what it draws is a rounded card inset inside it,
 so the dock reads as floating over the desktop rather than welded to it. It
-has five rows in a fixed order — close, engine indicator, vertical wordmark,
-level meter, and the button — and none of them is conditional: only what sits
+has five rows in a fixed order — close, vertical wordmark, level meter, engine
+indicator, and the button — and none of them is conditional: only what sits
 inside the button changes, so the meter's box cannot move under a running
 recording. No transcript and no microphone picker; both
 belong to the presentation with room for them.
