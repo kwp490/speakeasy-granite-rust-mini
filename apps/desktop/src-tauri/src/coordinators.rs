@@ -825,6 +825,13 @@ pub struct ModelCoordinator {
 pub struct ProfileCoordinator {
     root: PathBuf,
     store: SettingsStore,
+    /// Every writer clones this, changes one field, saves and stores the clone,
+    /// releasing the lock in between. That is a lost update if two writers
+    /// overlap, and they cannot today only because every writer is a synchronous
+    /// Tauri command, which Tauri runs one at a time on the main thread, or the
+    /// startup seed pass that runs before any window can invoke one. Making a
+    /// settings-writing command `async`, or saving from a worker thread, needs
+    /// the whole read-modify-save held under one lock first.
     settings: Mutex<Settings>,
     load_error: Mutex<Option<&'static str>>,
     reset_nonce: Mutex<Option<String>>,
