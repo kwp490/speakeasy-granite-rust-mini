@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.10.3 — 2026-09-22
+
+The microphone opens sooner after you press the shortcut: choosing it now takes
+about 14 ms instead of about 43 ms, because the app looks at your audio devices
+once instead of three times. The start sound now plays when the microphone is
+actually recording, not when the app asked it to start, so once you hear it,
+what you say is being captured. The diagnostic log records how long each
+dictation took to start recording.
+
 ## 1.10.2 — 2026-09-22
 
 The first word of a dictation is no longer dropped or misheard when you start
