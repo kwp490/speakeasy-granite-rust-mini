@@ -14,8 +14,8 @@ that closed it, and any hazard general enough to bite again lives in
 | | |
 | --- | --- |
 | Branch | `main`, on `kwp490/speakeasy-granite-rust-mini` (public) |
-| Latest release | `v1.10.1`, 2026-09-22, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
-| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.10.2`, ahead of the published `v1.10.1`, so a build may proceed once the proofs below have run |
+| Latest release | `v1.10.2`, 2026-09-22, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
+| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.10.2`, equal to the published release, so the next build must move it first |
 | Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
 | Ignored tests | nine, all hardware or real-registry. See below |
 
@@ -27,6 +27,31 @@ git status -sb
 git log --oneline origin/main..HEAD
 git log --oneline $(git describe --tags --abbrev=0)..main
 ```
+
+### What v1.10.2 shipped and what proved it (2026-09-22)
+
+The first-word lead-in and the warm-up pass at model load, plus a rebuilt
+graphics-card worker that carries both. Tag `v1.10.2` is at `5d8edc9`;
+`SpeakEasyMiniSetup.exe` is 38,275,811 bytes, SHA-256
+`4cf7fc9368b9d6ea172e9926c7fafc5526fd23838d164e06702c01fedbb70444`, and the
+published asset was downloaded back and re-hashed to that value.
+
+The CUDA worker is `orangeblue39/speakeasy-mini-runtime@72c7af40`, built from
+`a60eeb7` and pinned in `models/trusted-manifest.json`; it was downloaded back
+by pinned revision and matched byte for byte before the pin moved.
+
+Proved on an RTX 5090 host where `Test-HostProfilePathIdentity.ps1` passed
+first: the full gate, the installer lifecycle proof, and `Test-SetupWizard.ps1`,
+which downloaded the new worker, transcribed the fixture word for word on the
+card and logged `device=cuda installed=cuda provider=ok bytes=verified`. The
+two new ignored tests and the device, fixture and resident tests passed against
+both the processor and the CUDA worker. Not re-run: the 300 s idle gap,
+`registry_hive`, `the_real_nvidia`, and the workflow controls, none of whose
+code moved.
+
+The live installation was uninstalled with `--keep-user-data` for the proofs
+and reinstalled through the wizard on the graphics card; its config files were
+restored and compared byte-identical to the pre-run copies.
 
 ### What v1.9.0 shipped and what proved it (2026-09-20)
 
@@ -382,7 +407,7 @@ worker. Nothing here can test it from one country.
 
 Not blockers for the tree; blockers for cutting a build from it.
 
-All five steps are complete for `v1.9.1`, which is published. Nothing here is
+All five steps are complete for `v1.10.2`, which is published. Nothing here is
 carried over: the next release starts at step 1, because the workspace version
 now equals the published one and `install::decide_now` refuses an equal stamp.
 
