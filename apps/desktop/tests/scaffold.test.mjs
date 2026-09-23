@@ -868,22 +868,42 @@ test("the side dock is a transparent card that can end the dictation it shows", 
   assert.match(dock, /data-testid="hud-dock-settings"/);
   assert.match(dock, /invoke\("open_settings_window"\)/);
 
-  // Both state-dependent slots keep their height, so a dictation starting
-  // cannot resize the waveform's box under it.
-  assert.match(styles, /\.hud-dock-status \{[^}]*height: 16px;/);
-  assert.match(styles, /\.hud-dock-action \{[^}]*height: 28px;/);
+  // The state-dependent slot keeps its height, so a dictation starting cannot
+  // resize the waveform's box under it. The clock and the outcome mark are
+  // inside the button, on a line of their own, since the status row that held
+  // them was removed as dead space (owner, 2026-09-22).
+  assert.match(styles, /\.hud-dock-action \{[^}]*height: 36px;/);
+  assert.match(styles, /\.hud-dock-stop \{[^}]*height: 36px;/);
+  assert.doesNotMatch(dock, /className="hud-dock-status"/);
+  assert.match(dock, /data-testid="hud-dock-timer"/);
 
-  // The waveform sits below the wordmark and above the engine chip. Asserted as
-  // *order* rather than as geometry because the chip's placement is the whole
-  // point: above the meter it was a filled horizontal pill cutting across a
-  // 52px-wide vertical column, severing the mark from the waveform (owner,
-  // 2026-08-28).
+  // The engine chip sits under the chrome, above the wordmark. Asserted as
+  // *order* rather than as geometry because the placement is the whole point:
+  // between the wordmark and the meter it severed the name from the waveform
+  // (2026-08-28), and directly under the meter the loudest bars ran into it
+  // (owner, 2026-09-22).
   assert.ok(
-    dock.indexOf("hud-dock-level-wrap") < dock.indexOf("<EngineChip"),
-    "the engine chip must render below the waveform, not between it and the wordmark",
+    dock.indexOf("<EngineChip") < dock.indexOf('className="hud-dock-wordmark"') &&
+      dock.indexOf('className="hud-dock-wordmark"') < dock.indexOf('className="hud-dock-level-wrap"'),
+    "the engine chip must render above the wordmark, and the wordmark above the waveform",
   );
 
-  // The five fixed rows, the card's padding and the five gaps have to leave the
+  // The card's padding is its own. The settings page's narrow-width rule,
+  // `main:not(.settings)` inside `max-width: 560px`, matches a 62px window and
+  // outranks `.hud-dock` on specificity; it set 24px top and bottom, and the
+  // arithmetic below, which assumes 8, never saw the 32px it cost the meter.
+  const narrowMain = /@media \(max-width: 560px\) \{[\s\S]*?\n {2}(main[^{]*)\{\s*\n\s*padding:/.exec(
+    styles,
+  );
+  assert.ok(narrowMain, "the narrow-width main padding rule was not located");
+  assert.match(
+    narrowMain[1],
+    /:not\([^)]*\.hud-dock\b[^)]*\)/,
+    "the narrow-width main padding rule must not reach the dock",
+  );
+  assert.match(styles, /\.hud-dock \{[^}]*padding: var\(--space-2\) 0;/);
+
+  // The fixed rows, the card's padding and the gaps have to leave the
   // waveform a positive number of pixels — the window cannot grow to absorb an
   // overrun, it just clips. Computed rather than pinned, so moving any one row
   // is caught here instead of in a screenshot.
@@ -905,19 +925,18 @@ test("the side dock is a transparent card that can end the dictation it shows", 
   const SPACE_2 = 8;
   const fixedRowSelectors = [
     "hud-dock-chrome",
-    "hud-dock-wordmark",
     "hud-dock-engine",
-    "hud-dock-status",
+    "hud-dock-wordmark",
     "hud-dock-action",
   ];
   const fixedRows = fixedRowSelectors.reduce((total, selector) => total + height(selector), 0);
-  // The waveform is the sixth row and the only `1fr`, so the gaps between six
-  // rows is five.
+  // The waveform is the one more row and the only `1fr`, so the gaps between
+  // all the rows number as many as the fixed rows.
   const gaps = fixedRowSelectors.length;
   const cardHeight = window_.height - CARD_GUTTER * 2;
   const waveform = cardHeight - fixedRows - SPACE_2 * 2 - SPACE_2 * gaps;
   assert.ok(Number.isFinite(fixedRows), "every fixed dock row must declare a height");
-  assert.equal(waveform, 152, "the waveform gets whatever the fixed rows do not");
+  assert.equal(waveform, 182, "the waveform gets whatever the fixed rows do not");
 
   // The wordmark was 0.62rem — smaller than any other type in the app, on the
   // one surface where it is the only thing that says what the surface is.
@@ -937,6 +956,14 @@ test("the side dock is a transparent card that can end the dictation it shows", 
   assert.doesNotMatch(shaping, /MIN_BAR|MAX_BAR_PX/);
   assert.match(meter, /width: `\$\{barWidth\([^)]*\)\}%`/);
   assert.match(styles, /\.hud-dock-level-bar \{[^}]*min-width: 3px;/);
+  // The bars share the meter's height. Each was a fixed 4px, and 21 of them
+  // drew hairlines whatever the row measured.
+  assert.match(styles, /\.hud-dock-level-bar \{[^}]*flex: 1 1 0;/);
+  assert.doesNotMatch(
+    /\.hud-dock-level-bar \{[^}]*\}/.exec(styles)?.[0] ?? "",
+    /(?<![-\w])height: \d/,
+    "a fixed bar height draws hairlines in a tall meter and overflows a short one",
+  );
 
   // Loud is purple, middling is blue, quiet is green — each band its own token,
   // and all three only while capture is running. At rest the rail is grey, so
@@ -984,6 +1011,12 @@ test("the side dock is a transparent card that can end the dictation it shows", 
     primaryRecording,
     "the dock's Stop and the record button's recording tone must stay identical",
   );
+  // And the card itself rings in the same red while capture runs, so the open
+  // microphone reads from across the screen even through a silence.
+  assert.match(
+    styles,
+    /\.hud-dock\[data-session="listening"\] \{[^}]*inset 0 0 0 2px var\(--recording\);/,
+  );
 
   // The action row accounts for the time after the key is released. Without
   // this the dock is identical to idle from the moment a dictation ends until
@@ -1026,6 +1059,10 @@ test("the side dock is a transparent card that can end the dictation it shows", 
   assert.match(dock, /state\.kind === "failed"/);
   assert.match(dock, /<ClipboardGlyph \/>/);
   assert.match(dock, /<AlertGlyph \/>/);
+  // The mark is inside the start button, so the button's name has to carry
+  // what the mark means — including which failure it was.
+  assert.match(dock, /messages\.startDictationAfter\(outcome\.description\)/);
+  assert.match(dock, /description: formatError\(state\.code\)/);
   assert.match(styles, /\.hud-dock-outcome\[data-outcome="refused"\] \{[^}]*color: var\(--hud-warning\);/);
   assert.match(styles, /\.hud-dock-outcome\[data-outcome="failed"\] \{[^}]*color: var\(--hud-danger\);/);
   // A successful insertion is not announced: the text arriving is the signal,

@@ -911,10 +911,11 @@ calls `show()` and `set_focus()` together.
 
 **The dock.** The app's only HUD and its permanent furniture. A narrow strip
 that clings to a screen edge, always-on-top, moved by dragging it, with no
-taskbar button. Six rows in a fixed order, none of them conditional: the chrome
-row (settings and close), the vertical wordmark (which is also this undecorated
-window's whole titlebar), the level meter, the engine indicator, the status row,
-and the action row.
+taskbar button. Five rows in a fixed order, none of them conditional: the chrome
+row (settings and close), the engine indicator, the vertical wordmark (which is
+also this undecorated window's whole titlebar), the level meter, and the action
+row. The top three say what the app is and where it runs; the bottom two are
+what the user is doing.
 
 **The action row holds one button, and it is present in every state**
 (2026-08-28). It reads `Ready`, `Stop`, or the working dots, and pressing it
@@ -931,14 +932,15 @@ and the word needs 60.2px at the button's 0.68rem and still 47.8px at 0.54rem,
 below the smallest type anywhere in the app. The dots carry that state and the
 full `Transcribing...` is in the accessible name and the tooltip.
 
-**The status row carries the elapsed time during a run and the outcome mark
-after one.** It was the clock row; the outcome was in the action row, which a
-permanently present button leaves no room for at a 52px card. Neither fact is
-ever wanted at the same moment as the other, so they share one 16px row rather
-than the card growing again to find a seventh.
+**The button carries the elapsed time during a run and the outcome mark after
+one,** on a small line above its label (owner, 2026-09-22). They had a 16px
+status row of their own, and it was empty whenever no dictation had just run —
+most of the time — so it was dead space above the button. Neither fact is ever
+wanted at the same moment as the other, and the button is 36px so the line fits
+without the card changing shape between states.
 
 The dock's account of what happened after the user let go of the key is the
-status row and the action row together. That last state matters more here than it did in
+action row. That last state matters more here than it did in
 SpeakEasy: with no fallback engine, "ended" is sometimes "failed", and the dock
 is where the user finds out. It shows the failure; **Settings → Transcription**
 carries the reason and the fix, in a panel that appears only when the last
@@ -1039,13 +1041,20 @@ computed. The size is still declared once, in `tauri.conf.json`, and read back
 from the config rather than restated in Rust.
 
 **The height was 360 and is 400** (owner, 2026-08-28). The 40px pays for the
-action button being present in every state; the meter is the only `1fr` row, so
-it absorbed all of it and went 112 to 152 -- more than the 134 it had before the
-engine row existed. The engine row also moved *below* the meter in the same
-change: above it, the chip was a filled horizontal pill cutting across a
-52px-wide vertical column, so it severed the wordmark from the waveform and sat
-at the card's visual centre while the bottom third was empty. Measured on the
-running window both ways, the reorder costs the waveform nothing.
+action button being present in every state; the meter is the only `1fr` row.
+
+**The rows are 20 / 14 / 90 / 1fr / 36, and the meter is 182px** (owner,
+2026-09-22). Two things were taking space from it. The settings page's
+narrow-width rule, `main:not(.settings)` inside `max-width: 560px`, matches a
+62px window and outranks `.hud-dock`, so the card had 24px of padding top and
+bottom instead of 8 — measured in the rendered dock, the meter was 120px while
+every comment and test said 152. That rule now excludes the dock. And the status
+row was empty most of the time; it moved into the button. The wordmark row is
+90px, its measured 88px text plus 2 for rounding, where it was 104.
+
+The engine row moved to the top in the same change. Under the meter the loudest
+bars ran into it; between the wordmark and the meter (before 2026-08-28) it
+severed the name from the waveform. Under the chrome it touches neither.
 
 **The chrome row holds two controls and its icons are 20px, not the shared
 24px.** The row's content box is 44px at a 52px card, so two 24px buttons want 48
@@ -1066,10 +1075,10 @@ text in the window that says what pressing it does.
 
 The window is transparent and what it draws is a rounded card inset inside it,
 so the dock reads as floating over the desktop rather than welded to it. It
-has six rows in a fixed order — close, vertical wordmark, engine indicator,
-level meter, elapsed clock, Stop — and none of them is conditional: the last
-two are empty outside a dictation rather than absent, so the meter's box cannot
-move under a running recording. No transcript and no microphone picker; both
+has five rows in a fixed order — close, engine indicator, vertical wordmark,
+level meter, and the button — and none of them is conditional: only what sits
+inside the button changes, so the meter's box cannot move under a running
+recording. No transcript and no microphone picker; both
 belong to the presentation with room for them.
 
 **The engine indicator says which device Granite runs on, and whether it is
@@ -1105,18 +1114,24 @@ stays on a native `<meter>` that is visually hidden but in the accessibility
 tree, and under `forced-colors: active` the bars drop the same way the default
 HUD's fill does.
 
-**The waveform is amplified, and banded by loudness.** The level reaching it is
-a 100 ms *peak* of samples normalised to ±1.0 with no gain stage anywhere
-behind it, so speech at a comfortable distance peaks around 0.1–0.3 — and drawn
-unshaped into a tapered box that was a stub a few pixels long. It carries a
-gain and a curve now, tuned so ordinary speech fills about half the card, a
-genuinely loud passage pegs, and a quiet room stays near the rail. Loud bars
-are purple, middling blue, quiet green; the band comes from the sample's own
-loudness rather than from the drawn width, which also carries the age taper, so
-a bar keeps the colour of the moment it recorded as it travels outward. Colour
-is not the only signal — width is what moves first, and the whole meter is grey
-until capture is actually running. The `<meter>` still reports the value
-unshaped.
+**The waveform scales to the last three seconds, and is banded by loudness.**
+The level reaching it is a 100 ms *peak* of samples normalised to ±1.0 with no
+gain stage anywhere behind it, and how loud speech arrives depends on the
+device: a fixed gain tuned for peaks of 0.1–0.3 drew a quieter device as thin
+spikes and pegged a louder one. The meter now takes the quietest and loudest
+recent samples and maps that span onto the card, so ordinary speech on either
+fills it. A minimum span of 0.06 caps the gain, so a quiet room stays near the
+rail rather than being stretched into a waveform. Each sample is shaped once,
+when it arrives, so a bar already on screen never rescales. There are 15 bars
+sharing the meter's height rather than 21 fixed 4px hairlines, and the oldest
+row keeps more than half the centre's width.
+
+Loud bars are purple, middling blue, quiet green; the band comes from the
+sample's own shaped loudness rather than from the drawn width, which also
+carries the age taper, so a bar keeps the colour of the moment it recorded as it
+travels outward. Colour is not the only signal — width is what moves first, and
+the whole meter is grey until capture is actually running. The `<meter>` still
+reports the value unshaped.
 
 **The action row says what is happening after the key is released.** It held
 Stop and nothing else, which meant that from the moment a dictation ended until
@@ -1132,8 +1147,10 @@ nothing.
 
 Two endings get a mark and the rest do not. A delivery the target app refused
 shows a clipboard — the text is on the clipboard and that is what to do about
-it — and a failed dictation shows a warning triangle with the specific error on
-hover, the only place the dock can name which failure it was. They differ by
+it — and a failed dictation shows a warning triangle. Both marks sit on the
+start button above its label, so the button's accessible name and tooltip name
+the outcome first — for a failure, the specific error, the only place the dock
+can name which failure it was. They differ by
 glyph and not only by tone, which is what has to tell them apart under
 `forced-colors: active` where both flatten to the same system colour. A
 successful insertion shows nothing at all: the text arriving in the app the
@@ -1147,7 +1164,10 @@ recording at all, so a dock without Stop leaves the user's only way out on the
 window they docked to get away from. It paints in the `--recording` fill while
 recording, on a rule scoped to the listening state rather than to the button,
 because red carries one operational meaning here and that has to be true of the
-stylesheet and not only of the component that renders it. That fill was the
+stylesheet and not only of the component that renders it. The card's own
+hairline becomes a 2px ring in the same red while capture runs, on the same
+listening-scoped rule, so an open microphone reads from across the screen even
+through a silence when the meter is flat. That fill was the
 deleted HUD's record button's, kept so a user who had seen both did not have to
 learn a second appearance for the same press. Its own close button, and "Close"
 on its right-click menu, quit the app through the graceful path, mid-dictation

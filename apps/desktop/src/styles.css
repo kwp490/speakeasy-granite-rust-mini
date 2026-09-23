@@ -667,35 +667,40 @@ body:has(.hud-dock) {
    presentation with no transcript and no status line, so the button's label is
    the only text that says what pressing it does.
 
-   Six rows, in a fixed order and none of them conditional:
+   Five rows, in a fixed order and none of them conditional:
 
      20px  .hud-dock-chrome    settings and close
-    104px  .hud-dock-wordmark  vertical, and this window's whole titlebar
-      1fr  .hud-dock-level     the waveform — 152px, the same in every state
      14px  .hud-dock-engine    which device Granite runs on, and whether it is up
-     16px  .hud-dock-status    elapsed during a run, how it ended after one
-     28px  .hud-dock-action    the one button, present in every state
+     90px  .hud-dock-wordmark  vertical, and this window's whole titlebar
+      1fr  .hud-dock-level     the waveform — 182px, the same in every state
+     36px  .hud-dock-action    the one button; clock or outcome mark inside it
 
    The 5px gutter below leaves the card 390 tall inside the 400 window. With
-   8px padding top and bottom and five 8px gaps that is 238 + 152 = 390. The
-   status row is empty between dictations rather than absent, so the waveform's
-   box cannot move under a running recording.
+   8px padding top and bottom and four 8px gaps that is 208 + 182 = 390.
+
+   **Those 8px are the dock's own, and the settings page's narrow-width rule
+   used to take them.** `main:not(.settings)` inside `max-width: 560px` matches
+   a 62px window, outranks `.hud-dock` on specificity, and set 24px top and
+   bottom: 32px of empty card the arithmetic here never saw, taken out of the
+   meter. That rule now excludes the dock (see the rule itself).
+
+   **The status row is gone (owner, 2026-09-22).** It held the clock during a
+   run and the outcome mark after one, and was empty the rest of the time —
+   the dead space above the button. Both now sit on a small line inside the
+   button, which is 36px so the line fits.
 
    **The window grew from 360 to 400 (owner, 2026-08-28)** to pay for the action
    row's button being present in every state. It used to appear only while
    listening, which left the dock with no way to *begin* a dictation — the one
    surface whose promise is staying reachable while the user works elsewhere had
    a control that only existed once they had already started. The meter took the
-   whole 40px: it is the only `1fr`, so 112 became 152, which is also more than
-   the 134 it had before the engine row existed.
+   whole 40px, being the only `1fr`.
 
-   **The engine row moved below the meter (owner, 2026-08-28.)** Above it, the
-   chip was a filled horizontal pill cutting across a 52px-wide vertical column:
-   it severed the wordmark from the waveform, the dotted meter read as hanging
-   off it, and the card's brightest element sat at the visual centre with the
-   bottom third empty. Below, the three state rows cluster and the top is pure
-   identity. Measured on the running window both ways — the reorder costs the
-   waveform nothing, because the meter is the only `1fr` either way.
+   **The engine row is at the top, under the chrome (owner, 2026-09-22).**
+   Between the wordmark and the meter it severed the name from the waveform
+   (2026-08-28); directly under the meter the loudest bars ran into it. Above
+   the wordmark it touches neither, and the card reads as two groups: what the
+   app is and where it runs at the top, what the user is doing at the bottom.
 
    The engine row itself cost the meter 22px when it shipped — a 14px row plus
    one more 8px gap — and that was accepted knowingly (owner, 2026-08-26) to buy
@@ -758,6 +763,17 @@ body:has(.hud-dock) {
   cursor: grabbing;
 }
 
+/* While capture runs, the card's hairline becomes a 2px ring in the capture
+   red — the one meaning `--recording` has, on a rule scoped to the listening
+   state like the Stop button's. The waveform says the microphone hears
+   something; this says it is open even through a silence, from across the
+   screen. Not the only signal: the button reads "Stop" and shows the clock. */
+.hud-dock[data-session="listening"] {
+  box-shadow:
+    0 2px 5px rgb(0 0 0 / 0.55),
+    inset 0 0 0 2px var(--recording);
+}
+
 /* `box-sizing` is not decoration here: measured in the running window this row
    came out 128px wide inside a 120px card, because `width: 100%` and the 4px
    padding were adding. The card's `overflow: hidden` swallowed the difference,
@@ -799,7 +815,10 @@ body:has(.hud-dock) {
   flex: none;
   font-size: 0.86rem;
   font-weight: 600;
-  height: 104px;
+  /* The text's own extent, measured at 88px in the running WebView, plus 2px
+     so rounding at other scale factors cannot clip the last letter. It was
+     104, and the 16px beyond the text was empty card under the name. */
+  height: 90px;
   letter-spacing: 0.13em;
   text-transform: uppercase;
   writing-mode: vertical-rl;
@@ -922,17 +941,21 @@ body:has(.hud-dock) {
   align-items: center;
   display: flex;
   flex-direction: column;
-  gap: 2.5px;
   justify-content: center;
   height: 100%;
   width: 100%;
 }
 
+/* The bars share the meter's height rather than each being a fixed 4px. Fixed,
+   twenty-one of them drew 134px of hairlines whatever the row measured —
+   thinner than the gaps between them read at a glance — and overflowed the box
+   when the row was smaller than that. */
 .hud-dock-level-bars {
   align-items: center;
   display: flex;
   flex-direction: column;
-  gap: 2.5px;
+  gap: 3px;
+  height: 100%;
   justify-content: center;
   width: 100%;
 }
@@ -952,9 +975,10 @@ body:has(.hud-dock) {
    draws the same mark without that. */
 .hud-dock-level-bar {
   background: var(--hud-text-muted);
-  border-radius: 2px;
-  flex: none;
-  height: 4px;
+  border-radius: 3px;
+  flex: 1 1 0;
+  max-height: 12px;
+  min-height: 0;
   min-width: 3px;
   opacity: 0.55;
   transition: width 100ms linear;
@@ -995,24 +1019,6 @@ body:has(.hud-dock) {
   }
 }
 
-/* Was `.hud-dock-clock`, and renamed when it stopped being only a clock: it
-   carries the elapsed time during a dictation and the outcome mark after one.
-   Those moved together because the action row below now holds a button in every
-   state, and at a 52px card that row cannot also hold a glyph. Neither fact is
-   ever wanted at the same moment as the other — there is no elapsed time to show
-   once a run has ended — so sharing one row costs nothing and saves 16px the
-   card would otherwise have had to grow again to find. */
-.hud-dock-status {
-  align-items: center;
-  display: flex;
-  flex: none;
-  font-size: 0.68rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  height: 16px;
-  justify-content: center;
-}
-
 /* The card itself has no horizontal padding — the waveform is centred and
    wants the full width — so the inset the full-width button needs is here.
    4px, not 8: at a 52px card the row's inset comes straight out of the only
@@ -1022,7 +1028,7 @@ body:has(.hud-dock) {
   box-sizing: border-box;
   display: flex;
   flex: none;
-  height: 28px;
+  height: 36px;
   justify-content: center;
   padding: 0 var(--space-1);
   width: 100%;
@@ -1066,12 +1072,33 @@ body:has(.hud-dock) {
      scale, and the size at which "Stop" fits a 44px button on a 52px card. */
   font-size: 0.68rem;
   font-weight: 600;
-  height: 28px;
+  height: 36px;
   min-height: 0;
   /* Fills the row, the way `.hud-primary` fills the command row it sits in.
      Sized to its label instead, it read as a chip floating in the card. */
   padding: 0 var(--space-1);
   width: 100%;
+  /* A column, so the clock or the outcome mark can sit above the label. With
+     neither, the label is centred on its own. */
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  justify-content: center;
+}
+
+/* The small line above the label: the clock while recording, the outcome mark
+   after a dictation that left one. Tabular figures so the clock does not
+   shimmer sideways as its digits change. */
+.hud-dock-button-meta {
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.hud-dock-button-label {
+  line-height: 1;
 }
 
 .hud-dock[data-session="listening"] .hud-dock-stop {
@@ -1082,8 +1109,9 @@ body:has(.hud-dock) {
 
 /* ── The action row's other two occupants ────────────────────────────────
    What the dock says between the user releasing the key and the text landing,
-   and what it says when the text does not land. Both sit in the row Stop
-   vacates, so nothing moves.
+   and what it says when the text does not land. The dots replace the button
+   while it cannot be pressed; the outcome mark sits inside the button, above
+   its label.
 
    Amber, and specifically `--hud-busy`: that is already the record button's
    tone for the three states that are neither ready nor recording, so the two
@@ -1143,7 +1171,7 @@ body:has(.hud-dock) {
 .hud-dock-outcome {
   align-items: center;
   display: flex;
-  height: 28px;
+  height: 15px;
   justify-content: center;
 }
 
@@ -1909,7 +1937,10 @@ button:disabled {
 }
 
 @media (max-width: 560px) {
-  main:not(.settings) {
+  /* Not the dock. It is a 62px window, so it always matches this query, and
+     this selector outranks `.hud-dock` — which silently gave the card 24px of
+     padding top and bottom instead of its own 8. */
+  main:not(.settings, .hud-dock) {
     padding: var(--space-5) 0;
   }
 

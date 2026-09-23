@@ -15,25 +15,21 @@ import { useDragToMove } from "./useDragToMove";
  * meter, the engine indicator, the elapsed clock, and one button that starts and
  * ends the dictation.
  *
- * Six rows in a fixed order, and none of them is conditional — the same rule
- * `.capture-hud` follows, for the same reason. Only what sits *in* the last two
- * changes with state:
+ * Five rows in a fixed order, and none of them is conditional — the same rule
+ * `.capture-hud` follows, for the same reason. Only what sits *in* the last
+ * one changes with state:
  *
  *     20px  chrome    settings and close
- *    104px  wordmark  vertical, and this undecorated window's whole titlebar
- *      1fr  meter     the waveform — 152px in a 400px window
  *     14px  engine    which device Granite runs on, and whether it is up
- *     16px  status    the elapsed time during a run, how it ended after one
- *     28px  action    the one button, present in every state
+ *     90px  wordmark  vertical, and this undecorated window's whole titlebar
+ *      1fr  meter     the waveform — 182px in a 400px window
+ *     36px  action    the one button, with the clock or outcome mark inside it
  *
- * **The engine row sits below the meter, not above it** (owner, 2026-08-28).
- * Between the wordmark and the meter it was a filled horizontal pill cutting
- * across a 52px-wide vertical column — it severed the mark from the waveform,
- * the dotted meter read as hanging off it, and the card's brightest element sat
- * at the visual centre while the bottom third was empty. Below the meter the
- * three state rows cluster at the bottom and the top is pure identity. Measured
- * on the running window before and after: the reorder costs the waveform
- * nothing, because the meter is the only `1fr` either way.
+ * **The engine row sits at the top, above the wordmark** (owner, 2026-09-22).
+ * Directly under the meter, the loudest bars ran into it. Between the wordmark
+ * and the meter it severed the name from the waveform (2026-08-28). Above the
+ * wordmark it touches neither: the top of the card is what the app is and where
+ * it runs, and the bottom is what the user is doing.
  *
  * **The action row's button is present in every state** (owner, 2026-08-28), and
  * that is why the window grew from 360 to 400. It used to appear only while
@@ -50,11 +46,12 @@ import { useDragToMove } from "./useDragToMove";
  * for "thinking", and the full `Transcribing…` is in the accessible name and the
  * tooltip where there is room for it.
  *
- * The status row above it carries the elapsed time during a run and the outcome
- * glyph after one. Those used to live in two rows, and the outcome was in the
- * action row — which a permanently present button leaves no room for at 52px.
- * Both are facts about one dictation and neither is ever needed at the same
- * moment as the other, so they share.
+ * The button also carries the elapsed time during a run and the outcome mark
+ * after one, on a small line above its label. They had a row of their own, and
+ * that row was empty whenever no dictation had just run — which is most of the
+ * time, so it was dead space at the bottom of the card. Neither fact is ever
+ * needed at the same moment as the other, and both are about the press the
+ * button offers next.
  *
  * A dock button is not redundant with the hotkey. The hotkey has three
  * activation modes (Settings › General) and in hands-free mode there is no key
@@ -126,28 +123,13 @@ export function HudDockApp() {
           <CloseGlyph />
         </button>
       </header>
+      <EngineChip engine={model.engine} device={model.engineDevice} />
       <div className="hud-dock-wordmark">{messages.productName}</div>
       <div className="hud-dock-level-wrap">
         <DockLevelMeter active={listening} level={model.level} />
       </div>
-      <EngineChip engine={model.engine} device={model.engineDevice} />
-      {/*
-        Keeps its height in every state, and is empty between dictations. That
-        costs 16px the dock does not otherwise need, and buys the waveform's box
-        being the same box before, during and after a dictation rather than
-        moving the moment one starts.
-      */}
-      <div className="hud-dock-status">
-        {elapsedMs !== null ? (
-          <output aria-live="polite" data-testid="hud-dock-timer">
-            {formatElapsed(elapsedMs)}
-          </output>
-        ) : (
-          <DockOutcome model={model} />
-        )}
-      </div>
       <div className="hud-dock-action">
-        <DockActionButton model={model} onStart={start} onStop={stop} />
+        <DockActionButton elapsedMs={elapsedMs} model={model} onStart={start} onStop={stop} />
       </div>
     </main>
   );
@@ -167,12 +149,18 @@ export function HudDockApp() {
  * than queued — and a button that looks pressable and is refused is better than
  * one that vanishes, because the refusal is the honest answer to a press the
  * user meant.
+ *
+ * The small line above the label is the clock while recording and the outcome
+ * mark after a dictation that did not end with text in the user's app. The
+ * button is 36px tall so that line fits without the card changing shape.
  */
 function DockActionButton({
+  elapsedMs,
   model,
   onStart,
   onStop,
 }: {
+  elapsedMs: number | null;
   model: TranscriberModel;
   onStart: () => void;
   onStop: () => void;
@@ -189,22 +177,36 @@ function DockActionButton({
         title={messages.stopDictationName}
         type="button"
       >
-        {messages.stopDictation}
+        {elapsedMs !== null ? (
+          <output aria-live="polite" className="hud-dock-button-meta" data-testid="hud-dock-timer">
+            {formatElapsed(elapsedMs)}
+          </output>
+        ) : null}
+        <span className="hud-dock-button-label">{messages.stopDictation}</span>
       </button>
     );
   }
   if (kind === "idle" || kind === "delivered" || kind === "failed") {
+    const outcome = dockOutcome(model);
+    // The outcome is named before the action: the button's name is the only
+    // place left on this window that can say *why* the last dictation produced
+    // no text.
+    const name =
+      outcome === null
+        ? messages.startDictationName
+        : messages.startDictationAfter(outcome.description);
     return (
       <button
-        aria-label={messages.startDictationName}
+        aria-label={name}
         className="hud-dock-stop"
         data-testid="hud-dock-start"
         disabled={!model.canStart}
         onClick={onStart}
-        title={messages.startDictationName}
+        title={name}
         type="button"
       >
-        {messages.transcriberStates.idle}
+        {outcome !== null ? <DockOutcomeMark outcome={outcome} /> : null}
+        <span className="hud-dock-button-label">{messages.transcriberStates.idle}</span>
       </button>
     );
   }
@@ -342,60 +344,53 @@ function AlertPip() {
 }
 
 /**
- * How the last dictation ended, in the status row.
+ * How the last dictation ended, when it earns a mark.
  *
- * Two states earn a mark and the rest deliberately do not:
+ * Two states earn one and the rest deliberately do not:
  *
  * - **refused** — delivered, but the target app would not take the text, so it
  *   is on the clipboard. A clipboard mark rather than a warning colour, because
  *   *what to do next* is the message and it is a different action from a
  *   failure (UI-GUIDE "Contrast, themes, and motion": never colour alone).
- * - **failed** — a warning triangle, and the specific error on hover.
+ * - **failed** — a warning triangle, and the specific error in the button's
+ *   name and tooltip.
  *
  * A successful insertion shows nothing. The text arriving in the app the user
  * was typing into is the confirmation, and a dock that also announced it would
  * be claiming credit for something already visible — while costing a mark that
  * has to clear itself, or linger and mean nothing.
- *
- * **`stopping` and `transcribing` used to be a third case here**, and are not
- * any more: the action row's button carries them now, because it is present in
- * every state and a busy mark in two rows at once is one row of it lying about
- * being a second fact. This component is only reached when there is no elapsed
- * time to show, so it can never race the clock for the row either.
  */
-function DockOutcome({ model }: { model: TranscriberModel }) {
+type DockOutcome = { kind: "refused" | "failed"; description: string };
+
+function dockOutcome(model: TranscriberModel): DockOutcome | null {
   const state = model.state;
   if (state.kind === "delivered" && state.outcome === "refused") {
-    return (
-      <span
-        aria-label={messages.deliveredRefusedStatus}
-        className="hud-dock-outcome"
-        data-testid="hud-dock-outcome"
-        data-outcome="refused"
-        role="img"
-        title={messages.deliveredRefusedStatus}
-      >
-        <ClipboardGlyph />
-      </span>
-    );
+    return { kind: "refused", description: messages.deliveredRefusedStatus };
   }
   if (state.kind === "failed") {
-    return (
-      <span
-        aria-label={messages.transcriberStates.failed}
-        className="hud-dock-outcome"
-        data-testid="hud-dock-outcome"
-        data-outcome="failed"
-        role="img"
-        // The code, not the generic line: this is the only place the dock can
-        // say *which* failure, and it has one tooltip to do it in.
-        title={formatError(state.code)}
-      >
-        <AlertGlyph />
-      </span>
-    );
+    // The code, not the generic line: this is the only place the dock can say
+    // *which* failure.
+    return { kind: "failed", description: formatError(state.code) };
   }
   return null;
+}
+
+/**
+ * The outcome's glyph, inside the button. Hidden from the accessibility tree
+ * because the button's own name already says it, and a name nested inside a
+ * named button is not read.
+ */
+function DockOutcomeMark({ outcome }: { outcome: DockOutcome }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="hud-dock-outcome hud-dock-button-meta"
+      data-outcome={outcome.kind}
+      data-testid="hud-dock-outcome"
+    >
+      {outcome.kind === "refused" ? <ClipboardGlyph /> : <AlertGlyph />}
+    </span>
+  );
 }
 
 function formatError(code: string): string {

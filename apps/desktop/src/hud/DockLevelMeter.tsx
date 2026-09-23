@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 
 import { messages } from "../catalog";
-import { HISTORY, ROWS, barTone, barWidth, clampLevel, shapeLevel } from "./levelShaping";
+import {
+  HISTORY,
+  NORMALISE_WINDOW,
+  ROWS,
+  barTone,
+  barWidth,
+  clampLevel,
+  normaliser,
+  shapeLevel,
+} from "./levelShaping";
 
 /**
  * Input level for the side dock, drawn as a symmetric waveform.
@@ -46,7 +55,7 @@ export function DockLevelMeter({ level, active }: { level: number; active: boole
       <div aria-hidden="true" className="hud-dock-level-bars">
         {Array.from({ length: ROWS }, (_row, index) => {
           const age = Math.abs(index - (HISTORY - 1));
-          const shaped = shapeLevel(history[age] ?? 0);
+          const shaped = history[age] ?? 0;
           return (
             <span
               className="hud-dock-level-bar"
@@ -62,23 +71,35 @@ export function DockLevelMeter({ level, active }: { level: number; active: boole
 }
 
 /**
- * The last `HISTORY` samples, newest first.
+ * The last `HISTORY` samples, newest first, already shaped.
+ *
+ * Shaped once, when each sample arrives, against the range of the raw samples
+ * before it. Re-shaping the whole history on every tick would rescale bars that
+ * are already on screen whenever the range moved, repainting how loud a moment
+ * that has passed had been.
  *
  * Cleared rather than left to decay when capture stops: a waveform that keeps
  * showing the last thing it heard is a claim that the microphone is still open.
+ * The raw window clears with it, so one dictation's loudness does not set the
+ * scale for the next.
  */
 function useLevelHistory(level: number, active: boolean): number[] {
   const latest = useRef(level);
   latest.current = level;
+  const recent = useRef<number[]>([]);
   const [history, setHistory] = useState<number[]>(() => new Array<number>(HISTORY).fill(0));
 
   useEffect(() => {
+    recent.current = [];
     if (!active) {
       setHistory(new Array<number>(HISTORY).fill(0));
       return;
     }
     const timer = window.setInterval(() => {
-      setHistory((previous) => [clampLevel(latest.current), ...previous.slice(0, HISTORY - 1)]);
+      const sample = clampLevel(latest.current);
+      recent.current = [sample, ...recent.current.slice(0, NORMALISE_WINDOW - 1)];
+      const shaped = shapeLevel(sample, normaliser(recent.current));
+      setHistory((previous) => [shaped, ...previous.slice(0, HISTORY - 1)]);
     }, SAMPLE_INTERVAL_MS);
     return () => {
       window.clearInterval(timer);

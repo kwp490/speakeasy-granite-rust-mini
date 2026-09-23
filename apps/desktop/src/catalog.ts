@@ -77,6 +77,10 @@ export const messages = {
   // control whose visible text is a status word, which is the one case WCAG
   // 2.5.3's substring rule cannot be satisfied and should not be faked.
   startDictationName: "Start recording",
+  // The same name after a dictation that left a mark on the button: how it
+  // ended, then what pressing it does. Two whole sentences, not a fragment
+  // spliced into one, so a translation can order them freely.
+  startDictationAfter: (outcome: string) => `${outcome}\nStart recording`,
   shortcutHint: (binding: string) => `${binding} to start`,
   capturedSeconds: (seconds: string) => `${seconds} seconds captured`,
   // Truthful about what happened, per UI-GUIDE's truthful-disclosure rule: a
