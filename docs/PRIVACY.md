@@ -61,7 +61,7 @@ app-owned files.
   paste from the clipboard, and inspecting the foreground window at some later
   moment would be a guess about an action it never observed.
 
-  Automatic paste is a setting in Settings -> Output & Privacy, on by default.
+  Automatic paste is a setting in Settings -> General, on by default.
 
   **The recommendation is therefore to turn persisted history off before
   dictating sensitive material.** That is the only setting that holds on every

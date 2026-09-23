@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.12.0 — 2026-09-23
+
+Settings is simpler. It has five pages instead of six: General, Microphone,
+Transcription, History and Advanced. Every setting is one row with its name, one
+short line and its control, and changes apply at once, so there are no Save
+buttons. On/off settings are switches that say On or Off. The colours are neutral
+greys with one blue accent; red now appears only on delete and reset buttons and
+on errors.
+
+Some controls moved. Automatic paste is on General. The diagnostic log, restart
+engine and quit are on Advanced. If your last dictation produced no text,
+Transcription says why at the top of the page and offers Try again. To change the
+shortcut, press Change and then press the new keys. Turning on saved history now
+asks you to confirm before anything is written to disk, and deleting it asks
+before anything is removed.
+
+Some controls are gone. The speech model can no longer be installed or removed
+from Settings, because setup does that. The "private result view" choice is
+gone, because History gives every transcript a Copy button. The legacy
+credential rows and the separate graphics-card re-test button are gone; Restart
+engine does the same job.
+
 ## 1.11.1 — 2026-09-23
 
 The CPU or GPU indicator now sits directly above the dock's button, so the

@@ -1,39 +1,28 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-import { Disclosure } from "../components/Disclosure";
 import { messages } from "../catalog";
-import { displayName, formatCredentialStatus, formatResetCategory } from "./format";
+import { displayName, formatResetCategory } from "./format";
 import { readWithRetry } from "./readWithRetry";
 import { awaitEngineReady } from "./engineReady";
-import type {
-  CredentialStatus,
-  DiagnosticsExport,
-  DiagnosticsStatus,
-  ProfileStatus,
-  ResetPreview,
-} from "./types";
+import { SettingExpander, SettingGroup, SettingRow, StatusText, Switch } from "./Rows";
+import type { DiagnosticsExport, DiagnosticsStatus, ProfileStatus, ResetPreview } from "./types";
 import type { ProfileController } from "./useProfile";
 import { useMutation } from "./useMutation";
 
 /**
- * Advanced: runtime status, performance, credentials, maintenance, About.
+ * Advanced: engine status and restart, diagnostics, reset and quit.
  *
- * This is the one page that keeps the product-contract vocabulary (UI-GUIDE
- * "Two vocabulary registers"), and it carries two things the other five do not:
- *
- * - The **display-name translation**, so the summary reads
- *   "Processor (CPU)" rather than `cpu`.
- * - A **Show raw values** disclosure holding the untranslated identifiers, because
- *   those are what the diagnostic log and an exported bundle actually contain, and
- *   a user comparing the two needs to see the same strings.
+ * The summary rows use display names ("Processor (CPU)"). **Technical details**
+ * holds the untranslated identifiers, because those are what the diagnostic log
+ * and an exported bundle contain, and a user comparing the two needs the same
+ * strings (UI-GUIDE "Two vocabulary registers").
  *
  * `Not measured` is neutral here, not an error: nothing on this host has been
  * qualified, and saying so plainly is the whole discipline.
  */
 export function Advanced({ profile }: { profile: ProfileController }) {
   const [diagnostics, setDiagnostics] = useState<DiagnosticsStatus | null>(null);
-  const [credentials, setCredentials] = useState<CredentialStatus | null>(null);
   const [statusUnavailable, setStatusUnavailable] = useState(false);
   const exportDiagnostics = useMutation<DiagnosticsExport>();
   const previewReset = useMutation<ResetPreview>();
@@ -44,13 +33,9 @@ export function Advanced({ profile }: { profile: ProfileController }) {
   const [resetPreview, setResetPreview] = useState<ResetPreview | null>(null);
   const restartEngine = useMutation<void>();
 
-  // Both retried, and both with a rejection handler, because neither had one:
-  // each was a bare mount-time `invoke` whose refusal became an unhandled promise
-  // rejection. Six coordinators stand behind `diagnostics_status` alone, so this
-  // is the read most exposed to the startup race, and a lost one left the runtime
-  // and credential facts *absent* -- two headings with nothing under them, for
-  // the life of the process, on the one page someone opens to find out what the
-  // app is actually running.
+  // Retried, with a rejection handler: six coordinators stand behind
+  // `diagnostics_status`, so this is the read most exposed to the startup race,
+  // and a lost one must say so rather than leave the page empty.
   useEffect(() => {
     void readWithRetry<DiagnosticsStatus>("diagnostics_status").then(
       (status) => {
@@ -61,9 +46,6 @@ export function Advanced({ profile }: { profile: ProfileController }) {
         setStatusUnavailable(true);
       },
     );
-    void readWithRetry<CredentialStatus>("credential_status").then(setCredentials, () => {
-      setStatusUnavailable(true);
-    });
   }, []);
 
   async function commitReset() {
@@ -71,8 +53,7 @@ export function Advanced({ profile }: { profile: ProfileController }) {
     const nonce = resetPreview.nonce;
     const next = await resetCommit.run(() => invoke<ProfileStatus>("reset_commit", { nonce }));
     // The panel closes only if the reset happened. Closing it either way would
-    // be the `history_delete_all` defect again: the confirmation clears itself
-    // and the refusal looks exactly like a success.
+    // make a refusal look exactly like a success.
     if (next !== null) {
       profile.replace(next);
       setResetPreview(null);
@@ -81,193 +62,91 @@ export function Advanced({ profile }: { profile: ProfileController }) {
 
   const measured = (value: number | null, suffix = "") =>
     value === null ? messages.noMeasuredValue : `${value}${suffix}`;
+  const seconds = (ms: number | null) => (ms === null ? null : `${(ms / 1000).toFixed(1)} s`);
+  const typical = seconds(diagnostics?.latency_p50_ms ?? null);
+  const slowest = seconds(diagnostics?.latency_p95_ms ?? null);
 
   return (
     <>
-      <section aria-labelledby="advanced-runtime">
-        <h3 id="advanced-runtime">{messages.runtimeSection}</h3>
-        {/*
-          An empty section is not neutral here. This page exists to answer "what
-          is it running on", so a heading with nothing under it reads as "nothing
-          is running" rather than as "the read did not arrive".
-        */}
-        {statusUnavailable && <p className="warning">{messages.runtimeStatusUnavailable}</p>}
-        {diagnostics !== null && (
-          <>
-            <dl className="fact-grid">
-              <div>
-                <dt>{messages.engine}</dt>
-                <dd>
-                  <bdi>{displayName(diagnostics.engine)}</bdi>
-                </dd>
-              </div>
-              <div>
-                <dt>{messages.worker}</dt>
-                <dd>
-                  <bdi>{displayName(diagnostics.worker)}</bdi>
-                </dd>
-              </div>
-              <div>
-                <dt>{messages.runtime}</dt>
-                <dd>
-                  <bdi>{displayName(diagnostics.runtime)}</bdi>
-                </dd>
-              </div>
-              <div>
-                <dt>{messages.provider}</dt>
-                <dd>
-                  <bdi>{displayName(diagnostics.provider)}</bdi>
-                </dd>
-              </div>
-              <div>
-                <dt>{messages.deviceStatus}</dt>
-                <dd>
-                  <bdi>{displayName(diagnostics.device)}</bdi>
-                </dd>
-              </div>
-              <div>
-                <dt>{messages.vad}</dt>
-                <dd>
-                  <bdi>{displayName(diagnostics.vad)}</bdi>
-                </dd>
-              </div>
-              <div>
-                <dt>{messages.deliveryCapability}</dt>
-                <dd>
-                  <bdi>{displayName(diagnostics.delivery_capability)}</bdi>
-                </dd>
-              </div>
-              <div>
-                <dt>{messages.deliveryReason}</dt>
-                <dd>
-                  <bdi>{displayName(diagnostics.delivery_reason)}</bdi>
-                </dd>
-              </div>
-              <div>
-                <dt>{messages.sanitizedLogs}</dt>
-                <dd>{diagnostics.logs_sanitized ? messages.yes : messages.no}</dd>
-              </div>
-            </dl>
+      {/* An empty page is not neutral here. It exists to answer "what is it
+          running on", so nothing under the heading would read as "nothing is
+          running" rather than as "the read did not arrive". */}
+      {statusUnavailable && <p className="warning">{messages.runtimeStatusUnavailable}</p>}
 
-            <Disclosure hint={messages.rawValuesHint} summary={messages.showRawValues}>
-              <dl className="fact-grid" data-testid="raw-values">
-                <div>
-                  <dt>{messages.engine}</dt>
-                  <dd className="exact-value">
-                    <bdi>{diagnostics.engine}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.worker}</dt>
-                  <dd className="exact-value">
-                    <bdi>{diagnostics.worker}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.runtime}</dt>
-                  <dd className="exact-value">
-                    <bdi>{diagnostics.runtime}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.provider}</dt>
-                  <dd className="exact-value">
-                    <bdi>{diagnostics.provider}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.deviceStatus}</dt>
-                  <dd className="exact-value">
-                    <bdi>{diagnostics.device}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.vad}</dt>
-                  <dd className="exact-value">
-                    <bdi>{diagnostics.vad}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.deliveryCapability}</dt>
-                  <dd className="exact-value">
-                    <bdi>{diagnostics.delivery_capability}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.deliveryReason}</dt>
-                  <dd className="exact-value">
-                    <bdi>{diagnostics.delivery_reason}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.finalSource}</dt>
-                  <dd className="exact-value">
-                    <bdi>{diagnostics.final_source_reason ?? messages.noMeasuredValue}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.modelProvenance}</dt>
-                  <dd className="exact-value">
-                    <bdi>
-                      {diagnostics.model_id}@{diagnostics.model_revision} · {diagnostics.model_source}
-                    </bdi>
-                  </dd>
-                </div>
-              </dl>
-            </Disclosure>
-          </>
-        )}
-      </section>
+      <SettingGroup label={messages.engineGroup}>
+        <SettingRow
+          control={
+            <>
+              <button
+                disabled={restartEngine.pending}
+                onClick={() => {
+                  void restartEngine.run(
+                    async () => {
+                      await invoke("runtime_recover");
+                      // The command starts the warm and returns; it cannot hold
+                      // an IPC call for a 2 GB load. Success is the engine
+                      // reporting `ready`, never this command returning.
+                      const engine = await awaitEngineReady();
+                      // The bare code, because that is what `invoke` rejects
+                      // with and what `formatError` maps to catalog prose.
+                      if (engine !== "ready") throw engine;
+                    },
+                    () => messages.engineRestarted,
+                  );
+                }}
+                type="button"
+              >
+                {restartEngine.pending ? messages.engineRestarting : messages.restartEngine}
+              </button>
+              <output aria-live="polite" className="sr-only">
+                {restartEngine.error ?? restartEngine.message}
+              </output>
+            </>
+          }
+          detail={
+            diagnostics === null ? undefined : (
+              <StatusText tone="neutral">
+                <bdi>{displayName(diagnostics.device)}</bdi>
+              </StatusText>
+            )
+          }
+          title={messages.engineStatus}
+        >
+          {(restartEngine.error ?? restartEngine.message) !== null && (
+            <p aria-hidden="true" className="row-note">
+              {restartEngine.error ?? restartEngine.message}
+            </p>
+          )}
+        </SettingRow>
+        <SettingRow
+          control={
+            <span className="setting-row-value">
+              {typical === null || slowest === null
+                ? messages.noMeasuredValue
+                : messages.speedValue(typical, slowest)}
+            </span>
+          }
+          detail={messages.speedDetail}
+          title={messages.speed}
+        />
+      </SettingGroup>
 
-      <section aria-labelledby="advanced-performance">
-        <h3 id="advanced-performance">{messages.performanceSection}</h3>
-        {diagnostics !== null && (
-          <dl className="fact-grid">
-            <div>
-              <dt>{messages.performance}</dt>
-              <dd>{measured(diagnostics.rtf_median)}</dd>
-            </div>
-            <div>
-              <dt>{messages.rtfP95}</dt>
-              <dd>{measured(diagnostics.rtf_p95)}</dd>
-            </div>
-            <div>
-              <dt>{messages.latencyP50}</dt>
-              <dd>{measured(diagnostics.latency_p50_ms, messages.millisecondSuffix)}</dd>
-            </div>
-            <div>
-              <dt>{messages.latencyP95}</dt>
-              <dd>{measured(diagnostics.latency_p95_ms, messages.millisecondSuffix)}</dd>
-            </div>
-            <div>
-              <dt>{messages.audioOverflow}</dt>
-              <dd>{diagnostics.audio_overflow_count}</dd>
-            </div>
-          </dl>
-        )}
-      </section>
-
-      <section aria-labelledby="advanced-credentials">
-        <h3 id="advanced-credentials">{messages.credentialsSection}</h3>
-        {credentials !== null && (
-          <dl className="fact-grid">
-            <div>
-              <dt>{messages.legacyOpenAiCredential}</dt>
-              <dd>{formatCredentialStatus(credentials.openai_legacy)}</dd>
-            </div>
-            <div>
-              <dt>{messages.legacyRemoteCredential}</dt>
-              <dd>{formatCredentialStatus(credentials.remote_legacy)}</dd>
-            </div>
-          </dl>
-        )}
-        <p className="setting-detail">{messages.credentialsNeverShown}</p>
-      </section>
-
-      <section aria-labelledby="advanced-maintenance" className="settings-maintenance">
-        <h3 id="advanced-maintenance">{messages.maintenanceSection}</h3>
-        <div className="settings-action-list">
-          <div className="actions">
+      <SettingGroup label={messages.diagnosticsGroup}>
+        <SettingRow
+          control={
+            <Switch
+              checked={profile.profile?.disk_logging_enabled ?? true}
+              describedBy="advanced-logging-detail"
+              label={messages.diagnosticLogging}
+              onChange={(next) => void profile.setDiskLogging(next)}
+            />
+          }
+          detail={messages.diagnosticLoggingDetail}
+          detailId="advanced-logging-detail"
+          title={messages.diagnosticLogging}
+        />
+        <SettingRow
+          control={
             <button
               disabled={exportDiagnostics.pending}
               onClick={() => {
@@ -278,42 +157,63 @@ export function Advanced({ profile }: { profile: ProfileController }) {
               }}
               type="button"
             >
-              {exportDiagnostics.pending ? messages.working : messages.exportDiagnostics}
+              {exportDiagnostics.pending ? messages.working : messages.exportDiagnosticsButton}
             </button>
-            <output aria-live="polite">
+          }
+          title={messages.exportDiagnostics}
+        >
+          {(exportDiagnostics.error ?? exportDiagnostics.message) !== null && (
+            <output aria-live="polite" className="row-note">
               {exportDiagnostics.error ?? exportDiagnostics.message}
             </output>
-          </div>
-          <div className="actions">
-            <button
-              disabled={restartEngine.pending}
-              onClick={() => {
-                void restartEngine.run(
-                  async () => {
-                    await invoke("runtime_recover");
-                    // The command starts the warm and returns; it cannot hold an
-                    // IPC call for a 2 GB load. Success is the engine reporting
-                    // `ready`, never this command returning.
-                    const engine = await awaitEngineReady();
-                    // The bare code, because that is what `invoke` rejects with
-                    // and what `formatError` maps to catalog prose.
-                    if (engine !== "ready") throw engine;
-                  },
-                  () => messages.engineRestarted,
-                );
-              }}
-              type="button"
-            >
-              {restartEngine.pending ? messages.engineRestarting : messages.restartEngine}
-            </button>
-            <output aria-live="polite">{restartEngine.error ?? restartEngine.message}</output>
-          </div>
-        </div>
-        <div className="settings-danger-card">
-          <p className="setting-detail">{messages.resetExclusions}</p>
-          {resetPreview === null ? (
-            <>
+          )}
+        </SettingRow>
+        <SettingExpander detail={messages.technicalDetailsHint} title={messages.technicalDetails}>
+          {diagnostics === null ? (
+            <p className="row-note">{messages.runtimeStatusUnavailable}</p>
+          ) : (
+            <dl className="raw-values" data-testid="raw-values">
+              {(
+                [
+                  [messages.engine, diagnostics.engine],
+                  [messages.worker, diagnostics.worker],
+                  [messages.runtime, diagnostics.runtime],
+                  [messages.provider, diagnostics.provider],
+                  [messages.deviceStatus, diagnostics.device],
+                  [messages.vad, diagnostics.vad],
+                  [messages.deliveryCapability, diagnostics.delivery_capability],
+                  [messages.deliveryReason, diagnostics.delivery_reason],
+                  [messages.finalSource, diagnostics.final_source_reason ?? messages.noMeasuredValue],
+                  [
+                    messages.modelProvenance,
+                    `${diagnostics.model_id}@${diagnostics.model_revision} · ${diagnostics.model_source}`,
+                  ],
+                  [messages.performance, measured(diagnostics.rtf_median)],
+                  [messages.rtfP95, measured(diagnostics.rtf_p95)],
+                  [messages.latencyP50, measured(diagnostics.latency_p50_ms, messages.millisecondSuffix)],
+                  [messages.latencyP95, measured(diagnostics.latency_p95_ms, messages.millisecondSuffix)],
+                  [messages.audioOverflow, String(diagnostics.audio_overflow_count)],
+                  [messages.sanitizedLogs, diagnostics.logs_sanitized ? messages.yes : messages.no],
+                ] as const
+              ).map(([term, value]) => (
+                <div key={term}>
+                  <dt>{term}</dt>
+                  <dd className="exact-value" title={value}>
+                    <bdi>{value}</bdi>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </SettingExpander>
+      </SettingGroup>
+
+      <SettingGroup label={messages.resetQuitGroup}>
+        <SettingRow
+          control={
+            resetPreview === null ? (
               <button
+                className="destructive"
                 disabled={previewReset.pending}
                 onClick={() => {
                   void previewReset
@@ -328,11 +228,22 @@ export function Advanced({ profile }: { profile: ProfileController }) {
               >
                 {previewReset.pending ? messages.working : messages.previewReset}
               </button>
-              <output aria-live="polite">{previewReset.error}</output>
-            </>
-          ) : (
-            <div className="warning-panel">
-              <p>{resetPreview.categories.map(formatResetCategory).join(", ")}</p>
+            ) : undefined
+          }
+          detail={messages.resetExclusions}
+          title={messages.resetSettings}
+        >
+          {previewReset.error !== null && (
+            <output aria-live="polite" className="row-note">
+              {previewReset.error}
+            </output>
+          )}
+          {resetPreview !== null && (
+            <div className="confirm-panel" data-tone="bad" role="group" aria-label={messages.resetSettings}>
+              <p>
+                {messages.resetPreviewLead}{" "}
+                {resetPreview.categories.map(formatResetCategory).join(", ")}.
+              </p>
               <div className="actions">
                 <button
                   className="destructive"
@@ -356,16 +267,30 @@ export function Advanced({ profile }: { profile: ProfileController }) {
               <output aria-live="polite">{resetCommit.error}</output>
             </div>
           )}
-        </div>
-      </section>
+        </SettingRow>
+        {/* The dock never takes keyboard focus, so it is not keyboard operable;
+            every action it offers needs a path that is (UI-GUIDE "Accessibility
+            and input"). The shortcut covers start and stop, the Microphone page
+            covers the microphone, and this covers quitting. */}
+        <SettingRow
+          control={
+            <button
+              onClick={() => {
+                void invoke("app_quit");
+              }}
+              type="button"
+            >
+              {messages.quitAppButton}
+            </button>
+          }
+          detail={messages.quitAppDetail}
+          title={messages.quitApp}
+        />
+      </SettingGroup>
 
-      <section aria-labelledby="advanced-about">
-        <h3 id="advanced-about">{messages.aboutSection}</h3>
-        <p className="setting-detail">
-            {messages.productName} {messages.version}
-        </p>
-        <p className="setting-detail">{messages.aboutDetail}</p>
-      </section>
+      <p className="page-footer">
+        {messages.settingsProductName} {messages.version.replace(/^v/i, "")} · {messages.aboutDetail}
+      </p>
     </>
   );
 }

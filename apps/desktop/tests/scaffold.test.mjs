@@ -475,8 +475,8 @@ test("desktop uses strict local CSP and catalog-backed accessible UI", async () 
   assert.match(config.app.security.csp, /object-src 'none'/);
   assert.match(app, /aria-live="polite"/);
   assert.match(app, /role="alert"/);
-  assert.match(app, /messages\.provisioning/);
-  assert.match(catalog, /provisioning:/);
+  assert.match(app, /messages\.speechModel/);
+  assert.match(catalog, /speechModel:/);
   assert.doesNotMatch(app, /phase1_run_fake/);
 });
 
@@ -1376,7 +1376,7 @@ test("dictation stays backend-owned and automatic paste stays out of the fronten
 
   // Unchanged and still load-bearing: the clipboard is written in Rust, never by
   // the WebView, and nothing in the frontend can reach an OS-input primitive.
-  assert.match(app, /invoke<number>\("result_copy"/);
+  assert.match(app, /invoke<number>\("session_transcript_copy"/);
 
   // This was a blanket ban on the words `auto paste`, `send_input` and
   // `target_snapshot` anywhere in the frontend. That was a proxy for the real
@@ -1423,18 +1423,19 @@ test("TSX contains no hard-coded visible text outside the message catalog", asyn
   assert.match(app, /messages\.displayNames/);
 });
 
-test("settings keep six groups, inert content, and keyboard tab semantics", async () => {
+test("settings keep five groups, inert content, and keyboard tab semantics", async () => {
   const app = await readComponents();
   const catalog = await readFile(new URL("../src/catalog.ts", import.meta.url), "utf8");
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
 
-  // Exactly six top-level pages. Adding another setting must not create a
-  // seventh navigation destination (UI-GUIDE "Information architecture").
+  // Exactly five top-level pages. Adding another setting must not create a
+  // sixth navigation destination (UI-GUIDE "Information architecture").
   assert.match(app, /const settingsGroups/);
   assert.equal(
-    (app.match(/\{ id: "(general|audio|transcription|output|log|advanced)"/g) ?? []).length,
-    6,
+    (app.match(/\{ id: "(general|audio|transcription|log|advanced)"/g) ?? []).length,
+    5,
   );
+  assert.doesNotMatch(app, /\{ id: "output"/);
 
   // The rail replaced the horizontal tab strip, so the keyboard pattern changed
   // with it: a vertical tablist is driven by ArrowUp/ArrowDown plus Home/End, and
@@ -1878,7 +1879,7 @@ test("the dock is the surface a relaunch and a restore bring back", async () => 
   assert.match(backend, /preferred_device_id:/);
   // The picker that consumed it is gone. `MicPicker.tsx` was the large HUD's
   // device list and no file imported it after the fork; a 62 px dock has nowhere
-  // to put one, and Settings → Audio already offers the choice through
+  // to put one, and Settings → Microphone already offers the choice through
   // `capture_device_configure`. Two assertions stood here about its JSX
   // (`resolveDevice`, `preferredId={model.preferredDeviceId}`) and passed only
   // because this test never ran — the second named a call site that did not
@@ -2144,7 +2145,7 @@ test("no effect can read a race-prone command without retrying or polling", asyn
     ["settings/Transcription.tsx", "personalizationUnavailable"],
     ["settings/General.tsx", "shortcutStateUnavailable"],
     ["settings/Advanced.tsx", "runtimeStatusUnavailable"],
-    ["settings/OutputPrivacy.tsx", "resultStatusUnavailable"],
+    ["settings/Transcription.tsx", "resultStatusUnavailable"],
     ["settings/SettingsApp.tsx", "profileUnavailable"],
   ]) {
     assert.match(wiring.get(path), new RegExp(`messages\\.${message}`), `${path} must say so`);
@@ -2158,7 +2159,9 @@ test("no effect can read a race-prone command without retrying or polling", asyn
   // Both are real backend values that mean something specific. `undefined` means
   // the page does not know, and only the `unknown` codes say that.
   assert.match(wiring.get("settings/General.tsx"), /registration \?\? "unknown"/);
-  assert.match(wiring.get("settings/OutputPrivacy.tsx"), /result\?\.state \?\? "unknown"/);
+  // The last-result state is no longer rendered at all -- the failure banner
+  // shows only a named reason -- so there is no fallback left to pin for it.
+  assert.doesNotMatch(wiring.get("settings/Transcription.tsx"), /\?\? "empty"/);
 
   // General's binding field held `Ctrl+Alt+L` -- SpeakEasy's shortcut, inherited
   // by the fork and never rebranded. That made the lost read destructive rather

@@ -15,7 +15,7 @@ that closed it, and any hazard general enough to bite again lives in
 | --- | --- |
 | Branch | `main`, on `kwp490/speakeasy-granite-rust-mini` (public) |
 | Latest release | `v1.11.1`, 2026-09-23, `SpeakEasyMiniSetup.exe` with `SHA256SUMS` |
-| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.11.1`, equal to the published release, so the next build must move it first |
+| Workspace version | `& .\scripts\Get-ProductVersion.ps1` — currently `v1.12.0` (the Settings rework), built and installed locally, not published |
 | Full gate | Run it; `Invoke-ScaffoldChecks.ps1` is the only current answer |
 | Ignored tests | nine, all hardware or real-registry. See below |
 

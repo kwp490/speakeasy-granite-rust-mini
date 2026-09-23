@@ -217,7 +217,7 @@ fn capture_devices(window: tauri::WebviewWindow) -> Result<Vec<CaptureDeviceView
     // Main-only since 2026-08-28. The dock held this so `MicPicker` could list
     // devices; that component was deleted, nothing in the dock's tree enumerates
     // devices any more, and authority a window no longer exercises is authority
-    // it should not keep. Choosing a microphone is a Settings → Audio job, which
+    // it should not keep. Choosing a microphone is a Settings → Microphone job, which
     // is also the only place it has a keyboard path.
     require_main_window(&window)?;
     CaptureWizardCoordinator::devices()

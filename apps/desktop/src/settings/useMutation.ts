@@ -70,7 +70,7 @@ export function useMutation<T>(): Mutation<T> {
       } catch (rejection: unknown) {
         // Through the catalog, so a backend code becomes a sentence with an
         // instruction in it. An unmapped code lands on `errorUnknown` rather
-        // than being rendered raw — Advanced's "Show raw values" is the one
+        // than being rendered raw — Advanced → "Technical details" is the one
         // place an identifier may appear.
         setStatus("failed");
         setError(formatError(String(rejection)));

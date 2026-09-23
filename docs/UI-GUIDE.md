@@ -17,11 +17,10 @@ the user can act on; a code that falls through to `errorUnknown` is a bug, not a
 gap. This is the single largest difference from SpeakEasy, where a failed pass
 could quietly hand over a weaker transcript.
 
-**Two vocabulary registers.** Everyday surfaces — the dock and the General,
-Audio, Transcription, Output & Privacy, and Transcript log pages — use plain
-language: Recording, Working…, Text inserted, Copied to clipboard, Microphone,
-Shortcut active. The **Advanced** page, the raw-values disclosure, log event
-codes, and this repository's documentation keep the product-contract terms:
+**Two vocabulary registers.** Everyday surfaces — the dock and every Settings
+page — use plain language: Recording, Working…, Text inserted, Copied to
+clipboard, Microphone, Shortcut active. Advanced → **Technical details**, log
+event codes, and this repository's documentation keep the product-contract terms:
 `capture`, `utterance`, `final transcript`, `commit on finish`, `local model`.
 
 Two terms stay precise in **both** registers, because truthful disclosure
@@ -30,31 +29,39 @@ delivered or it does not exist) and **unmeasured / unqualified** (never
 softened). The three streaming tiers — stable display, mutable, final — are gone
 along with the engine that produced them.
 
-Prefer short verbs: Start, Stop, Try, Copy, Retry, Install, Remove, Export, Delete. Destructive actions name their exact scope and require confirmation. Credentials are described only as present, missing, inaccessible, or legacy; values never appear.
+Prefer short verbs: Start, Stop, Try, Copy, Change, Remove, Export, Delete. Destructive actions name their exact scope and require confirmation. Credential values never appear in the WebView.
 
 All visible and assistive text comes from the locale catalog. Rust returns stable data and reason/action codes, never arbitrary user-facing prose. Model names, licenses, revisions, sources, capabilities, and transcript content are untrusted inert text.
 
 ## Design tokens
 
+The settings palette is neutral greys with no tint and a single accent, in the
+manner of Windows 11 Settings. Contrast is measured against `--surface-raised`
+in each theme; the figures are in the comment above the tokens in
+`apps/desktop/src/styles.css`.
+
 | Token | Light | Dark | Purpose |
 |---|---|---|---|
-| `--surface` | `#f5f7f2` | `#121915` | Window background |
-| `--surface-raised` | `#ffffff` | `#1b2520` | Cards and grouped controls |
-| `--text` | `#17201c` | `#f2f4ee` | Primary text |
-| `--text-muted` | `#4c5c52` | `#becabf` | Supporting text |
-| `--accent` | `#8d3524` | `#ff9a7f` | Interactive and brand emphasis |
+| `--surface` | `#f3f3f3` | `#202020` | Window background |
+| `--surface-raised` | `#ffffff` | `#2b2b2b` | Cards (setting groups) and controls |
+| `--surface-hover` | `#f6f6f6` | `#323232` | Hovered rows, rail items and buttons |
+| `--text` | `#1a1a1a` | `#ffffff` | Primary text |
+| `--text-muted` | `#5c5c5c` | `#c5c5c5` | Row detail lines, values, captions |
+| `--accent` | `#0f6cbd` | `#60cdff` | The selected page, switches that are on, primary buttons |
+| `--accent-text` | `#ffffff` | `#000000` | Text and thumbs on `--accent` |
 | `--recording` | `#c2442c` | same | **Active capture, and nothing else** |
-| `--success` | `#216e3a` | `#8ee0ab` | Verified success/final state |
-| `--warning` | `#8a4d00` | `#ffd08a` | Limitation or consent |
-| `--danger` | `#a21f2d` | `#ff9aa6` | Destructive/error state |
-| `--border` | `#9ca79f` | `#66736b` | Dividers between regions |
-| `--border-strong` | `#5d6b62` | `#8b9a90` | Outlines of controls the user operates |
-| `--focus` | `#005fcc` | `#8bc4ff` | 3 px focus ring |
+| `--success` | `#0e700e` | `#6ccb5f` | A status word that is good news |
+| `--warning` | `#8a5300` | `#fce100` | Limitation or consent |
+| `--danger` | `#c42b1c` | `#ff99a4` | Destructive buttons and errors |
+| `--warning-soft`, `--danger-soft` | tints | tints | The fill behind a warning or an infobar |
+| `--border` | `#e3e3e3` | `#3d3d3d` | Card edges and the hairline between rows |
+| `--border-strong` | `#8a8a8a` | `#9a9a9a` | Outlines of controls the user operates |
+| `--focus` | `#1a1a1a` | `#ffffff` | 2 px focus ring |
 | `--space-1..6` | 4, 8, 12, 18, 24, 32 px | same | Spacing scale |
-| `--radius` | 6 px | 6 px | Controls/cards |
+| `--radius` | 6 px | 6 px | Controls; cards use 8 px |
 
-Red carries exactly one operational meaning. `--accent` is interactive and brand
-emphasis; `--recording` marks an active capture and is used in one place;
+Red carries exactly one operational meaning. `--accent` is interactive emphasis
+and is blue; `--recording` marks an active capture and is used in one place;
 `--warning` and `--danger` keep their own meanings. A divider and a control
 outline are different requirements, so they are different tokens: WCAG 1.4.11
 holds a control's outline to 3:1 because that outline is how the control is
@@ -75,6 +82,8 @@ by color alone. Icons, when present, accompany text.
 ## Components
 
 - Buttons have Primary, Secondary, and Destructive variants. Disabled controls retain readable contrast and an adjacent explanation when the reason is not obvious.
+- On/off settings are switches: a native checkbox with `role="switch"`, drawn as a track, with the word On or Off beside it so colour is never the signal. A switch always renders the stored value, so a refused write snaps back.
+- Settings apply when they change. There is no Save button. A change that writes data to disk or deletes it opens a confirmation inside its row first.
 - Inputs have a persistent label, optional description, error text linked with `aria-describedby`, and at least a 40 by 40 CSS-pixel target.
 - Status badges combine a catalog label with state text. Progress uses a native progress element or equivalent value semantics and includes transferred/total bytes where known.
 - Disclosure panels precede consent controls and state data, recipient/destination, purpose, retention, and reset behavior.
@@ -84,24 +93,20 @@ by color alone. Icons, when present, accompany text.
 
 ## Information architecture
 
-Settings has exactly six top-level groups:
+Settings has exactly five top-level groups:
 
 | Group | Scope |
 |---|---|
-| General | Shortcut, the dock, recording sounds, Windows startup, keyboard access |
-| Audio | Microphone selection, input level, microphone status. **No capture controls.** |
-| Transcription | Language, the engine and model behind a Technical details disclosure, personalization |
-| Output & Privacy | Delivery choice, automatic paste, diagnostic log, protected targets |
-| Transcript log | Every completed transcript with Copy, the pin control, and retention |
-| Advanced | Runtime and performance, credentials as presence only, maintenance, About, and the Show raw values disclosure |
+| General | The shortcut and its behavior, automatic paste, recording sounds, Windows startup, whether the shortcut is used at all |
+| Microphone | Microphone selection with its status, and the input level. **No capture controls.** |
+| Transcription | Why the last dictation failed (only when it did) with Try again, where the engine runs and the switch, the speech model, language, and vocabulary |
+| History | Every finished transcript with Copy, Pin as window, and saved history (keep, period, export, delete) |
+| Advanced | Engine status and restart, speed, the diagnostic log, export, Technical details, reset, and quit |
 
-The sixth group is the transcript log, promoted out of Output & Privacy where it
-used to be a section at the bottom. It earned its own page when the large HUD
-was removed: that window showed the last transcript with its own Copy button,
-and the result view behind it kept the text when a paste was refused. Both are
-gone, so this page is the only place a finished transcript can be read back —
-which makes it the thing people come to settings for most often, not a footnote
-under privacy.
+History is its own page because it is the only place a finished transcript can
+be read back. The large HUD showed the last transcript with its own Copy button,
+and the result view behind it kept the text when a paste was refused; both are
+gone, so this page is what people come to settings for most often.
 
 **"Delivered" is the wrong word for what it holds, and the difference is the
 point.** The list is written by `publish_successful_transcript`, which runs
@@ -117,23 +122,29 @@ one page is visible at a time. The active group is represented in local UI state
 announced as the current tab, and reachable with Tab plus **ArrowUp / ArrowDown /
 Home / End** — the vertical tab pattern, declared with `aria-orientation`. A
 keyboard user can move through the entire window in visual order without a
-pointer. No feature creates a seventh top-level group.
+pointer. No feature creates a sixth top-level group.
 
-The workspace uses a compact product header rather than a landing-page title.
-Each page begins with its name and a one-sentence purpose, then named groups at a
-predictable rhythm. Ordinary choices are full labeled rows; related fields stay
-inside one bordered surface; status and failure copy sits beside the setting it
-describes. Dense facts are definition rows rather than equal-weight tiles, with
-localized display names in the summary and exact identifiers retained behind
-**Show raw values**. Reset, delete and quit actions remain visually separated
-from ordinary preferences. Complex model, personalization, meter and transcript
-content may stack inside their group rather than being forced into a two-column
-row.
+**Every page is built from one pattern** (`apps/desktop/src/settings/Rows.tsx`).
+A page is a title, then groups; a group is a small label over one card; a card
+holds rows separated by a hairline. A row is a name, at most one short line under
+it, and one control on the right. Status sits in one of two places: a word with a
+mark under the row's name, or an infobar at the top of the page. A list and its
+editor, or a set of exact values, open from an expander row. There are no page
+eyebrows, intros, fact grids, bordered checkbox cards or model cards. Exact
+identifiers live only in Advanced → **Technical details**. Destructive actions
+are red-outlined buttons that open a confirmation in their row.
 
-### Restart transcription engine claims nothing until the engine is ready
+The speech model is read, never installed, here. Setup provisions and verifies
+it; Transcription shows its name and verification state, and Advanced →
+Technical details shows its provenance. There is no delivery-preference control:
+the "private result view" choice governed only whether Settings showed a Copy
+button, and History gives every transcript one. Legacy credential presence is
+no longer shown.
 
-Advanced → Maintenance carries the one control that recovers a quarantined
-engine. It runs `runtime_recover`, which takes an exclusive operation, clears
+### Restart engine claims nothing until the engine is ready
+
+Advanced → Engine carries the one control that recovers a quarantined engine,
+**Restart engine**. It runs `runtime_recover`, which takes an exclusive operation, clears
 `GraniteEngineCoordinator`'s crash quarantine, discards the resident worker and
 starts a fresh warm.
 
@@ -165,10 +176,10 @@ exactly two ways a settings surface is allowed to read a status command:
 - **on an interval**, because a poll heals itself on the next tick and the first
   refusal costs nothing.
 
-Five surfaces read this way: General (`hotkey_status`), Advanced
-(`diagnostics_status`, `credential_status`), Output & Privacy (`result_status`),
-Transcription (`model_hardware`, `personalization_status`, `diagnostics_status`,
-`model_catalog`, `gpu_status`) and the shared profile (`profile_status`). Each
+Four surfaces read this way: General (`hotkey_status`), Advanced
+(`diagnostics_status`), Transcription (`personalization_status`,
+`diagnostics_status`, `result_status`, `model_catalog`, `gpu_status`) and the
+shared profile (`profile_status`). Each
 carries a line saying the answer did not arrive, in the place the answer would
 have been.
 
@@ -178,9 +189,10 @@ first. `hotkey?.registration ?? "pending"` looks like a harmless fallback;
 `pending` is a real backend state meaning "registration has not been attempted",
 and its copy reads "Shortcut not registered yet". So an unanswered *read* was
 rendered as an unregistered *shortcut* — and the remedy the panel implies,
-pressing Save hotkey, fixes a problem the user does not have. `undefined` means
+saving the shortcut, fixes a problem the user does not have. `undefined` means
 the page does not know; only the `unknown` codes say that. The same substitution
-was made on Output & Privacy, where `?? "empty"` claimed "No result".
+was made on the old Output & Privacy page, where `?? "empty"` claimed "No
+result"; that state is no longer rendered at all.
 
 **And the page may not hold a value it has not read.** General's binding field
 was initialised to `Ctrl+Alt+L` — SpeakEasy's shortcut, inherited by the fork and
@@ -197,7 +209,7 @@ hazard from the Rust signatures and scans every `useEffect` in the tree — see
 
 ### The transcript list reads on an event, and what a deletion takes
 
-The Transcript log page and the pinned log window are the one surface that reads
+The History page and the pinned log window are the one surface that reads
 neither on an interval nor once: they read when `transcript-log-changed` says the
 list moved. A poll would be 40 IPC calls a minute from two windows to report a
 list that changes a few times an hour.
@@ -293,8 +305,9 @@ device line saying it was running on the card. The sentence went on 2026-08-28;
 sent at all, so the claim is unreachable rather than merely unwritten. The device
 line and the provider-integrity line answer the same question from evidence that
 *is* reachable — NVML on the worker's own pid, read by the resident coordinator.
-The button stays: `gpu_retest` invalidates the engine and re-warms it, so its
-effect lands on both lines above. Claiming a model has executed on the card needs
+Re-checking the engine is Advanced → **Restart engine**; the separate
+"Re-test graphics-card engine" button that sat here was merged into it, since
+both invalidated the engine and re-warmed it. Claiming a model has executed on the card needs
 an `ExecutionEvidence` with a true `inference_sample_count`, which nothing at warm
 time has; that is an open gap in `docs/handoff/CURRENT.md`, not a thing to fake.
 
@@ -308,12 +321,12 @@ changed; what changed is that a graphics-card install now keeps *both*
 binaries (`RuntimePaths::granite_worker_alternate`), so the switch can only
 ever choose between two a graphics-card install already staged and verified —
 it still cannot fetch, stage, or conjure a worker. Rendered only when
-`gpu.alternate_provider_available` is true; every processor-only install shows
-the button disabled with `engineProviderSwitchUnavailable`, forever, since this
-project fetches the graphics-card worker only during setup and never on
-demand. Like the reload button, the command only starts a warm — success is
+`gpu.alternate_provider_available` is true; a processor-only install does not
+show it at all, since this project fetches the graphics-card worker only during
+setup and never on demand, and a control that can never do anything is not a
+setting. Like the reload button, the command only starts a warm — success is
 `awaitEngineReady` reporting `ready`, never the command returning, and the
-same poll is shared with Advanced's Restart transcription engine
+same poll is shared with Advanced's Restart engine
 (`./settings/engineReady.ts`).
 
 Beneath them, and **only when it says something**, sits the provider-integrity
@@ -966,7 +979,7 @@ mistaken for either.
 
 **Reload the model** reuses `runtime_recover` verbatim — the same command and
 the same "the command returning is not the reload" contract Advanced →
-Maintenance's Restart transcription engine already uses (below). **Switch to
+Engine's Restart engine already uses (below). **Switch to
 CPU/GPU** is a real, working toggle only on a machine that installed the
 graphics-card configuration: setup keeps the CPU worker beside the CUDA one
 rather than overwriting it (`granite-worker.cpu.exe`), so both are staged and
@@ -975,12 +988,12 @@ will — a processor-only install still shows the item absent or disabled,
 matching the same rule "No provider-override control" states for every other
 surface, narrowed rather than reversed: no setting may conjure a worker binary,
 but a setting may now choose between two a graphics-card install already has.
-Both actions have a Settings equivalent (Transcription → the engine
-disclosure), per the rule that the dock is not a second keyboard-access
+Both actions have a Settings equivalent (Advanced → Restart engine, and
+Transcription → the Runs on row), per the rule that the dock is not a second keyboard-access
 surface.
 
 **The pinned transcript log.** A second always-on-top window, shown only when
-the user pins it from settings, holding the same list the Transcript log page
+the user pins it from settings, holding the same list the History page
 shows — the same component, not a second implementation, so the two cannot
 disagree about what was said. Undecorated: its header row is the titlebar, the
 drag handle, and the close control. Non-focusable, like the dock.
@@ -1243,13 +1256,13 @@ somewhere else, so each one is:
 | Dock action | Keyboard path |
 |---|---|
 | Stop (and transcribe) | The global shortcut |
-| Microphone | Settings › Audio |
+| Microphone | Settings › Microphone |
 | Open settings | The tray's Settings item, or the dock's right-click menu |
-| Close / quit | Settings › General › Keyboard access, which takes the same confirmed graceful path |
-| Read a past transcript | Settings › Transcript log |
-| Pin the log on top | Settings › Transcript log |
-| Reload the model | Settings › Advanced › Maintenance, Restart transcription engine |
-| Switch to CPU/GPU | Settings › Transcription, beside the engine disclosure |
+| Close / quit | Settings › Advanced › Quit SpeakEasy Mini, which takes the same confirmed graceful path |
+| Read a past transcript | Settings › History |
+| Pin the log on top | Settings › History › Pin as window |
+| Reload the model | Settings › Advanced › Restart engine |
+| Switch to CPU/GPU | Settings › Transcription › Runs on |
 
 The table shrank when the large HUD went. Minimize and reset-position were that
 window's, and listing a keyboard path to a control nobody can reach by mouse
@@ -1390,19 +1403,19 @@ under Accessibility and input.
 
 ## Personalization surface
 
-Personalization lives inside **Transcription**, preserving the six top-level
-groups. The surface names the `en-US`-only locale support, the
-unmeasured hotword limitation, and disabled contacts import. Corrections
-require separate observed/corrected fields and an explicit save. Snippets
-show the whole-final-utterance grammar and action prohibition, render
-bodies in inert text/pre elements, and expose exact delete/reset. JSON
-import shows counts/conflicts before a separate commit; it never renders
-imported markup or creates links/actions.
+Personalization is the **Vocabulary** group on Transcription, as three expander
+rows. **Word corrections** states the limitation in its own line — a correction
+replaces an exact word after transcription and does not change what the model
+hears — and holds the list with Remove and a Heard / Write as pair with Add.
+**Snippets** states the whole-dictation grammar and renders bodies in inert
+`<pre>` elements. **Import, export or clear** takes pasted JSON, shows the counts
+and conflicts before a separate Import, and never renders imported markup or
+creates links or actions. Contacts are never read, and the row says so.
 
 ## Optional polish surface
 
-Rule cleanup and writing profiles live inside **Transcription**; provider consent
-lives inside **Output & Privacy**, preserving six top-level groups.
+Rule cleanup and writing profiles, if they return, belong inside
+**Transcription**; no feature adds a sixth top-level group.
 Each deterministic rule has an independent switch plus a master Off state,
 and the UI labels the exact `en-US` grammar without claiming pause/tone
 punctuation.

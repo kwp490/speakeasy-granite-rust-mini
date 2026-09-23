@@ -2,14 +2,11 @@ import { expect, test, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { messages } from "../../src/catalog";
-import { OutputPrivacy } from "../../src/settings/OutputPrivacy";
+import { Advanced } from "../../src/settings/Advanced";
+import { General } from "../../src/settings/General";
 import { useProfile, type ProfileController } from "../../src/settings/useProfile";
-import { invokeDouble, profileStatus, type InvokeDouble } from "./fixtures";
+import { diagnosticsStatus, invokeDouble, profileStatus, type InvokeDouble } from "./fixtures";
 
-// The one seam every component test needs. `vi.hoisted` runs before the
-// `vi.mock` factory, which itself runs before the imports above, so the holder
-// exists by the time any module captures `invoke` -- and each test installs its
-// own double into it without re-importing anything.
 const backend = vi.hoisted(() => ({
   invoke: (_command: string, _args?: Record<string, unknown>): Promise<unknown> =>
     Promise.resolve(undefined),
@@ -24,12 +21,29 @@ function install(double: InvokeDouble) {
   return double;
 }
 
+const hotkey = {
+  binding: "Ctrl+Alt+P",
+  mode: "toggle",
+  enabled: true,
+  registration: "registered",
+};
+
+/** Every read General and Advanced fire on mount, answered. */
+function reads(overrides: Record<string, unknown> = {}) {
+  return invokeDouble({
+    profile_status: profileStatus(),
+    hotkey_status: hotkey,
+    diagnostics_status: diagnosticsStatus(),
+    ...overrides,
+  });
+}
+
 /**
- * Output & Privacy with the **real** `useProfile` behind it, plus the banner
- * `SettingsApp` renders for a failed write.
+ * General and Advanced with the **real** `useProfile` behind them, plus the
+ * banner `SettingsApp` renders for a failed write.
  *
  * The controller is what is under test, not a stand-in for it: the defect these
- * tests exist for was in its five mutators, each of which was
+ * tests exist for was in its mutators, each of which was
  * `setProfile(await invoke(...))` with no rejection handler. A harness that
  * substituted a fake controller would be asserting its own stub.
  */
@@ -38,80 +52,22 @@ function Page() {
   return (
     <>
       {profile.write.error !== null && <p role="alert">{profile.write.error}</p>}
-      <OutputPrivacy profile={profile} />
+      <General profile={profile} />
+      <Advanced profile={profile} />
     </>
   );
 }
 
-/** `toBeChecked` lives in `@testing-library/jest-dom`, which this harness
- * deliberately does not carry: one matcher is not worth a dependency, and
- * reading `.checked` says what is being asserted without a second vocabulary. */
 const checked = (element: HTMLElement) => (element as HTMLInputElement).checked;
-
-const explicitCopy = () => screen.getByLabelText(messages.explicitCopy);
-const diagnosticLogging = () =>
-  screen.getByRole("checkbox", { name: messages.diagnosticLogging });
-
-/**
- * A refused write is *said*, and the control keeps the stored value.
- *
- * Before this, `setDelivery` was `setProfile(await invoke(...))`: the rejection
- * was unhandled and nothing rendered, so the radio snapped back to the stored
- * preference with no explanation. That is honest about the state and silent
- * about the event, which is the half of the truthful-disclosure rule that is
- * easy to miss -- the user sees a control that will not move.
- *
- * `delivery_configure` is the write worth pinning first: it decides whether a
- * transcript is pasted into the focused window or held for an explicit copy,
- * which is a privacy choice rather than a convenience.
- */
-test("a refused delivery preference is reported and the stored choice stands", async () => {
-  const double = install(invokeDouble({ profile_status: profileStatus() }));
-  double.reject("delivery_configure", "profile_state_unavailable");
-  render(<Page />);
-
-  await waitFor(() => {
-    expect(checked(explicitCopy())).toBe(false);
-  });
-  fireEvent.click(explicitCopy());
-
-  const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toBe(messages.errors.profile_state_unavailable);
-  expect(checked(explicitCopy())).toBe(false);
-  expect(double.count("delivery_configure")).toBe(1);
-});
-
-/** And an accepted one is adopted from the backend's answer, not assumed. */
-test("an accepted delivery preference is adopted from the value the backend returned", async () => {
-  const double = install(invokeDouble({ profile_status: profileStatus() }));
-  double.answer("delivery_configure", profileStatus({ delivery_preference: "explicit_copy" }));
-  render(<Page />);
-
-  await waitFor(() => {
-    expect(checked(explicitCopy())).toBe(false);
-  });
-  fireEvent.click(explicitCopy());
-
-  await waitFor(() => {
-    expect(checked(explicitCopy())).toBe(true);
-  });
-  expect(screen.queryByRole("alert")).toBeNull();
-});
-
-const automaticPaste = () => screen.getByRole("checkbox", { name: messages.autoPaste });
+const automaticPaste = () => screen.getByRole("switch", { name: messages.autoPaste });
+const diagnosticLogging = () => screen.getByRole("switch", { name: messages.diagnosticLogging });
 
 /**
  * Turning automatic paste off must reach the backend and be adopted from its
- * answer.
- *
- * The backend has always branched on `delivery.auto_paste`, but nothing in
- * these settings could reach it: a user who wanted to read an uncertain
- * transcript before it went into another application had no way to ask for
- * that. This is the control, and it writes the preference only -- the box
- * moving is the backend's answer, never an assumption.
+ * answer. The switch moving is the backend's answer, never an assumption.
  */
 test("turning automatic paste off is written and adopted from the backend answer", async () => {
-  const double = install(invokeDouble({ profile_status: profileStatus() }));
+  const double = install(reads());
   double.answer("auto_paste_configure", profileStatus({ auto_paste_enabled: false }));
   render(<Page />);
 
@@ -127,9 +83,15 @@ test("turning automatic paste off is written and adopted from the backend answer
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
-/** And a refused one is said, with the box left where the backend has it. */
-test("a refused automatic-paste change is reported and the box does not move", async () => {
-  const double = install(invokeDouble({ profile_status: profileStatus() }));
+/**
+ * A refused write is *said*, and the switch keeps the stored value.
+ *
+ * Honest about the state and silent about the event is the half of the
+ * truthful-disclosure rule that is easy to miss: the user sees a control that
+ * will not move.
+ */
+test("a refused automatic-paste change is reported and the switch does not move", async () => {
+  const double = install(reads());
   double.reject("auto_paste_configure", "profile_state_unavailable");
   render(<Page />);
 
@@ -144,11 +106,11 @@ test("a refused automatic-paste change is reported and the box does not move", a
 });
 
 /**
- * The disk-logging toggle is the second privacy write, and it fails the same
+ * The disk-logging switch is the second privacy write, and it fails the same
  * way through the same mutation -- which is the point of there being one.
  */
-test("a refused disk-logging change is reported and the box does not move", async () => {
-  const double = install(invokeDouble({ profile_status: profileStatus() }));
+test("a refused disk-logging change is reported and the switch does not move", async () => {
+  const double = install(reads());
   double.reject("disk_logging_configure", "profile_state_unavailable");
   render(<Page />);
 
@@ -165,71 +127,74 @@ test("a refused disk-logging change is reported and the box does not move", asyn
  * One write at a time.
  *
  * `useMutation` refuses a second submission while one is in flight, and the
- * five profile writers share one instance for exactly this reason: they write
- * one `ProfileView`, so two of them racing means the later answer overwrites
- * the earlier one and one of the user's two clicks is silently lost.
+ * profile writers share one instance for exactly this reason: they write one
+ * `ProfileView`, so two of them racing means the later answer overwrites the
+ * earlier one and one of the user's two clicks is silently lost.
  */
 test("a second profile write is refused while the first is still in flight", async () => {
-  const double = install(invokeDouble({ profile_status: profileStatus() }));
+  const double = install(reads());
   let release: (value: unknown) => void = () => {};
   const pending = new Promise((resolve) => {
     release = resolve;
   });
-  const answers = profileStatus({ delivery_preference: "explicit_copy" });
   backend.invoke = (command, args) => {
-    if (command === "delivery_configure") {
+    if (command === "auto_paste_configure" || command === "disk_logging_configure") {
       double.calls.push({ command, args });
-      return pending.then(() => answers);
+      return pending.then(() => profileStatus({ auto_paste_enabled: false }));
     }
     return double.invoke(command, args);
   };
   render(<Page />);
 
   await waitFor(() => {
-    expect(checked(explicitCopy())).toBe(false);
+    expect(checked(automaticPaste())).toBe(true);
   });
-  fireEvent.click(explicitCopy());
-  fireEvent.click(explicitCopy());
-  expect(double.count("delivery_configure")).toBe(1);
+  fireEvent.click(automaticPaste());
+  fireEvent.click(diagnosticLogging());
+  expect(double.count("auto_paste_configure") + double.count("disk_logging_configure")).toBe(1);
 
   release(undefined);
   await waitFor(() => {
-    expect(checked(explicitCopy())).toBe(true);
+    expect(checked(automaticPaste())).toBe(false);
   });
 });
 
 /**
- * A failed Retry is reported even when the status re-read after it fails too.
- *
- * The re-read retries for seconds before it gives up, and the failure message
- * used to be set only after it returned -- so when both failed, the handler
- * rejected and the message was never shown.
+ * Change records the next key press and writes it, with the stored mode and
+ * enabled state rather than defaults.
  */
-test("a failed retry is reported when the status re-read also fails", async () => {
-  const double = install(
-    invokeDouble({
-      profile_status: profileStatus(),
-      result_status: {
-        state: "failed",
-        text: null,
-        provenance: null,
-        input_samples: null,
-        final_segments: null,
-        draft_revisions: null,
-        error_code: null,
-        retry_available: true,
-      },
-    }),
-  );
+test("a recorded shortcut is written with the stored mode", async () => {
+  const double = install(reads({ hotkey_status: { ...hotkey, mode: "push_to_talk" } }));
   render(<Page />);
 
-  const retry = await screen.findByRole("button", { name: messages.retryTranscription });
+  const change = await screen.findByRole("button", { name: messages.changeShortcut });
   await waitFor(() => {
-    expect((retry as HTMLButtonElement).disabled).toBe(false);
+    expect((change as HTMLButtonElement).disabled).toBe(false);
   });
-  double.reject("dictation_retry", "retry_unavailable");
-  double.reject("result_status", "result_state_unavailable");
-  fireEvent.click(retry);
+  fireEvent.click(change);
+  const recorder = await screen.findByRole("button", { name: messages.shortcutRecording });
+  fireEvent.keyDown(recorder, { key: "k", code: "KeyK", ctrlKey: true, altKey: true });
 
-  expect(await screen.findByText(messages.retryFailed)).toBeDefined();
+  await waitFor(() => {
+    expect(double.count("hotkey_configure")).toBe(1);
+  });
+  const call = double.calls.find((entry) => entry.command === "hotkey_configure");
+  expect(call?.args).toEqual({ binding: "Ctrl+Alt+K", mode: "push_to_talk", enabled: true });
+});
+
+/** A key with no Ctrl, Alt or Windows is not a shortcut, and nothing is written. */
+test("a key press without a modifier is refused and nothing is written", async () => {
+  const double = install(reads());
+  render(<Page />);
+
+  const change = await screen.findByRole("button", { name: messages.changeShortcut });
+  await waitFor(() => {
+    expect((change as HTMLButtonElement).disabled).toBe(false);
+  });
+  fireEvent.click(change);
+  const recorder = await screen.findByRole("button", { name: messages.shortcutRecording });
+  fireEvent.keyDown(recorder, { key: "k", code: "KeyK" });
+
+  expect(await screen.findByText(messages.shortcutNeedsModifier)).toBeDefined();
+  expect(double.count("hotkey_configure")).toBe(0);
 });

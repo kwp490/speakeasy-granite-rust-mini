@@ -20,7 +20,7 @@ const TRANSCRIPT_LOG_CHANGED = "transcript-log-changed";
 /**
  * The recent-transcripts list, newest first, each with Copy.
  *
- * Rendered in two places: the settings Log page and the pinned always-on-top
+ * Rendered in two places: the settings History page and the pinned always-on-top
  * window. One component deliberately, so two lists of the same transcripts
  * cannot disagree about what was said.
  *
@@ -156,38 +156,42 @@ export function TranscriptLog() {
   }
 
   return (
-    <section aria-labelledby="session-log-title" className="session-log">
-      <div className="section-heading">
-        <h3 id="session-log-title">{messages.sessionLog}</h3>
+    <section aria-labelledby="session-log-title" className="setting-group session-log">
+      <div className="setting-group-heading">
+        <h3 className="setting-group-label" id="session-log-title">
+          {messages.sessionLog}
+        </h3>
         <output aria-live="polite">{messages.sessionLogCount(entries.length)}</output>
       </div>
-      <p className="setting-detail">{messages.sessionLogDetail}</p>
+      <p className="setting-group-detail">{messages.sessionLogDetail}</p>
       {!live && (
-        <p data-testid="session-log-not-live" role="status">
+        <p className="warning" data-testid="session-log-not-live" role="status">
           {messages.sessionLogNotLive}
         </p>
       )}
       {copyError !== "" && <p role="alert">{copyError}</p>}
-      {entries.length === 0 ? (
-        <p className="setting-detail">{messages.sessionLogEmpty}</p>
-      ) : (
-        <ol className="plain-list" data-testid="session-transcript-log">
-          {entries.map((entry) => (
-            <li className="session-log-entry" key={entry.id}>
-              <div className="session-log-meta">
-                <span>{formatTimeOfDay(entry.recorded_unix_ms)}</span>
-                <button onClick={() => void copyEntry(entry.id)} type="button">
-                  {messages.copyEntry}
-                </button>
-                <output aria-live="polite">{copied === entry.id ? messages.copied : ""}</output>
-              </div>
-              <pre className="result-text">
-                <bdi>{entry.text}</bdi>
-              </pre>
-            </li>
-          ))}
-        </ol>
-      )}
+      <div className="setting-card">
+        {entries.length === 0 ? (
+          <p className="session-log-empty">{messages.sessionLogEmpty}</p>
+        ) : (
+          <ol className="session-log-list" data-testid="session-transcript-log">
+            {entries.map((entry) => (
+              <li className="session-log-entry" key={entry.id}>
+                <span className="session-log-time">{formatTimeOfDay(entry.recorded_unix_ms)}</span>
+                <pre className="result-text">
+                  <bdi>{entry.text}</bdi>
+                </pre>
+                <span className="session-log-copy">
+                  <button onClick={() => void copyEntry(entry.id)} type="button">
+                    {messages.copyEntry}
+                  </button>
+                  <output aria-live="polite">{copied === entry.id ? messages.copied : ""}</output>
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
     </section>
   );
 }

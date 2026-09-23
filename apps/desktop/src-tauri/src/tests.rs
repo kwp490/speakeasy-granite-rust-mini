@@ -1000,7 +1000,7 @@ mod tests {
             // deleted on 2026-08-28 — nothing in the dock's tree had rendered it
             // since the fork — and both went main-only with it. A window that no
             // longer enumerates devices should not keep the authority to, and
-            // choosing a microphone is a Settings → Audio job, which is the only
+            // choosing a microphone is a Settings → Microphone job, which is the only
             // place it has a keyboard path anyway.
             "capture_wizard_status",
             "hotkey_status",

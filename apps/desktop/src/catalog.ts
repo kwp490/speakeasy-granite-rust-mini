@@ -101,7 +101,7 @@ export const messages = {
   // it. A reason with no action is a reason the user cannot use.
   //
   // Two registers on purpose: `finalSourceReasons` is the one-line form for the
-  // toast and the dock, and `finalSourceGuidance` is what the Status page shows
+  // toast and the dock, and `finalSourceGuidance` is what Settings → Transcription shows
   // underneath it. The short form never promises detail the long form does not
   // deliver.
   lastDictationFailed: "Your last dictation produced no text",
@@ -123,70 +123,63 @@ export const messages = {
     // transcript was not, so "try again" is genuinely the right advice rather
     // than a shrug.
     granite_implausible:
-      "This usually means the engine wrote text it did not hear, which the app refuses to paste. The recording itself was fine — say it again and it will normally succeed. If every dictation does this, the model files are likely damaged: reinstall from Transcription.",
+      "This usually means the engine wrote text it did not hear, which the app refuses to paste. The recording itself was fine — say it again and it will normally succeed. If every dictation does this, the model files are likely damaged: run the installer again.",
     granite_empty:
-      "The engine ran but wrote nothing. Check that the right microphone is selected in Audio and that its level moves while you speak.",
+      "The engine ran but wrote nothing. Check that the right microphone is selected under Microphone and that its level moves while you speak.",
     granite_failed:
-      "The engine stopped partway. Try again — a single failure is usually transient. If it repeats, restart SpeakEasy Mini, and if it still repeats, reinstall the model from Transcription.",
+      "The engine stopped partway. Try again — a single failure is usually transient. If it repeats, restart SpeakEasy Mini, and if it still repeats, run the installer again.",
     granite_unavailable:
       "No transcription engine is installed, so nothing can be transcribed. Setup installs one and verifies it before the app ever opens, so this normally means the installation was changed afterwards. Run the installer again.",
     granite_quarantined:
-      "The engine failed several times in a row and was paused so it could not keep failing silently. Use Restart transcription engine in Advanced settings to clear it.",
+      "The engine failed several times in a row and was paused so it could not keep failing silently. Use Restart engine in Settings → Advanced to clear it.",
     // Not a malfunction, so it must not read as one.
     no_speech:
-      "The recording held no speech. If you did speak, check the microphone selected in Audio — the level meter there should move while you talk.",
+      "The recording held no speech. If you did speak, check the microphone selected under Microphone — the level meter there should move while you talk.",
   },
   // ── The settings workspace ───────────────────────────────────────────────
-  // Six pages behind a nav rail (UI-GUIDE "Information architecture").
-  // Everyday register throughout except Advanced, which is where contract
-  // vocabulary belongs (UI-GUIDE "Two vocabulary registers").
+  // Five pages behind a nav rail (UI-GUIDE "Information architecture"). Each
+  // page is a title and named groups of rows; a row is a name, at most one
+  // short line, and one control. Everyday register throughout except Advanced
+  // → Technical details, which is where contract vocabulary belongs (UI-GUIDE
+  // "Two vocabulary registers").
   settingsGroups: {
     general: "General",
-    audio: "Audio",
+    audio: "Microphone",
     transcription: "Transcription",
-    output: "Output & Privacy",
-    log: "Transcript log",
+    log: "History",
     advanced: "Advanced",
   },
-  settingsPageEyebrows: {
-    general: "Everyday behavior",
-    audio: "Capture",
-    transcription: "Speech recognition",
-    output: "Delivery and data",
-    log: "History",
-    advanced: "System",
-  },
-  settingsPageDetails: {
-    general: "Choose how dictation starts, what you hear, and when SpeakEasy Mini runs.",
-    audio: "Select the microphone used for dictation and check its input before recording.",
-    transcription:
-      "Choose the language, local model, and optional vocabulary used to recognize speech.",
-    output:
-      "Control where finished text goes and which diagnostic details remain on this computer.",
-    log: "Review recent local transcripts, choose how long to keep them, or remove them now.",
-    advanced:
-      "Inspect local runtime status, export diagnostics, and recover from uncommon failures.",
-  },
   settingsNav: "Settings pages",
+  switchOn: "On",
+  switchOff: "Off",
 
-  // Transcript log
-  transcriptLogPinSection: "Keep the log visible",
-  transcriptLogPinDetail:
-    "Opens the log in a small window that stays on top of other windows, so you can read past transcripts while you work. It never takes keyboard focus, so it will not affect where the next dictation is pasted. Close that window to unpin it.",
-  transcriptLogPin: "Pin the log",
-  transcriptLogPinned: "The log is pinned.",
+  // History
+  transcriptLogPin: "Pin as window",
+  transcriptLogPinned: "The log is pinned. It stays on top and never takes keyboard focus.",
   transcriptLogUnpin: "Close the pinned log",
-  transcriptLogRetention: "Keep transcripts",
-  transcriptLogRetentionDetail:
-    "Transcripts are held in memory while the app runs. Keeping them also writes them to disk, so the list above still shows them the next time you open the app. Clearing writes nothing to disk at all, rather than deleting on the way out.",
-  transcriptLogClearOnClose: "Clear when I close the app",
-  transcriptLogRetain: "Keep them between sessions",
+  savedHistoryGroup: "Saved history",
+  historyKeep: "Keep transcripts after closing",
+  // Two facts a user cannot infer: what "off" means (nothing is ever written,
+  // rather than deleted on the way out), and the one case a protected target
+  // does not cover -- with automatic paste off nothing classifies a target, so a
+  // transcript pasted by hand is still saved.
+  historyKeepDetail:
+    "Off: nothing is written to disk and the list clears when the app closes. Password fields are never saved, but with automatic paste off, a transcript you paste yourself is.",
+  historyRetention: "Keep for",
+  historyRetentionDays: (days: number) => (days === 1 ? "1 day" : `${days} days`),
+  historyStored: "Saved transcripts",
+  historyStoredDetail: "Delete removes what is on disk. Transcripts from this run stay listed.",
+  historyConsentTitle: "Keep transcripts after closing?",
+  historyConsentConfirm: "Keep transcripts",
+  deleteHistoryConfirmTitle: "Delete every saved transcript?",
+  deleteHistoryConfirmDetail:
+    "This permanently deletes the saved copy on disk. It cannot be undone.",
   settingsHeading: "SpeakEasy Mini settings",
-  settingsMark: "S",
   settingsProductName: "SpeakEasy Mini",
-  versionLabel: (version: string) => `Version ${version.replace(/^v/i, "")}`,
 
   // General
+  dictationGroup: "Dictation",
+  startupGroup: "Startup",
   shortcutSection: "Keyboard shortcut",
   shortcutStates: {
     registered: "Shortcut active",
@@ -201,57 +194,39 @@ export const messages = {
   // they opened believing their shortcut was broken.
   shortcutStateUnavailable:
     "The shortcut's state could not be read, so it is not shown above. The shortcut itself is unaffected — reopen this window to try again.",
-  changeShortcut: "Change shortcut",
-  shortcutDetail:
-    "Press the shortcut to start dictating and press it again to stop. It works whether or not this window is open. A recording runs for up to 2 minutes, then auto-stops and transcribes.",
-  dockSection: "Dock",
-  // Section headings, distinct from the control labels beneath them. Reusing the
-  // control's own label as its heading printed the same sentence twice.
-  recordingFeedbackSection: "Recording sounds",
-  dockAlwaysOnTop:
-    "The dock stays on top of other windows so it is reachable while you work, and clings to whichever screen edge you drag it to. Drag it to move it; right-click it for settings.",
-  keyboardPathsSection: "Keyboard access",
-  keyboardPathsDetail:
-    "The dock never takes keyboard focus, so it cannot be operated by keyboard. The shortcut starts and stops dictation; these controls cover everything else it offers.",
+  changeShortcut: "Change",
+  shortcutRecording: "Press the new shortcut",
+  shortcutRecordingDetail: "Hold Ctrl, Alt or Windows and press one other key. Esc cancels.",
+  shortcutNeedsModifier: "A shortcut needs Ctrl, Alt or Windows plus one other key.",
   quitApp: "Quit SpeakEasy Mini",
-  quitAppDetail: "Quitting during a dictation asks first and never discards a recording silently.",
-  startupSection: "Windows startup",
+  quitAppButton: "Quit",
+  quitAppDetail: "Asks first if a dictation is running.",
 
-  // Audio
-  audioDeviceSection: "Microphone",
-  audioDeviceDetail:
-    "Dictation records from this microphone, whether it is started from the transcriber or the shortcut.",
-  recordingBehaviorSection: "Recording behavior",
-  recordingBehaviorDetail:
-    "Press the record button or shortcut to start and press it again to stop. SpeakEasy does not use automatic voice detection. A recording runs for up to 2 minutes, then auto-stops and transcribes.",
-  refreshDevices: "Refresh microphone list",
+  // Microphone
+  refreshDevices: "Refresh",
+  refreshDevicesLabel: "Refresh the microphone list",
   deviceSaved: "Microphone saved.",
   deviceSaveFailed: "That microphone is no longer available. Refresh the list and choose another.",
   noDevices: "Windows is not offering any usable microphone. Check the cable and microphone privacy permission.",
   unsupportedDeviceSuffix: " (unsupported format)",
-  inputLevelSection: "Input level",
-  inputLevelWhileDictating: "The level moves while a dictation is running. Start one from the transcriber or the shortcut to see it.",
-  deviceHealthSection: "Microphone status",
-  captureStateLabel: "Recording state",
+  inputLevelWhileDictating: "Moves only while you dictate.",
 
   // Transcription
+  engineGroup: "Engine",
   languageSection: "Language",
-  languageDetail: "English (United States) only. No other language is qualified, so none is offered.",
-  modelSection: "Transcription model",
-  modelReadiness: "Readiness",
+  languageValue: "English (United States)",
+  speechModel: "Speech model",
+  vocabularyGroup: "Vocabulary",
   technicalDetails: "Technical details",
-  technicalDetailsHint: "Exact package facts. Select a value to copy it.",
-  showRawValues: "Show raw values",
-  rawValuesHint: "The exact identifiers used in logs and diagnostics, before display names are applied.",
+  technicalDetailsHint: "Exact values for a bug report. Select a value to copy it.",
 
-  // Output & Privacy
   // Not "this session's transcripts". The list is seeded at launch from the
-  // optional saved history, so with Keep them between sessions on it spans
-  // previous runs -- and the sentences below are the only place a user can learn
+  // optional saved history, so with Keep transcripts after closing on it spans
+  // previous runs -- and the sentence below is the only place a user can learn
   // that, or learn what a deletion does and does not take with it.
   sessionLog: "Recent transcripts",
   sessionLogDetail:
-    "Finished transcripts, newest first. While Keep them between sessions is on, this includes transcripts restored from the saved copy on disk, so it can span earlier runs; deleting the saved transcripts removes those restored entries, while transcripts from this run of SpeakEasy stay listed here until you close it. While it is off, nothing is written to disk and the list covers this run only.",
+    "Newest first. With saved history on, this includes transcripts restored from disk; deleting saved history removes those, not this run's.",
   // Shown only when the change subscription was refused, which is the one case
   // where the list is a snapshot rather than a view. It says what the user is
   // looking at and what to do, because "some transcripts are missing" is not
@@ -261,33 +236,27 @@ export const messages = {
   sessionLogEmpty: "Finished transcripts will appear here.",
   sessionLogCount: (count: number) => (count === 1 ? "1 transcript" : `${count} transcripts`),
   copyEntry: "Copy",
-  lastTranscriptSection: "Last transcript",
-  // The recoverable result's own state, not the microphone's. Labelling it
-  // "Recording state" made "Ready" read as "ready to record".
-  transcriptStatus: "Status",
-  retryTranscription: "Transcribe the retained audio again",
-  retryUnavailable: "No retained audio is available to transcribe again.",
+  retryTranscription: "Try again",
   retryStarted: "Transcribing the retained audio again.",
   retryFailed: "That did not complete. The audio is still retained, so you can try again.",
-  protectedTargets: "Protected targets",
-  protectedTargetsDetail:
-    "Password fields, the Windows secure desktop, elevated windows and read-only targets never receive inserted text. The transcript stays here instead. Terminals and consoles are not excluded: text pasted into one can run as a command, so check what has focus first.",
 
   // Advanced
-  runtimeSection: "Runtime",
-  performanceSection: "Performance",
-  credentialsSection: "Credentials",
-  maintenanceSection: "Maintenance",
-  restartEngine: "Restart transcription engine",
-  engineRestarting: "Restarting the engine…",
+  engineStatus: "Status",
+  speed: "Speed",
+  speedDetail: "Time from stopping to text, measured on this computer.",
+  speedValue: (typical: string, slowest: string) => `Typical ${typical} · slowest ${slowest}`,
+  diagnosticsGroup: "Diagnostics",
+  resetQuitGroup: "Reset and quit",
+  resetSettings: "Reset settings",
+  restartEngine: "Restart engine",
+  engineRestarting: "Restarting…",
   engineRestarted: "The transcription engine was restarted.",
-  aboutSection: "About",
   aboutDetail:
-    "SpeakEasy transcribes on this device with a local model. There is no analytics, no crash upload and no cloud sync.",
+    "Transcribes on this computer with a local model. No analytics, crash upload or cloud sync.",
   /**
    * Contract identifier to display name (UI-GUIDE "Information architecture",
    * the Advanced group). Everyday surfaces read these;
-   * Advanced shows the raw identifier alongside, behind Show raw values, because
+   * Advanced shows the raw identifier alongside, behind Technical details, because
    * that is the vocabulary logs and diagnostics use.
    */
   displayNames: {
@@ -317,46 +286,34 @@ export const messages = {
   corruptSettingsWarning: "Unreadable v1 settings were excluded.",
   corruptPresetWarning: "An unreadable v1 preset was excluded.",
   importWarning: "The import preview contains a warning.",
-  hotkeyRegistration: "Hotkey registration",
-  hotkeyBinding: "Global hotkey",
-  hotkeyMode: "Activation mode",
-  hotkeyModeToggle: "Toggle (press to start, press again to stop)",
-  hotkeyModePushToTalk: "Push to talk (hold to record)",
-  hotkeyModeHandsFree: "Hands-free (press to start, automatic stop is not implemented; use Stop)",
-  hotkeyEnabledLabel: "Enable the global hotkey",
-  saveHotkey: "Save hotkey",
-  hotkeySaved: "Hotkey saved.",
-  hotkeySaveFailed: "Hotkey could not be saved. Check the binding and try again.",
-  recordingFeedback: "Play a Windows sound when recording starts and stops",
-  recordingFeedbackDetail: "Visual recording status is always shown. Windows sound settings control audible volume.",
-  diagnosticLogging: "Keep a local diagnostic log",
-  diagnosticLoggingDetail: "Sanitized event names and error codes only, never transcript text or audio. Stays on this device and is never uploaded.",
-  startupWithWindows: "Start SpeakEasy with Windows",
-  history: "Persisted history",
-  historyDisclosure: "History is plaintext in your per-user app data. Secure targets are always excluded.",
-  retentionDays: "Retention in days",
-  acceptHistoryDisclosure: "I understand the plaintext-at-rest disclosure",
-  saveHistory: "Save history choice",
-  deleteHistory: "Delete persisted history",
-  confirmDeleteHistory: "I understand this permanently deletes every stored transcript",
+  hotkeyMode: "Shortcut behavior",
+  hotkeyModeDetail: "A recording stops on its own after 2 minutes.",
+  hotkeyModeToggle: "Press to start, press again to stop",
+  hotkeyModePushToTalk: "Hold to talk",
+  hotkeyModeHandsFree: "Hands-free (no automatic stop yet)",
+  hotkeyEnabledLabel: "Use the keyboard shortcut",
+  hotkeyEnabledDetail: "Turn off to start dictation only from the dock.",
+  hotkeySaved: "Shortcut saved.",
+  hotkeySaveFailed: "The shortcut could not be saved, so the previous one is still in use.",
+  recordingFeedback: "Recording sounds",
+  recordingFeedbackDetail: "Play a Windows sound when recording starts and stops.",
+  diagnosticLogging: "Diagnostic log",
+  diagnosticLoggingDetail: "Event names and error codes only, never text or audio. Stays on this computer.",
+  startupWithWindows: "Start with Windows",
+  // The consent a user gives before transcripts are written to disk. It names
+  // the data (plain text), the place (their own app data), the period, and what
+  // is never written.
+  historyDisclosure: (days: number) =>
+    `Transcripts are saved as plain text in your Windows user folder for ${days === 1 ? "1 day" : `${days} days`}. Password fields and other protected targets are never saved.`,
+  deleteHistory: "Delete…",
+  deleteHistoryNow: "Delete saved transcripts",
   deleted: "Deleted",
-  exportHistory: "Export persisted history",
-  deliveryChoice: "Delivery choice",
-  resultViewOnly: "Private result view only",
-  explicitCopy: "Result view with explicit copy",
-  deliveryChoiceDetail: "This choice covers the transcript kept in this window. Dictation started from the transcriber or the shortcut always inserts its final transcript into the app you were using, unless that app refuses inserted text.",
-  autoPaste: "Insert the transcript into the app I was using",
-  autoPasteDetail:
-    "On by default. Turn it off to read a transcript here first and copy it yourself. SpeakEasy Mini cannot see a paste you do it yourself, so a transcript you place somewhere sensitive is still kept in history — turn history off before dictating anything sensitive.",
-  copyLastTranscript: "Copy the last transcript",
-  modelSource: "Source",
-  modelRevision: "Revision",
-  modelLicense: "License",
-  modelCapabilities: "Capabilities",
-  modelHardwareEvidence: "Hardware evidence",
-  downloadSize: "Download",
-  installedSize: "Installed",
-  progress: "Progress",
+  exportHistory: "Export",
+  autoPaste: "Paste into the active app",
+  // Bound to what the focused writer refuses by a scaffold test: every guard
+  // it names is a real `classify_guard` refusal, and terminals are pasted into.
+  protectedTargetsDetail:
+    "Puts the finished text where your cursor is. Password fields, the secure desktop, elevated windows and read-only targets never receive it; terminals do.",
   diagnostics: "Diagnostics",
   engine: "Engine",
   worker: "Worker",
@@ -374,24 +331,18 @@ export const messages = {
   finalSource: "Final source disclosure",
   modelProvenance: "Model provenance",
   sanitizedLogs: "Logs and export are sanitized",
-  exportDiagnostics: "Export sanitized diagnostics",
+  exportDiagnostics: "Export diagnostics",
+  exportDiagnosticsButton: "Export",
   diagnosticsExported: "Sanitized diagnostics exported:",
-  legacyOpenAiCredential: "Legacy OpenAI credential",
-  legacyRemoteCredential: "Legacy remote credential",
-  credentialPresent: "Present in the primary legacy service",
-  credentialLegacyService: "Present in the fallback legacy service",
-  credentialMissing: "Missing",
-  credentialAccessDenied: "Access denied",
-  credentialUnavailable: "Credential Manager unavailable",
-  credentialsNeverShown: "Credential values are never shown or returned to this window.",
-  previewReset: "Preview reset",
-  resetExclusions: "Reset excludes v1, custom models, and credentials.",
-  resetNow: "Reset v2 settings, history, personalization, and logs",
-  resetCategorySettings: "v2 settings",
-  resetCategoryHistory: "v2 history",
-  resetCategoryPersonalization: "v2 personalization",
-  resetCategoryLogs: "v2 logs",
-  resetCategoryOther: "other v2-owned data",
+  previewReset: "Reset…",
+  resetExclusions: "Keeps the speech model.",
+  resetPreviewLead: "This clears:",
+  resetNow: "Reset now",
+  resetCategorySettings: "settings",
+  resetCategoryHistory: "saved history",
+  resetCategoryPersonalization: "vocabulary",
+  resetCategoryLogs: "diagnostic logs",
+  resetCategoryOther: "other app data",
   // Capture controls are gone from settings entirely: dictation happens only
   // from the transcriber and the global shortcut, so there is one controller
   // and no second start path to diverge from it.
@@ -400,58 +351,48 @@ export const messages = {
   defaultDeviceSuffix: " (default)",
   captureFailed: "Recording or transcription stopped safely:",
   vad: "Voice activity",
-  level: "Level",
-  inputLevel: "Microphone input level",
-  provisioning: "Provisioning",
-  build: "build",
+  inputLevel: "Input level",
   unknown: "unknown",
-  logicalProcessors: "logical processors",
-  ram: "RAM",
-  inventoryOnly: "Detected only, not runtime-qualified.",
-  personalization: "Personalization",
-  localeQualification: "Only limited en-US normalization and sentence capitalization are qualified. Other locales remain unchanged.",
-  hotwordLimitation: "Protected terms are applied after the transcript is finished, correcting the spelling and the spacing of words that were recognised. They do not change what the model hears, so a word that is misheard stays misheard. Adding them to the model's prompt instead was measured and rejected: it recognised more names and returned the whole dictation without any sentence punctuation.",
-  contactsDisabled: "Contacts import is disabled. No contact source is read or scraped.",
-  correctionObserved: "Recognized text",
-  correctionCorrected: "Always replace with",
-  recordCorrection: "Save explicit correction",
-  dictionaryEntries: "Dictionary and protected terms",
-  snippetName: "Snippet trigger name",
-  snippetBody: "Inert text expansion",
-  saveSnippet: "Save text-only snippet",
+  // The limitation, stated where the control is: a correction is an exact
+  // replacement applied to finished text, so a misheard word stays misheard.
+  hotwordLimitation: "Replaces an exact word after transcription. It does not change what the model hears.",
+  contactsDisabled: "Contacts are never read.",
+  wordCorrections: "Word corrections",
+  correctionObserved: "Heard",
+  correctionCorrected: "Write as",
+  recordCorrection: "Add",
   snippets: "Snippets",
-  snippetGrammar: "Say “snippet name” as the whole finished utterance. Say “literal snippet name” to escape it. Snippets never run mid-partial or send Enter/actions.",
-  delete: "Delete",
-  personalizationJson: "Personalization JSON",
-  previewPersonalizationImport: "Preview JSON import",
-  commitPersonalizationImport: "Commit reviewed import",
+  snippetGrammar: "Say a snippet's name as the whole dictation to insert its text.",
+  snippetName: "Name",
+  snippetBody: "Text",
+  saveSnippet: "Add snippet",
+  vocabularyBackup: "Import, export or clear",
+  vocabularyBackupDetail: "Paste exported vocabulary below to import it.",
+  delete: "Remove",
+  personalizationJson: "Vocabulary to import",
+  previewPersonalizationImport: "Check import",
+  commitPersonalizationImport: "Import",
   personalizationImportSummary: (dictionary: number, snippets: number, conflicts: number) =>
-    `Preview: ${dictionary} dictionary entries; ${snippets} snippets; ${conflicts} conflicts.`,
-  exportPersonalization: "Export personalization",
-  resetPersonalization: "Reset dictionary and snippets",
+    `Ready to import ${dictionary} corrections and ${snippets} snippets; ${conflicts} conflict with what you have and will be skipped.`,
+  exportPersonalization: "Export",
+  resetPersonalization: "Clear vocabulary",
   personalizationUnavailable:
-    "Your dictionary and snippets could not be read, so this list is not showing them. Nothing has been lost — reopen this window to try again.",
+    "Your vocabulary could not be read, so it is not shown here. Nothing has been lost — reopen this window to try again.",
   runtimeStatusUnavailable:
-    "The runtime facts could not be read, so they are not shown here. Nothing is wrong with the engine — reopen this window to try again.",
+    "The engine's details could not be read, so they are not shown here. Nothing is wrong with the engine — reopen this window to try again.",
   resultStatusUnavailable:
-    "The last transcript's status could not be read, so it is not shown above. Nothing has been lost — reopen this window to try again.",
+    "Whether the last dictation can be tried again could not be read. Nothing has been lost — reopen this window to try again.",
   profileUnavailable:
     "Your settings could not be read, so the controls below are showing their defaults rather than your choices. Nothing has been changed — reopen this window to try again.",
-  // The install poll stopped answering. Deliberately a statement about the
+  // The status poll stopped answering. Deliberately a statement about the
   // *reading* rather than about the model: a poll that cannot be read says
-  // nothing about the pack, and the progress bar above it is now stale rather
-  // than wrong.
+  // nothing about the pack.
   modelStatusPollUnavailable:
-    "The installation progress above could not be refreshed, so it may be out of date. Reopen this window to check.",
-  personalizationSaved: "Personalization saved.",
+    "The speech model's status could not be refreshed, so it may be out of date. Reopen this window to check.",
+  modelCheckFailed: "The speech model could not be checked:",
+  personalizationSaved: "Vocabulary saved.",
   personalizationRejected: "The change was rejected. Check conflicts, limits, or forbidden action placeholders.",
-  confirmInstall: "Confirm download and local installation",
-  install: "Install",
   cancel: "Cancel",
-  remove: "Remove",
-  installationFailed: "Installation stopped safely:",
-  packNotDownloadable:
-    "This model is not published for download yet, so it cannot be installed from here.",
   /**
    * The notice shown when the safety ceiling ends a recording.
    *
@@ -488,7 +429,7 @@ export const messages = {
    */
   working: "Working…",
   done: "Done",
-  engineDisclosure: "Dictation runs on:",
+  engineDisclosure: "Runs on",
   /**
    * Whether what setup recorded still describes what is running.
    *
@@ -529,13 +470,10 @@ export const messages = {
   },
   engineNone: "Nothing yet",
   engineReasonUnknown: "The reason is unavailable.",
-  gpuRetest: "Re-test graphics-card engine",
   switchToGpu: "Switch to graphics card",
   switchToCpu: "Switch to processor",
   engineProviderSwitching: "Switching…",
   engineProviderSwitched: "Dictation now runs on the switched engine.",
-  engineProviderSwitchUnavailable:
-    "This installation kept only one engine, so there is nothing to switch to. Reinstall with the graphics-card option to add the other one.",
   /**
    * Why this machine landed on this engine.
    *
@@ -593,7 +531,6 @@ export const messages = {
   resultFailed: "Transcription stopped safely:",
   copy: "Copy",
   copied: "Copied",
-  copyFailed: "Copy failed. The result remains available.",
   retry: "Retry",
   yes: "Yes",
   no: "No",
@@ -672,7 +609,7 @@ export const messages = {
       "No supported graphics card was found, so graphics-card acceleration cannot be installed on this computer.",
     remove_failed: "The model could not be removed. It may be in use by an active dictation.",
     streaming_pack_not_installed:
-      "No transcription model is ready to run on this computer. Install one from Transcription settings.",
+      "No transcription model is ready to run on this computer. Run the installer again to install one.",
     streaming_model_load_failed: "The installed model could not be loaded. Reinstall the local model.",
     streaming_worker_unavailable: "The local transcription worker could not start. Retry, or use Recover transcription worker.",
     runtime_policy_invalid: "The local runtime configuration was refused. Reinstall the app.",
@@ -789,7 +726,7 @@ export const messages = {
     model_missing:
       "No speech model is installed yet. Install the local model before dictating.",
     microphone_missing:
-      "No supported microphone was found. Connect one and choose it in Settings, Audio.",
+      "No supported microphone was found. Connect one and choose it in Settings, Microphone.",
     engine_unavailable: "The transcription engine is still starting. Wait a moment and retry.",
     runtime_stale_response:
       "The transcription engine did not answer in time while loading. Use Restart engine in Advanced settings.",

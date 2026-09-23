@@ -48,7 +48,7 @@ the issue; it is more useful than a paraphrase.
 
 ## Diagnostics
 
-In Settings, enable **Keep a local diagnostic log** when troubleshooting. This
+In Settings → Advanced, turn on **Diagnostic log** when troubleshooting. This
 uses the existing `disk_logging_enabled` setting and writes sanitized event
 names, reason codes, timings, counts, engine/device state, and coarse state to
 the per-user `logs\speakeasy.log`. The log rotates at 5 MiB and keeps one

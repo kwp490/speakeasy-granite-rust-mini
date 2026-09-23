@@ -2,15 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { readWithRetry } from "./readWithRetry";
-import type { ProfileStatus, SafeDeliveryPreference } from "./types";
+import type { ProfileStatus } from "./types";
 import { useMutation, type Mutation } from "./useMutation";
 
 /**
- * The profile the General, Output & Privacy and Advanced pages all read.
+ * The profile the General, Microphone, History and Advanced pages all read.
  *
- * One loader shared by three pages, because `ProfileView` is one document in the
- * backend and three independent copies of it would drift the moment one page
- * saved. Every mutator returns the fresh `ProfileView` the command produced, so
+ * One loader shared by every page, because `ProfileView` is one document in the
+ * backend and independent copies of it would drift the moment one page saved. Every mutator returns the fresh `ProfileView` the command produced, so
  * the local copy is replaced by the backend's rather than patched optimistically.
  */
 export type ProfileController = {
@@ -19,8 +18,8 @@ export type ProfileController = {
    * The profile could not be read, so every control fed from it is showing its
    * own default rather than the user's setting.
    *
-   * Reported rather than merely tolerated. A null profile renders unchecked boxes
-   * and a delivery preference nobody chose, across three pages — settings that
+   * Reported rather than merely tolerated. A null profile renders switches in
+   * positions nobody chose, across four pages — settings that
    * are not the user's, presented as though they were.
    */
   unavailable: boolean;
@@ -33,11 +32,11 @@ export type ProfileController = {
    * claiming a success is not the same as reporting a failure, and a switch that
    * will not move with nothing on screen is the second half missing.
    *
-   * One mutation for all five writers, not one each: they write one document, and
+   * One mutation for every writer, not one each: they write one document, and
    * `useMutation` refuses a second submission while one is in flight, which is
    * what stops two toggles racing to replace the same `ProfileView`.
    * `SettingsApp` renders the error once for the workspace, beside the
-   * `unavailable` banner and for the same reason — the profile feeds three
+   * `unavailable` banner and for the same reason — the profile feeds four
    * pages.
    */
   write: Mutation<ProfileStatus>;
@@ -46,7 +45,6 @@ export type ProfileController = {
   setRecordingFeedback: (enabled: boolean) => Promise<void>;
   setDiskLogging: (enabled: boolean) => Promise<void>;
   setAutoPaste: (enabled: boolean) => Promise<void>;
-  setDelivery: (preference: SafeDeliveryPreference) => Promise<void>;
   setHistory: (options: {
     enabled: boolean;
     retentionDays: number;
@@ -66,8 +64,8 @@ export function useProfile(): ProfileController {
    * immediate `profile_status` can arrive before `ProfileCoordinator` is managed
    * and be refused outright — observed on a cold start as "state not managed for
    * field `state` on command `profile_status`". Without a retry the page keeps a
-   * null profile forever and renders defaults: unchecked boxes and a delivery
-   * preference nobody chose. Nothing is written from that state, but showing a
+   * null profile forever and renders defaults: switches in positions nobody
+   * chose. Nothing is written from that state, but showing a
    * user settings that are not theirs is its own failure — so it is now also
    * *said*, through `unavailable`.
    *
@@ -138,13 +136,6 @@ export function useProfile(): ProfileController {
     [configure],
   );
 
-  const setDelivery = useCallback(
-    async (preference: SafeDeliveryPreference) => {
-      await configure(() => invoke<ProfileStatus>("delivery_configure", { preference }));
-    },
-    [configure],
-  );
-
   const setHistory = useCallback(
     async (options: { enabled: boolean; retentionDays: number; disclosureAccepted: boolean }) => {
       await configure(() =>
@@ -167,7 +158,6 @@ export function useProfile(): ProfileController {
     setRecordingFeedback,
     setDiskLogging,
     setAutoPaste,
-    setDelivery,
     setHistory,
     replace: setProfile,
   };

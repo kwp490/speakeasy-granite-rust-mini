@@ -57,50 +57,50 @@ function retaining() {
   );
 }
 
-const confirmDelete = () => screen.getByLabelText(messages.confirmDeleteHistory) as HTMLInputElement;
-const deleteButton = () => screen.getByRole("button", { name: messages.deleteHistory });
+const openDelete = () =>
+  screen.findByRole("button", { name: messages.deleteHistory }).then((button) => {
+    fireEvent.click(button);
+  });
+const confirmButton = () => screen.queryByRole("button", { name: messages.deleteHistoryNow });
 
 /**
- * A refused deletion leaves the confirmation ticked and says what happened.
+ * A refused deletion keeps its confirmation open and says what happened.
  *
- * This is the exact defect that motivated `useMutation`: the check box used to
- * clear itself and the word "Deleted" appeared whether or not the database had
- * been touched, so a `history_delete_failed` was indistinguishable from a
+ * This is the exact defect that motivated `useMutation`: the confirmation used
+ * to clear itself and the word "Deleted" appeared whether or not the database
+ * had been touched, so a `history_delete_failed` was indistinguishable from a
  * completed deletion -- over the one control in the product that destroys the
- * user's transcripts. Nothing could observe that before this harness existed:
- * both halves of it are what a *rendered* control does after a rejection.
+ * user's transcripts. Both halves of it are what a *rendered* control does
+ * after a rejection.
  */
 test("a refused history deletion keeps its confirmation and names the failure", async () => {
   const double = retaining();
   double.reject("history_delete_all", "history_delete_failed");
   render(<Page />);
 
-  const box = await waitFor(confirmDelete);
-  fireEvent.click(box);
-  expect(box.checked).toBe(true);
-  fireEvent.click(deleteButton());
+  await openDelete();
+  fireEvent.click(confirmButton() as HTMLElement);
 
   await waitFor(() => {
     expect(screen.getByText(messages.errors.history_delete_failed)).toBeDefined();
   });
-  expect(confirmDelete().checked).toBe(true);
+  expect(confirmButton()).not.toBeNull();
   expect(screen.queryByText(messages.deleted)).toBeNull();
 });
 
-/** And a deletion that happened clears the confirmation and says so. */
-test("a completed history deletion clears its confirmation", async () => {
+/** And a deletion that happened closes the confirmation and says so. */
+test("a completed history deletion closes its confirmation", async () => {
   const double = retaining();
   double.answer("history_delete_all", undefined);
   render(<Page />);
 
-  const box = await waitFor(confirmDelete);
-  fireEvent.click(box);
-  fireEvent.click(deleteButton());
+  await openDelete();
+  fireEvent.click(confirmButton() as HTMLElement);
 
   await waitFor(() => {
     expect(screen.getByText(messages.deleted)).toBeDefined();
   });
-  expect(confirmDelete().checked).toBe(false);
+  expect(confirmButton()).toBeNull();
 });
 
 /**
@@ -108,15 +108,8 @@ test("a completed history deletion clears its confirmation", async () => {
  *
  * Two mechanisms hold this and the test does not care which one fires: the
  * button is `disabled` while pending, and `useMutation` refuses a second `run`
- * behind a ref -- a ref rather than the rendered status, because two presses in
- * one frame both read the same stale state and both would pass it. Asserted on
- * the destructive command deliberately: an export running twice writes a file
- * twice, and a delete running twice is only harmless by luck.
- *
- * The button is captured before the first press. Its label changes to "Working"
- * while pending, so looking it up again by name finds nothing -- which fails as
- * "unable to find a button", reading like a missing control rather than like a
- * control that is doing its job.
+ * behind a ref. The button is captured before the first press, because its
+ * label changes to "Working" while pending.
  */
 test("a second press while a deletion is in flight deletes nothing", async () => {
   const double = retaining();
@@ -133,16 +126,51 @@ test("a second press while a deletion is in flight deletes nothing", async () =>
   };
   render(<Page />);
 
-  fireEvent.click(await waitFor(confirmDelete));
-  const button = deleteButton();
+  await openDelete();
+  const button = confirmButton() as HTMLElement;
   fireEvent.click(button);
   fireEvent.click(button);
   expect(double.count("history_delete_all")).toBe(1);
 
   release();
   await waitFor(() => {
-    expect(confirmDelete().checked).toBe(false);
+    expect(confirmButton()).toBeNull();
   });
+});
+
+/**
+ * Turning saved history on writes nothing until the disclosure is confirmed.
+ *
+ * Saved history is plain text on disk, so the switch opens a confirmation
+ * rather than writing. Cancel must leave the backend untouched; confirming is
+ * the only path that sends `plaintextDisclosureAccepted: true`.
+ */
+test("turning saved history on asks first and cancel writes nothing", async () => {
+  const double = install(
+    invokeDouble({ profile_status: profileStatus(), session_transcript_log: [] }),
+  );
+  double.answer(
+    "history_configure",
+    profileStatus({ history_enabled: true, history_plaintext_disclosure_accepted: true }),
+  );
+  render(<Page />);
+
+  const keep = await screen.findByRole("switch", { name: messages.historyKeep });
+  await waitFor(() => {
+    expect((keep as HTMLInputElement).disabled).toBe(false);
+  });
+  fireEvent.click(keep);
+  fireEvent.click(await screen.findByRole("button", { name: messages.cancel }));
+  expect(double.count("history_configure")).toBe(0);
+  expect((keep as HTMLInputElement).checked).toBe(false);
+
+  fireEvent.click(keep);
+  fireEvent.click(await screen.findByRole("button", { name: messages.historyConsentConfirm }));
+  await waitFor(() => {
+    expect((keep as HTMLInputElement).checked).toBe(true);
+  });
+  const call = double.calls.find((entry) => entry.command === "history_configure");
+  expect(call?.args).toMatchObject({ enabled: true, plaintextDisclosureAccepted: true });
 });
 
 /**

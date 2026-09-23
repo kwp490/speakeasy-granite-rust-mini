@@ -1,11 +1,11 @@
 import { messages } from "../catalog";
 
 /**
- * Catalog lookups shared by the six settings pages.
+ * Catalog lookups shared by the settings pages.
  *
  * Every one of these turns a backend code into catalog prose. None of them ever
  * returns a raw identifier as user-facing text — that is what `displayName`
- * exists for, and what the Advanced page's Show raw values disclosure is for
+ * exists for, and what Advanced → Technical details is for
  * when the identifier itself is the thing worth seeing.
  */
 
@@ -85,14 +85,6 @@ export function formatResetCategory(category: string): string {
   return messages.resetCategoryOther;
 }
 
-export function formatCredentialStatus(status: string): string {
-  if (status === "primary_service") return messages.credentialPresent;
-  if (status === "legacy_service") return messages.credentialLegacyService;
-  if (status === "missing") return messages.credentialMissing;
-  if (status === "access_denied") return messages.credentialAccessDenied;
-  return messages.credentialUnavailable;
-}
-
 /**
  * Locale-aware wall-clock time for a session-log entry.
  *
@@ -125,4 +117,39 @@ export function formatFinalSourceReason(code: string): string {
 export function formatFinalSourceGuidance(code: string): string {
   const guidance = messages.finalSourceGuidance;
   return guidance[code as keyof typeof guidance] ?? messages.finalSourceGuidanceUnknown;
+}
+
+/** Modifier keys by `KeyboardEvent.key`, which never form a shortcut alone. */
+const MODIFIER_KEYS = new Set(["Control", "Alt", "Shift", "Meta", "OS", "AltGraph"]);
+
+/**
+ * The binding a key press names, in the form `hotkey_configure` accepts, or
+ * `null` when the press is not a shortcut.
+ *
+ * Built from `code` rather than `key`, because `key` is the character the
+ * layout produces -- Shift+2 is `@` on one keyboard and `"` on another -- and
+ * the global-shortcut parser wants the physical key. A shortcut needs Ctrl, Alt
+ * or Windows: Shift alone would swallow ordinary typing in every application.
+ */
+export function bindingFromKey(event: {
+  key: string;
+  code: string;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  metaKey: boolean;
+}): string | null {
+  if (MODIFIER_KEYS.has(event.key)) return null;
+  if (!event.ctrlKey && !event.altKey && !event.metaKey) return null;
+  let key = event.code;
+  if (/^Key[A-Z]$/.test(key)) key = key.slice(3);
+  else if (/^Digit[0-9]$/.test(key)) key = key.slice(5);
+  else if (key === "") return null;
+  const parts: string[] = [];
+  if (event.ctrlKey) parts.push("Ctrl");
+  if (event.altKey) parts.push("Alt");
+  if (event.shiftKey) parts.push("Shift");
+  if (event.metaKey) parts.push("Super");
+  parts.push(key);
+  return parts.join("+");
 }

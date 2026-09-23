@@ -30,7 +30,7 @@ the two never fight over one.
 5. When it finishes, the app opens. There is no second setup to walk through,
    and the answers you gave are already applied.
 6. Allow Windows microphone access if prompted, and pick your microphone from
-   **Settings → Audio** if the default is not the one you want.
+   **Settings → Microphone** if the default is not the one you want.
 7. Click into a text field somewhere, press `Ctrl+Alt+P`, say a sentence, and
    press it again. The text appears where your cursor was.
 
@@ -58,7 +58,7 @@ There are two ways to dictate:
   when the SpeakEasy Mini window is closed. Click into your text field, press once
   to start recording, press again to stop; SpeakEasy Mini transcribes locally and
   pastes the final text into that field. You can change the binding or turn the
-  hotkey off in Settings → Activation.
+  hotkey off in Settings → General.
 - **The dock** — the narrow strip SpeakEasy Mini keeps on screen. Its record
   button starts and stops a dictation exactly as the hotkey does, and delivery
   is the same: the transcript goes to whatever had focus. Use **Copy** to place
@@ -110,7 +110,7 @@ having attempted the paste and looked at where the text went: **if you turn
 automatic paste off and copy the transcript into such a field yourself, it is
 kept**, because nothing observed the destination.
 
-Automatic paste is in **Settings -> Output & Privacy**, on by default. Turning it
+Automatic paste is **Paste into the active app** in **Settings -> General**, on by default. Turning it
 off leaves each transcript here to read and copy yourself; nothing is inserted
 into the app you were using.
 

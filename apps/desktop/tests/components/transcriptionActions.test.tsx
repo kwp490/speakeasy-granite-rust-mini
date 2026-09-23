@@ -8,6 +8,7 @@ import type {
   ModelCatalogItem,
   ModelInstallStatus,
   PersonalizationStatus,
+  RecoverableResult,
 } from "../../src/settings/types";
 import { diagnosticsStatus, invokeDouble, type InvokeDouble } from "./fixtures";
 
@@ -71,6 +72,20 @@ function gpuStatus(overrides: Partial<GpuStatus> = {}): GpuStatus {
   };
 }
 
+function result(overrides: Partial<RecoverableResult> = {}): RecoverableResult {
+  return {
+    state: "ready",
+    text: null,
+    provenance: null,
+    input_samples: null,
+    final_segments: null,
+    draft_revisions: null,
+    error_code: null,
+    retry_available: false,
+    ...overrides,
+  };
+}
+
 function page(status: ModelInstallStatus, gpu: GpuStatus = gpuStatus()) {
   return install(
     invokeDouble({
@@ -81,41 +96,12 @@ function page(status: ModelInstallStatus, gpu: GpuStatus = gpuStatus()) {
       // the component stores and then dereferences -- so a missing stub surfaces
       // as a `TypeError` deep in a render, reading like a component defect.
       gpu_status: gpu,
-      model_hardware: {
-        operating_system: "Windows",
-        operating_system_build: null,
-        logical_processors: 8,
-        total_memory_bytes: 34_359_738_368,
-      },
+      result_status: result(),
       personalization_status: personalization(),
       diagnostics_status: diagnosticsStatus(),
     }),
   );
 }
-
-/**
- * A refused cancel is reported, rather than looking exactly like a cancel.
- *
- * `onClick={() => void invoke("model_install_cancel")}` -- no rejection handler
- * of any kind. An `install_not_active` refusal was an unhandled promise
- * rejection and the button appeared to have worked, over a 2.30 GB download the
- * user was trying to stop.
- */
-test("a refused install cancel says so", async () => {
-  const double = page({ state: "downloading", error: null, bytes_downloaded: 1, bytes_total: 2 });
-  double.reject("model_install_cancel", "install_not_active");
-  render(<Transcription />);
-
-  const cancel = await screen.findByRole("button", { name: messages.cancel });
-  fireEvent.click(cancel);
-
-  await waitFor(() => {
-    expect(screen.getByText(messages.errors.install_not_active)).toBeDefined();
-  });
-  // And it does not become a claim about the *install*, which is a different
-  // fact and has its own line.
-  expect(screen.queryByText(new RegExp(messages.installationFailed, "u"))).toBeNull();
-});
 
 /**
  * A poll that stops answering says the progress is stale, and does not condemn
@@ -162,7 +148,7 @@ test("an unreadable install poll reports stale progress, not a failed install", 
     }
 
     expect(screen.getByText(messages.modelStatusPollUnavailable)).toBeDefined();
-    expect(screen.queryByText(new RegExp(messages.installationFailed, "u"))).toBeNull();
+    expect(screen.queryByText(new RegExp(messages.modelCheckFailed, "u"))).toBeNull();
   } finally {
     vi.useRealTimers();
   }
@@ -292,4 +278,62 @@ test("a provider disagreement is disclosed and a quiet one is not", async () => 
   // The fault flag is decided in Rust and drives the styling; re-deriving it
   // from the code in TypeScript would be a second copy to get wrong.
   expect(disclosure.className).toBe("warning");
+});
+
+/**
+ * A failed Try again is reported even when the status re-read after it fails
+ * too. The re-read retries for seconds before it gives up, and the failure
+ * message used to be set only after it returned -- so when both failed, the
+ * handler rejected and the message was never shown.
+ */
+test("a failed retry is reported when the status re-read also fails", async () => {
+  const double = page({ state: "verified_on_disk", error: null });
+  double.answer("result_status", result({ state: "failed", retry_available: true }));
+  render(<Transcription />);
+
+  const retry = await screen.findByRole("button", { name: messages.retryTranscription });
+  double.reject("dictation_retry", "retry_unavailable");
+  double.reject("result_status", "result_state_unavailable");
+  fireEvent.click(retry);
+
+  expect(await screen.findByText(messages.retryFailed)).toBeDefined();
+});
+
+/**
+ * The failure banner is absent when the last dictation succeeded: an empty
+ * "no problems" panel is a permanent invitation to worry.
+ */
+test("the failure banner appears only for a failed dictation", async () => {
+  page({ state: "verified_on_disk", error: null });
+  const { unmount } = render(<Transcription />);
+  await engineDisclosure();
+  expect(screen.queryByTestId("transcription-status")).toBeNull();
+  unmount();
+
+  const double = page({ state: "verified_on_disk", error: null });
+  double.answer("diagnostics_status", diagnosticsStatus({ final_source_reason: "granite_empty" }));
+  render(<Transcription />);
+  const banner = await screen.findByTestId("transcription-status");
+  expect(banner.textContent).toContain(messages.finalSourceReasons.granite_empty);
+  expect(banner.textContent).toContain(messages.finalSourceGuidance.granite_empty);
+});
+
+/**
+ * The engine switch is offered only where both workers are staged. A
+ * processor-only install has nothing to switch to, and a control that can
+ * never do anything is not shown.
+ */
+test("the engine switch is offered only when another worker is staged", async () => {
+  page({ state: "verified_on_disk", error: null }, gpuStatus({ active_device: "cpu" }));
+  const { unmount } = render(<Transcription />);
+  await engineDisclosure();
+  expect(screen.queryByRole("button", { name: messages.switchToGpu })).toBeNull();
+  unmount();
+
+  page(
+    { state: "verified_on_disk", error: null },
+    gpuStatus({ active_device: "cuda", alternate_provider_available: true }),
+  );
+  render(<Transcription />);
+  expect(await screen.findByRole("button", { name: messages.switchToCpu })).toBeDefined();
 });

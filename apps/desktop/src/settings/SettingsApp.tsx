@@ -4,8 +4,6 @@ import { messages } from "../catalog";
 import { Advanced } from "./Advanced";
 import { Audio } from "./Audio";
 import { General } from "./General";
-import { OutputPrivacy } from "./OutputPrivacy";
-import { SettingsPageHeader } from "./SettingsPageHeader";
 import { TranscriptLogPage } from "./TranscriptLogPage";
 import { Transcription } from "./Transcription";
 import { useProfile } from "./useProfile";
@@ -13,7 +11,7 @@ import { useProfile } from "./useProfile";
 /**
  * The settings workspace (UI-GUIDE "Information architecture").
  *
- * Six pages behind a nav rail, which is a vertical `tablist`: exactly one page is
+ * Five pages behind a nav rail, which is a vertical `tablist`: exactly one page is
  * visible at a time, which is what the tab pattern describes. The old horizontal
  * tab strip used ArrowLeft/ArrowRight; a vertical rail uses ArrowUp/ArrowDown plus
  * Home/End, and declares `aria-orientation` so the pattern is not merely implied.
@@ -29,18 +27,16 @@ import { useProfile } from "./useProfile";
  * was complete. Setup is the installer's job now and there is no in-app wizard
  * to return to, so the shell is only ever the rail and one page.
  *
- * The transcript log is its own page rather than a section at the bottom of
- * Output. It is the only place a delivered transcript can be read back, which
- * makes it the thing people come here for most often, and it is what the dock's
- * pin control detaches into a window of its own.
+ * History is its own page. It is the only place a finished transcript can be
+ * read back, which makes it the thing people come here for most often, and it
+ * is what the dock's pin control detaches into a window of its own.
  */
-type SettingsGroup = "general" | "audio" | "transcription" | "output" | "log" | "advanced";
+type SettingsGroup = "general" | "audio" | "transcription" | "log" | "advanced";
 
 const settingsGroups: ReadonlyArray<{ id: SettingsGroup; label: string }> = [
   { id: "general", label: messages.settingsGroups.general },
   { id: "audio", label: messages.settingsGroups.audio },
   { id: "transcription", label: messages.settingsGroups.transcription },
-  { id: "output", label: messages.settingsGroups.output },
   { id: "log", label: messages.settingsGroups.log },
   { id: "advanced", label: messages.settingsGroups.advanced },
 ];
@@ -82,17 +78,9 @@ export function SettingsApp() {
 
   return (
     <main aria-labelledby="app-title" className="settings" data-testid="desktop-scaffold">
-      <header className="settings-header">
-        <div aria-hidden="true" className="settings-mark">{messages.settingsMark}</div>
-        <div className="settings-title">
-          <h1 aria-label={messages.settingsHeading} id="app-title">
-            {messages.settingsProductName}
-          </h1>
-          <p>{messages.settings}</p>
-        </div>
-        <p className="settings-version">{messages.versionLabel(messages.version)}</p>
-      </header>
-
+      <h1 className="sr-only" id="app-title">
+        {messages.settingsHeading}
+      </h1>
       <div className="settings-body">
         <nav
           aria-label={messages.settingsNav}
@@ -121,9 +109,9 @@ export function SettingsApp() {
           {/*
             One banner for the whole workspace, because the profile feeds three
             pages and a null one renders every control fed from it at its own
-            default -- unchecked boxes and a delivery preference nobody chose. Put
+            default -- switches in positions nobody chose. Put
             here rather than on each page so it is seen whichever page is open,
-            and so it says the *profile* is unread rather than implying six
+            and so it says the *profile* is unread rather than implying five
             separate settings are off.
           */}
           {profile.unavailable && <p className="warning">{messages.profileUnavailable}</p>}
@@ -132,7 +120,7 @@ export function SettingsApp() {
             from the profile renders the stored value, so a rejected toggle
             snaps back and looks like a switch that will not move; before this,
             nothing anywhere said why, and the rejection was unhandled. One
-            banner rather than six inline messages: it is one document, one
+            banner rather than one per page: it is one document, one
             write at a time, and the user is looking at whichever page they
             just touched.
           */}
@@ -148,11 +136,7 @@ export function SettingsApp() {
             role="tabpanel"
             tabIndex={0}
           >
-            <SettingsPageHeader
-              detail={messages.settingsPageDetails.general}
-              eyebrow={messages.settingsPageEyebrows.general}
-              title={messages.settingsGroups.general}
-            />
+            <h2 className="settings-page-title">{messages.settingsGroups.general}</h2>
             <General profile={profile} />
           </section>
           <section
@@ -162,11 +146,7 @@ export function SettingsApp() {
             role="tabpanel"
             tabIndex={0}
           >
-            <SettingsPageHeader
-              detail={messages.settingsPageDetails.audio}
-              eyebrow={messages.settingsPageEyebrows.audio}
-              title={messages.settingsGroups.audio}
-            />
+            <h2 className="settings-page-title">{messages.settingsGroups.audio}</h2>
             {/* Mounted only while visible: the input meter polls, and a hidden
                 page has no business sampling the microphone level. */}
             {activeGroup === "audio" && (
@@ -180,26 +160,8 @@ export function SettingsApp() {
             role="tabpanel"
             tabIndex={0}
           >
-            <SettingsPageHeader
-              detail={messages.settingsPageDetails.transcription}
-              eyebrow={messages.settingsPageEyebrows.transcription}
-              title={messages.settingsGroups.transcription}
-            />
+            <h2 className="settings-page-title">{messages.settingsGroups.transcription}</h2>
             <Transcription />
-          </section>
-          <section
-            aria-labelledby="settings-tab-output"
-            hidden={activeGroup !== "output"}
-            id="settings-panel-output"
-            role="tabpanel"
-            tabIndex={0}
-          >
-            <SettingsPageHeader
-              detail={messages.settingsPageDetails.output}
-              eyebrow={messages.settingsPageEyebrows.output}
-              title={messages.settingsGroups.output}
-            />
-            {activeGroup === "output" && <OutputPrivacy profile={profile} />}
           </section>
           <section
             aria-labelledby="settings-tab-log"
@@ -208,13 +170,9 @@ export function SettingsApp() {
             role="tabpanel"
             tabIndex={0}
           >
-            <SettingsPageHeader
-              detail={messages.settingsPageDetails.log}
-              eyebrow={messages.settingsPageEyebrows.log}
-              title={messages.settingsGroups.log}
-            />
-            {/* Mounted only while visible: the log polls for new entries, and a
-                hidden page has no business doing that. Same rule as Audio. */}
+            <h2 className="settings-page-title">{messages.settingsGroups.log}</h2>
+            {/* Mounted only while visible, the same rule as the Microphone page:
+                a hidden page has no business reading. */}
             {activeGroup === "log" && <TranscriptLogPage profile={profile} />}
           </section>
           <section
@@ -224,11 +182,7 @@ export function SettingsApp() {
             role="tabpanel"
             tabIndex={0}
           >
-            <SettingsPageHeader
-              detail={messages.settingsPageDetails.advanced}
-              eyebrow={messages.settingsPageEyebrows.advanced}
-              title={messages.settingsGroups.advanced}
-            />
+            <h2 className="settings-page-title">{messages.settingsGroups.advanced}</h2>
             {/* Mounted only while visible, and here the reason is staleness
                 rather than cost. Every field on this page is a fact about *now*:
                 the engine reason, the device, the RTF and latency percentiles,
@@ -248,7 +202,7 @@ export function SettingsApp() {
                 and re-reads whenever somebody opens the page -- which is also
                 the only way the performance figures stop being frozen at
                 whatever they were when the window was created. Same rule as the
-                log and Audio pages above. */}
+                History and Microphone pages above. */}
             {activeGroup === "advanced" && <Advanced profile={profile} />}
           </section>
         </div>

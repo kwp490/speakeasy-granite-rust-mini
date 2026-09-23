@@ -1,46 +1,39 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-import { Disclosure } from "../components/Disclosure";
 import { messages } from "../catalog";
 import {
-  formatBytes,
   formatEngineReason,
-  formatProviderIntegrity,
   formatError,
   formatFinalSourceGuidance,
   formatFinalSourceReason,
+  formatProviderIntegrity,
   formatState,
 } from "./format";
 import { readWithRetry } from "./readWithRetry";
 import { awaitEngineReady } from "./engineReady";
+import { SettingExpander, SettingGroup, SettingRow, StatusText } from "./Rows";
 import { useMutation } from "./useMutation";
 import type {
   DiagnosticsStatus,
   GpuStatus,
   ModelCatalogItem,
-  ModelHardware,
   ModelInstallStatus,
   PersonalizationImportPreview,
   PersonalizationStatus,
+  RecoverableResult,
 } from "./types";
 
 /**
- * Transcription: language, the local model, and personalization.
+ * Transcription: why the last dictation failed, where the engine runs, the
+ * speech model, and vocabulary.
  *
- * Package internals — sizes, source repository, revision, license, provider,
- * capabilities, hardware evidence — sit behind a collapsed **Technical details**
- * disclosure rather than in front of every user. None of them are removed: the
- * exact provenance of an installed model is a promise this product makes, it just
- * is not what someone came to this page to read.
- *
- * There is no Copy button on those values by design. Copying would need a command
- * that writes arbitrary frontend text to the clipboard, which is a broader
- * authority than anything the app grants today; the values are selectable
- * instead, and Ctrl+C is a native `WebView` operation that needs no permission.
+ * The model is read, never installed, here. Setup provisions it and verifies
+ * it before the app opens; exact provenance lives in Advanced → Technical
+ * details.
  */
 /**
- * How long to keep re-reading the engine disclosure while the worker warms.
+ * How long to keep re-reading the engine row while the worker warms.
  *
  * 30 x 1 s. A cold Granite load measured 2-5 s on this hardware, and the ceiling
  * is generous rather than tuned -- the poll stops as soon as the device is
@@ -51,7 +44,7 @@ const ENGINE_WARM_READS = 30;
 const ENGINE_WARM_READ_INTERVAL_MS = 1_000;
 
 /**
- * The gap between the end of one install-status read and the start of the next.
+ * The gap between the end of one model-status read and the start of the next.
  *
  * A gap rather than a period: the poll is self-scheduling, so at most one
  * request is ever outstanding.
@@ -60,38 +53,27 @@ const MODEL_POLL_GAP_MS = 750;
 
 export function Transcription() {
   const [models, setModels] = useState<ModelCatalogItem[]>([]);
-  const [hardware, setHardware] = useState<ModelHardware | null>(null);
   const [gpu, setGpu] = useState<GpuStatus | null>(null);
   const [lastFailure, setLastFailure] = useState<string | null>(null);
+  const [result, setResult] = useState<RecoverableResult | null>(null);
+  const [resultUnavailable, setResultUnavailable] = useState(false);
+  const [retryAction, setRetryAction] = useState("");
   const [modelStatus, setModelStatus] = useState<ModelInstallStatus>({
     state: "verifying",
     error: null,
   });
-  const [confirmed, setConfirmed] = useState(false);
   const [personalization, setPersonalization] = useState<PersonalizationStatus | null>(null);
   /**
-   * Set when the personalization read never succeeded.
-   *
-   * Its own flag rather than folding into `personalizationAction`, because it
-   * belongs beside the list that is missing rather than beside the import
-   * controls — and because "could not be read" and "your list is empty" are
-   * different facts that looked identical here until 2026-08-20.
+   * Set when the personalization read never succeeded. "Could not be read" and
+   * "your list is empty" are different facts, and they looked identical here
+   * until 2026-08-20.
    */
   const [personalizationUnavailable, setPersonalizationUnavailable] = useState(false);
   /**
-   * How many times the engine disclosure has been re-read while the worker was
-   * still coming up.
-   *
-   * The device and the provider-integrity line are both `not_configured` until
-   * the launch warm has spoken, and that happens seconds *after* this page
-   * mounts -- a cold Granite load is 2-5 s on this hardware. Read once on mount,
-   * the page therefore reported "Not started yet" and no integrity line for the
-   * life of the window, which for the fault case means the one disclosure that
-   * exists to be seen is never rendered.
-   *
-   * Bounded, and it stops the moment the device is reported. An unbounded poll
-   * would keep asking forever on a machine where Granite is not configured at
-   * all, which is an ordinary state rather than a wait.
+   * How many times the engine row has been re-read while the worker was still
+   * coming up. The device and the provider-integrity line are both
+   * `not_configured` until the launch warm has spoken, seconds after this page
+   * mounts; read once, the fault disclosure would never be rendered.
    */
   const [warmReads, setWarmReads] = useState(0);
   const [observedTerm, setObservedTerm] = useState("");
@@ -102,35 +84,25 @@ export function Transcription() {
   const [personalizationPreview, setPersonalizationPreview] =
     useState<PersonalizationImportPreview | null>(null);
   const [personalizationAction, setPersonalizationAction] = useState("");
-  /** The install poll stopped answering. See the poll's own comment. */
+  /** The model-status poll stopped answering. See the poll's own comment. */
   const [pollUnavailable, setPollUnavailable] = useState(false);
-  const cancelInstall = useMutation<void>();
   const switchProvider = useMutation<void>();
   // The export and the two destructive personalization commands. Each reports
   // its own refusal, and neither destructive one announces a deletion it has not
-  // been told happened. The other four (`correction_record`, `snippet_save` and
-  // the two import halves) catch for themselves and keep their own copy.
+  // been told happened.
   const exportPersonalization = useMutation<string>();
   const personalizationWrite = useMutation<PersonalizationStatus>();
 
   useEffect(() => {
     void refreshCatalog();
-    void readWithRetry<ModelHardware>("model_hardware").then(setHardware, () => {
-      // Same startup race as the personalization read below. Left unset rather
-      // than defaulted: the hardware panel renders nothing without it, which is
-      // honest, where invented values would not be.
-    });
     void invoke<ModelInstallStatus>("model_install_status")
       .then(setModelStatus)
       .catch(() => {
         setModelStatus({ state: "failed", error: "model_status_unavailable" });
       });
-    // Retried, because this read used to be fired once with no `catch` and
-    // dropped its rejection. A read that lost the race against `setup` managing
+    // Retried: a read that lost the race against `setup` managing
     // `PersonalizationCoordinator` left this list empty for the life of the
-    // process, which reads as "you have no protected terms" — the exact way
-    // setup's vocabulary appeared to be discarded while sitting correctly on
-    // disk.
+    // process, which reads as "you have no vocabulary".
     void readWithRetry<PersonalizationStatus>("personalization_status").then(
       (status) => {
         setPersonalization(status);
@@ -140,21 +112,28 @@ export function Transcription() {
         setPersonalizationUnavailable(true);
       },
     );
-    // Read once on mount rather than polled. The reason only changes when a
-    // dictation finishes, and this page is not open during one — settings never
-    // has focus while the user is dictating, because taking focus would change
-    // where the transcript is pasted.
-    //
-    // Retried, because "read once, not polled" is exactly the shape that cannot
-    // recover from a lost startup race, and this read carries the *failure
-    // panel*: losing it hides the reason a dictation produced nothing, which is
-    // the one thing this page owes a user whose transcript vanished.
+    // Retried, because this read carries the failure banner: losing it hides
+    // the reason a dictation produced nothing, which is the one thing this page
+    // owes a user whose transcript vanished.
     void readWithRetry<DiagnosticsStatus>("diagnostics_status").then(
       (status) => setLastFailure(status.final_source_reason),
       () => {
         // Diagnostics being unavailable is not itself a dictation failure, and
-        // reporting it as one here would invent a problem. The panel stays
-        // hidden; Advanced is where an unreadable diagnostics surface shows up.
+        // reporting it as one here would invent a problem. Advanced is where an
+        // unreadable diagnostics surface shows up.
+      },
+    );
+    // Whether the failed dictation's audio is still retained, so Try again can
+    // be offered. `result_status` stands behind two coordinators, so it is
+    // retried too; a lost race used to disable the one control that could have
+    // recovered the audio.
+    void readWithRetry<RecoverableResult>("result_status").then(
+      (status) => {
+        setResult(status);
+        setResultUnavailable(false);
+      },
+      () => {
+        setResultUnavailable(true);
       },
     );
   }, []);
@@ -165,24 +144,19 @@ export function Transcription() {
       modelStatus.state !== "downloading" &&
       modelStatus.state !== "installing"
     ) {
-      // A finished install changes which packs are on disk and therefore which
-      // engine resolves, and neither is re-read by the poll itself.
+      // A finished verification changes which engine resolves, and neither the
+      // catalog nor the engine row is re-read by the poll itself.
       if (modelStatus.state === "verified_on_disk") {
         void refreshCatalog();
       }
       return;
     }
     // Self-scheduling, so 750 ms is the gap between the end of one read and the
-    // start of the next. An interval keeps firing while a request is
-    // outstanding, and this one reaches the model coordinator's lock, which an
-    // in-progress install holds.
+    // start of the next; this read reaches the model coordinator's lock.
     //
-    // The rejection handler is separate and does **not** set
-    // `state: "failed"`: a poll that could not be read says nothing about the
-    // model, so it reports that the *status* is unreadable and clears itself as
-    // soon as one arrives. Without any handler the refusal was unhandled and the
-    // page sat on "Downloading" with disabled buttons for the life of the
-    // window.
+    // The rejection handler does **not** set `state: "failed"`: a poll that
+    // could not be read says nothing about the model, so it reports that the
+    // *status* is unreadable and clears itself as soon as one arrives.
     let stopped = false;
     let timer = 0;
     const schedule = () => {
@@ -223,73 +197,37 @@ export function Transcription() {
     };
   }, [gpu, warmReads]);
 
-  const installing =
-    modelStatus.state === "verifying" ||
-    modelStatus.state === "downloading" ||
-    modelStatus.state === "installing";
-
   /**
-   * Re-reads the catalog *and* the engine disclosure together.
-   *
-   * Both change when a pack is installed or removed: `installed` per row, and
-   * which engine dictation resolves to. Reading them at the same moment keeps
-   * the page from claiming a GPU engine next to a GPU pack it just deleted.
+   * Re-reads the catalog *and* the engine row together, both through the retry:
+   * this is called from mount, where a refusal would otherwise put "no model"
+   * on screen about a machine with the weights on disk.
    */
   async function refreshCatalog() {
     try {
-      // Both through the retry, including the calls that follow an install or a
-      // removal. This is called from mount as well, and there it was the worst of
-      // the reads that could lose the startup race: a refusal landed in the
-      // `catch` below, which sets `modelStatus` to failed and puts the raw error
-      // string on screen next to an empty model list — "no models exist", said
-      // by an error path, about a machine with 2.14 GB of weights on disk. A
-      // genuine `catalog_unavailable` still reports, five seconds later.
       setModels(await readWithRetry<ModelCatalogItem[]>("model_catalog"));
       setGpu(await readWithRetry<GpuStatus>("gpu_status"));
     } catch (error) {
-      // Leaves whatever was last read on screen rather than blanking the page.
-      // A stale row is recoverable; an empty model list reads as "no models
-      // exist", which would be a lie told by an error path.
+      // Leaves whatever was last read on screen rather than blanking the row.
       setModelStatus({ state: "failed", error: String(error) });
     }
   }
 
-  /**
-   * A rejected `invoke` used to be an unhandled promise rejection: no `catch`,
-   * and the caller was `onClick={() => void installModel(model)}`. Clicking
-   * Install on a pack with no archive URL rejected with
-   * `pack_is_not_downloadable` and the button appeared to do nothing at all.
-   */
-  async function installModel(model: ModelCatalogItem) {
+  async function retryTranscription() {
+    setRetryAction(messages.retryStarted);
     try {
-      await invoke("model_install_start", {
-        id: model.id,
-        revision: model.revision,
-        confirmed,
-      });
-      setModelStatus({ state: "downloading", error: null });
-    } catch (error) {
-      setModelStatus({ state: "failed", error: String(error) });
+      await invoke("dictation_retry");
+      setResult(await readWithRetry<RecoverableResult>("result_status"));
+      setRetryAction("");
+    } catch {
+      // The failure is reported before the status re-read, which can fail too;
+      // a rejection there must not swallow the message the user needs.
+      setRetryAction(messages.retryFailed);
+      try {
+        setResult(await readWithRetry<RecoverableResult>("result_status"));
+      } catch {
+        // The banner keeps what it last read.
+      }
     }
-  }
-
-  async function retestGpu() {
-    try {
-      await invoke("gpu_retest");
-      window.setTimeout(() => void refreshCatalog(), 1_000);
-    } catch (error) {
-      setModelStatus({ state: "failed", error: String(error) });
-    }
-  }
-
-  async function removeModel(model: ModelCatalogItem) {
-    try {
-      await invoke("model_remove", { id: model.id, revision: model.revision });
-      setModelStatus({ state: "absent", error: null });
-    } catch (error) {
-      setModelStatus({ state: "failed", error: String(error) });
-    }
-    await refreshCatalog();
   }
 
   async function recordCorrection() {
@@ -359,6 +297,7 @@ export function Transcription() {
         }),
       );
       setPersonalizationPreview(null);
+      setPersonalizationJson("");
       setPersonalizationAction(messages.personalizationSaved);
     } catch {
       setPersonalizationAction(messages.personalizationRejected);
@@ -370,129 +309,90 @@ export function Transcription() {
       () => invoke<PersonalizationStatus>("personalization_reset", { confirmed: true }),
       () => messages.deleted,
     );
-    // "Deleted" only if it was. This printed it unconditionally, over a command
-    // whose rejection it never caught, and cleared the import preview on the way
-    // -- so a refused reset looked identical to one that emptied the dictionary.
+    // "Deleted" only if it was. A refused reset must not look identical to one
+    // that emptied the vocabulary.
     if (next === null) return;
     setPersonalization(next);
     setPersonalizationPreview(null);
     setPersonalizationAction("");
   }
 
+  const installed = models.find((model) => model.installed);
+  const onGraphicsCard =
+    gpu?.active_device === "cuda" || gpu?.active_device === "cuda_unverified";
+  const showFailure =
+    lastFailure !== null || result?.error_code != null || result?.retry_available === true;
+  const vocabularyMessage =
+    exportPersonalization.error ??
+    personalizationWrite.error ??
+    exportPersonalization.message ??
+    personalizationWrite.message ??
+    personalizationAction;
+
   return (
     <>
-      {/* The last failure, first on the page.
-          With one engine and no fallback, a dictation that went wrong produced
-          no text at all — so the user arriving here has already lost something
-          and is looking for why. Putting the model catalog above that answer
-          would make them scroll past four disclosures to reach it.
+      {/* The last failure, first on the page. With one engine and no fallback,
+          a dictation that went wrong produced no text at all, so the user
+          arriving here has already lost something and is looking for why.
           Absent entirely when the last dictation succeeded: an empty "no
           problems" panel is a permanent invitation to worry. */}
-      {lastFailure !== null && (
-        <section aria-labelledby="transcription-status" className="status-panel">
-          <h3 id="transcription-status">{messages.lastDictationFailed}</h3>
-          <p role="alert">{formatFinalSourceReason(lastFailure)}</p>
-          <p className="setting-detail">{formatFinalSourceGuidance(lastFailure)}</p>
-        </section>
-      )}
-
-      <section aria-labelledby="transcription-language">
-        <h3 id="transcription-language">{messages.languageSection}</h3>
-        <p className="setting-detail">{messages.languageDetail}</p>
-      </section>
-
-      <section aria-labelledby="transcription-model">
-        <div className="section-heading">
-          <h3 id="transcription-model">{messages.modelSection}</h3>
-          <output
-            aria-label={messages.provisioning}
-            aria-live="polite"
-            data-state={modelStatus.state}
-            data-testid="model-state"
-          >
-            {formatState(modelStatus.state)}
-          </output>
-        </div>
-        {/* Which engine this machine landed on, and why. Users now land on
-            different engines by hardware and by what they have installed, so
-            the product says so once, here, rather than leaving them to infer
-            it. `engine_reason` is the load-bearing half: "running on CPU"
-            reads identically whether there is no GPU or there is a good one
-            whose pack was never installed. */}
-        {gpu !== null && (
-          <>
-            {/* The **device**, not the pack. `pack_installed` says only whether
-                an engine is configured at all; the pack's own provider reads
-                `cpu` on a machine whose graphics-card worker offloads that same
-                GGUF, so it is not sent and cannot be rendered here. */}
-            <p className="setting-detail" data-testid="engine-disclosure">
-              {messages.engineDisclosure}{" "}
-              <bdi>
-                {gpu.pack_installed ? formatState(gpu.active_device) : messages.engineNone}
-              </bdi>
-            </p>
-            {/* Its own sentence, in its own element, and never joined to the
-                line above. It used to hang off the device after an em-dash,
-                which reads as one sentence about one fact -- and these are two
-                facts that disagree on any machine running a graphics-card
-                worker against the single processor-named pack. The rendered
-                result was `Dictation runs on: Graphics card (GPU) -- ... so the
-                processor model is being used.` Rewording alone would have left
-                the next reason free to do it again. */}
-            <p className="setting-detail" data-testid="engine-reason">
-              {formatEngineReason(gpu.engine_reason)}
-            </p>
-            {/* Shown only when it says something. `ok` and `unrecorded` are the
-                quiet answers and have no copy, so this renders nothing on a
-                normal launch — which is the requirement: never hide the active
-                provider, and never narrate it either. */}
-            {formatProviderIntegrity(gpu.provider_integrity) !== null && (
-              <p
-                className={gpu.provider_fault ? "warning" : "setting-detail"}
-                data-testid="provider-integrity"
-              >
-                {formatProviderIntegrity(gpu.provider_integrity)}
-              </p>
+      {showFailure && (
+        <div className="infobar" data-tone="bad" data-testid="transcription-status">
+          <span aria-hidden="true" className="infobar-icon">
+            !
+          </span>
+          <div className="infobar-body">
+            <strong>{messages.lastDictationFailed}</strong>
+            {lastFailure !== null && (
+              <>
+                <span role="alert">{formatFinalSourceReason(lastFailure)}</span>
+                <span className="infobar-muted">{formatFinalSourceGuidance(lastFailure)}</span>
+              </>
             )}
-            <article className="model-row" data-testid="gpu-controls">
-              {/* No qualification sentence, and no field behind one. The two
-                  lines above answer that question from evidence that is
-                  reachable: the device line reads `cuda` only where NVML
-                  confirmed the worker's own pid holds a context, and the
-                  provider-integrity line speaks up when the record and the run
-                  disagree. A claim that a model has *executed* on the card needs
-                  an `ExecutionEvidence` with a real `inference_sample_count`,
-                  which nothing at warm time has; it is an open gap in
-                  `docs/handoff/CURRENT.md` rather than something to invent.
-                  The button below stays and is not cosmetic: `gpu_retest`
-                  invalidates the engine and re-warms it, so its effect lands on
-                  both lines above. */}
-              {/* Auto / Use processor / Use graphics card used to sit here and
-                  was removed: Granite's provider was not a preference while
-                  the GPU path existed only where a CUDA-capable worker binary
-                  was installed, and no setting could conjure one. The switch
-                  below is that control's narrower successor (owner decision,
-                  2026-09-20) — it still cannot conjure a worker, it can only
-                  choose between two binaries a graphics-card install already
-                  staged and verified, and it is disabled with a reason on
-                  every install that kept only one. */}
-              <div className="actions">
-                <button onClick={() => void retestGpu()} type="button">
-                  {messages.gpuRetest}
-                </button>
+            {result?.error_code != null && (
+              <span role="alert">
+                {messages.resultFailed} {formatError(result.error_code)}
+              </span>
+            )}
+            <output aria-live="polite">{retryAction}</output>
+          </div>
+          {result?.retry_available === true && (
+            <button onClick={() => void retryTranscription()} type="button">
+              {messages.retryTranscription}
+            </button>
+          )}
+        </div>
+      )}
+      {resultUnavailable && <p className="warning">{messages.resultStatusUnavailable}</p>}
+
+      <SettingGroup label={messages.engineGroup}>
+        {/* The **device**, not the pack. The pack's own provider reads `cpu` on
+            a machine whose graphics-card worker offloads that same GGUF, so it
+            is not sent and cannot be rendered here. */}
+        <SettingRow
+          control={
+            <>
+              <span className="setting-row-value" data-testid="engine-disclosure">
+                <bdi>
+                  {gpu === null
+                    ? formatState("unknown")
+                    : gpu.pack_installed
+                      ? formatState(gpu.active_device)
+                      : messages.engineNone}
+                </bdi>
+              </span>
+              {/* Only on an install that staged both workers. A processor-only
+                  install has nothing to switch to, and a control that can never
+                  do anything is not shown. Success is the engine reporting
+                  `ready`, never the command returning. */}
+              {gpu?.alternate_provider_available === true && (
                 <button
-                  disabled={!gpu.alternate_provider_available || switchProvider.pending}
+                  disabled={switchProvider.pending}
                   onClick={() => {
-                    const target =
-                      gpu.active_device === "cuda" || gpu.active_device === "cuda_unverified"
-                        ? "cpu"
-                        : "cuda";
+                    const target = onGraphicsCard ? "cpu" : "cuda";
                     void switchProvider.run(
                       async () => {
                         await invoke("runtime_switch_engine_provider", { provider: target });
-                        // As with `runtime_recover`: the command only starts the
-                        // warm, so success is the engine reporting `ready`, not
-                        // this command returning.
                         const engine = await awaitEngineReady();
                         if (engine !== "ready") throw engine;
                       },
@@ -503,246 +403,154 @@ export function Transcription() {
                 >
                   {switchProvider.pending
                     ? messages.engineProviderSwitching
-                    : gpu.active_device === "cuda" || gpu.active_device === "cuda_unverified"
+                    : onGraphicsCard
                       ? messages.switchToCpu
                       : messages.switchToGpu}
                 </button>
-              </div>
-              {!gpu.alternate_provider_available && (
-                <p className="setting-detail" data-testid="engine-switch-unavailable">
-                  {messages.engineProviderSwitchUnavailable}
-                </p>
               )}
-              <output aria-live="polite">{switchProvider.error ?? switchProvider.message}</output>
-            </article>
-          </>
-        )}
-        {/* The graphics-card acceleration offer stood here.
+            </>
+          }
+          detail={
+            gpu === null ? undefined : (
+              // Its own element, never joined to the device: a reason about the
+              // installation and a device are two facts that disagree on any
+              // machine running a graphics-card worker against the single
+              // processor-named pack.
+              <span data-testid="engine-reason">{formatEngineReason(gpu.engine_reason)}</span>
+            )
+          }
+          title={messages.engineDisclosure}
+        >
+          {/* Shown only when it says something. `ok` and `unrecorded` are the
+              quiet answers and have no copy. */}
+          {gpu !== null && formatProviderIntegrity(gpu.provider_integrity) !== null && (
+            <p
+              className={gpu.provider_fault ? "warning" : "row-note"}
+              data-testid="provider-integrity"
+            >
+              {formatProviderIntegrity(gpu.provider_integrity)}
+            </p>
+          )}
+          {(switchProvider.error ?? switchProvider.message) !== null && (
+            <output aria-live="polite" className="row-note">
+              {switchProvider.error ?? switchProvider.message}
+            </output>
+          )}
+        </SettingRow>
+        <SettingRow
+          control={
+            <span className="setting-row-value">
+              <bdi>{installed?.display_name ?? formatState("absent")}</bdi>
+            </span>
+          }
+          detail={
+            <StatusText
+              testId="model-state"
+              tone={modelStatus.state === "verified_on_disk" ? "ok" : modelStatus.state === "failed" ? "bad" : "neutral"}
+            >
+              {formatState(modelStatus.state)}
+            </StatusText>
+          }
+          title={messages.speechModel}
+        >
+          {modelStatus.error !== null && (
+            <p className="row-note" role="alert">
+              {messages.modelCheckFailed} {formatError(modelStatus.error)}
+            </p>
+          )}
+          {pollUnavailable && <p className="row-note warning">{messages.modelStatusPollUnavailable}</p>}
+        </SettingRow>
+        <SettingRow
+          control={<span className="setting-row-value">{messages.languageValue}</span>}
+          title={messages.languageSection}
+        />
+      </SettingGroup>
 
-            It fetched ONNX Runtime's CUDA execution provider on demand — 2.97 GB
-            of libraries the streaming engine needed. Granite does not use them,
-            and its own GPU support is a compile-time feature of the worker
-            binary rather than anything this page can download, so an offer here
-            could only ever have installed DLLs and changed nothing observable.
-            Setup fetches the CUDA worker and its two libraries together, as the
-            single unit they are. */}
-        {models.map((model) => (
-          <article className="model-row" key={`${model.id}@${model.revision}`}>
-            <h4>
-              <bdi>{model.display_name}</bdi>
-            </h4>
-            <dl className="fact-grid">
-              <div>
-                <dt>{messages.modelReadiness}</dt>
-                {/* Per row. This used to render the single global coordinator
-                    state against every pack, so both admitted packs claimed the
-                    same installedness and only one of them could be right. */}
-                <dd>{formatState(model.installed ? "verified_on_disk" : "absent")}</dd>
-              </div>
-            </dl>
-            {!model.downloadable && !model.installed && (
-              <p className="warning">{messages.packNotDownloadable}</p>
-            )}
-
-            <Disclosure hint={messages.technicalDetailsHint} summary={messages.technicalDetails}>
-              <dl className="fact-grid">
-                <div>
-                  <dt>{messages.downloadSize}</dt>
-                  <dd>{formatBytes(model.archive_bytes)}</dd>
-                </div>
-                <div>
-                  <dt>{messages.installedSize}</dt>
-                  <dd>{formatBytes(model.installed_bytes)}</dd>
-                </div>
-                <div>
-                  <dt>{messages.modelSource}</dt>
-                  <dd className="exact-value" title={model.source_repository}>
-                    <bdi>{model.source_repository}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.modelRevision}</dt>
-                  <dd className="exact-value" title={model.source_revision}>
-                    <bdi>{model.source_revision}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.modelLicense}</dt>
-                  <dd className="exact-value" title={model.license_spdx ?? model.license_name}>
-                    <bdi>{model.license_spdx ?? model.license_name}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.provider}</dt>
-                  <dd className="exact-value" title={model.provider}>
-                    <bdi>{model.provider}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.runtime}</dt>
-                  <dd className="exact-value" title={model.runtime}>
-                    <bdi>{model.runtime}</bdi>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.modelCapabilities}</dt>
-                  <dd>
-                    {model.capabilities.map((capability) => (
-                      <span className="tag" key={capability}>
-                        <bdi>{capability}</bdi>
-                      </span>
-                    ))}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{messages.modelHardwareEvidence}</dt>
-                  <dd className="exact-value" title={model.hardware_evidence}>
-                    <bdi>{model.hardware_evidence}</bdi>
-                  </dd>
-                </div>
-              </dl>
-              {hardware !== null && (
-                <p className="setting-detail">
-                  <bdi>{hardware.operating_system}</bdi> {messages.build}{" "}
-                  <bdi>{hardware.operating_system_build ?? messages.unknown}</bdi> ·{" "}
-                  {hardware.logical_processors} {messages.logicalProcessors} ·{" "}
-                  {formatBytes(hardware.total_memory_bytes)} {messages.ram} —{" "}
-                  {messages.inventoryOnly}
-                </p>
-              )}
-            </Disclosure>
-
-            <label className="confirmation">
-              <input
-                checked={confirmed}
-                onChange={(event) => setConfirmed(event.target.checked)}
-                type="checkbox"
-              />
-              {messages.confirmInstall}
-            </label>
-            <div className="actions">
-              <button
-                disabled={!confirmed || installing || !model.downloadable || model.installed}
-                onClick={() => void installModel(model)}
-                type="button"
-              >
-                {messages.install}
-              </button>
-              <button
-                disabled={
-                  (modelStatus.state !== "downloading" && modelStatus.state !== "installing") ||
-                  cancelInstall.pending
-                }
-                onClick={() => void cancelInstall.run(() => invoke("model_install_cancel"))}
-                type="button"
-              >
-                {cancelInstall.pending ? messages.working : messages.cancel}
-              </button>
-              <button
-                className="destructive"
-                disabled={!model.installed || installing}
-                onClick={() => void removeModel(model)}
-                type="button"
-              >
-                {messages.remove}
-              </button>
-            </div>
-          </article>
-        ))}
-        {modelStatus.bytes_total != null && (
-          <label className="setting-field">
-            <span>{messages.progress}</span>
-            <progress max={modelStatus.bytes_total} value={modelStatus.bytes_downloaded ?? 0} />
-          </label>
-        )}
-        {modelStatus.error !== null && (
-          <p role="alert">
-            {messages.installationFailed} {formatError(modelStatus.error)}
-          </p>
-        )}
-        {/*
-          A refused cancel, and a poll that stopped answering. Both were silent:
-          the cancel button had no rejection handler, so an install that refused
-          to stop looked exactly like one that did, and the poll dropped its
-          rejection and left the page frozen on the last progress it saw.
-
-          Separate from `installationFailed` above, which is a claim about the
-          *install*. Neither of these is.
-        */}
-        {cancelInstall.error !== null && <p role="alert">{cancelInstall.error}</p>}
-        {pollUnavailable && <p className="warning">{messages.modelStatusPollUnavailable}</p>}
-      </section>
-
-      <section aria-labelledby="transcription-personalization">
-        <h3 id="transcription-personalization">{messages.personalization}</h3>
-        <p className="setting-detail">{messages.localeQualification}</p>
-        <p className="warning">{messages.hotwordLimitation}</p>
-        <p className="setting-detail">{messages.contactsDisabled}</p>
-
-        <fieldset>
-          <legend>{messages.dictionaryEntries}</legend>
-          <label>
-            <span>{messages.correctionObserved}</span>
-            <input onChange={(event) => setObservedTerm(event.target.value)} value={observedTerm} />
-          </label>
-          <label>
-            <span>{messages.correctionCorrected}</span>
-            <input
-              onChange={(event) => setCorrectedTerm(event.target.value)}
-              value={correctedTerm}
-            />
-          </label>
-          <button
-            disabled={observedTerm === "" || correctedTerm === ""}
-            onClick={() => void recordCorrection()}
-            type="button"
-          >
-            {messages.recordCorrection}
-          </button>
+      <SettingGroup label={messages.vocabularyGroup}>
+        <SettingExpander
+          detail={messages.hotwordLimitation}
+          title={messages.wordCorrections}
+          value={personalization?.dictionary.length ?? "—"}
+        >
           {personalizationUnavailable && (
             <p className="warning">{messages.personalizationUnavailable}</p>
           )}
-          <ul className="plain-list">
-            {personalization?.dictionary.map((entry) => (
-              <li key={entry.id}>
-                <bdi>{entry.source}</bdi> → <bdi>{entry.replacement}</bdi>
-                <button
-                  className="destructive"
-                  onClick={() => void deletePersonalization("dictionary", entry.id)}
-                  type="button"
-                >
-                  {messages.delete}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </fieldset>
+          <table className="pairs">
+            <thead>
+              <tr>
+                <th scope="col">{messages.correctionObserved}</th>
+                <th scope="col">{messages.correctionCorrected}</th>
+                <th scope="col">
+                  <span className="sr-only">{messages.delete}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {personalization?.dictionary.map((entry) => (
+                <tr key={entry.id}>
+                  <td>
+                    <bdi>{entry.source}</bdi>
+                  </td>
+                  <td>
+                    <bdi>{entry.replacement}</bdi>
+                  </td>
+                  <td>
+                    <button
+                      className="link destructive"
+                      onClick={() => void deletePersonalization("dictionary", entry.id)}
+                      type="button"
+                    >
+                      {messages.delete}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              <tr>
+                <td>
+                  <input
+                    aria-label={messages.correctionObserved}
+                    onChange={(event) => setObservedTerm(event.target.value)}
+                    value={observedTerm}
+                  />
+                </td>
+                <td>
+                  <input
+                    aria-label={messages.correctionCorrected}
+                    onChange={(event) => setCorrectedTerm(event.target.value)}
+                    value={correctedTerm}
+                  />
+                </td>
+                <td>
+                  <button
+                    disabled={observedTerm === "" || correctedTerm === ""}
+                    onClick={() => void recordCorrection()}
+                    type="button"
+                  >
+                    {messages.recordCorrection}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="row-note">{messages.contactsDisabled}</p>
+        </SettingExpander>
 
-        <fieldset>
-          <legend>{messages.snippets}</legend>
-          <p className="setting-detail">{messages.snippetGrammar}</p>
-          <label>
-            <span>{messages.snippetName}</span>
-            <input onChange={(event) => setSnippetName(event.target.value)} value={snippetName} />
-          </label>
-          <label>
-            <span>{messages.snippetBody}</span>
-            <textarea onChange={(event) => setSnippetBody(event.target.value)} value={snippetBody} />
-          </label>
-          <button
-            disabled={snippetName === "" || snippetBody === ""}
-            onClick={() => void saveSnippet()}
-            type="button"
-          >
-            {messages.saveSnippet}
-          </button>
+        <SettingExpander
+          detail={messages.snippetGrammar}
+          title={messages.snippets}
+          value={personalization?.snippets.length ?? "—"}
+        >
           <ul className="plain-list">
             {personalization?.snippets.map((snippet) => (
-              <li key={snippet.id}>
-                <bdi>{snippet.name}</bdi>
-                <pre>{snippet.body}</pre>
+              <li className="snippet" key={snippet.id}>
+                <div className="snippet-text">
+                  <strong>
+                    <bdi>{snippet.name}</bdi>
+                  </strong>
+                  <pre>{snippet.body}</pre>
+                </div>
                 <button
-                  className="destructive"
+                  className="link destructive"
                   onClick={() => void deletePersonalization("snippet", snippet.id)}
                   type="button"
                 >
@@ -751,69 +559,90 @@ export function Transcription() {
               </li>
             ))}
           </ul>
-        </fieldset>
-
-        <fieldset>
-          <legend>{messages.personalizationJson}</legend>
-          <textarea
-            onChange={(event) => setPersonalizationJson(event.target.value)}
-            value={personalizationJson}
-          />
-          <div className="actions">
-            <button onClick={() => void previewPersonalizationImport()} type="button">
-              {messages.previewPersonalizationImport}
-            </button>
+          <div className="stacked-fields">
+            <label>
+              <span>{messages.snippetName}</span>
+              <input onChange={(event) => setSnippetName(event.target.value)} value={snippetName} />
+            </label>
+            <label>
+              <span>{messages.snippetBody}</span>
+              <textarea
+                onChange={(event) => setSnippetBody(event.target.value)}
+                value={snippetBody}
+              />
+            </label>
             <button
-              disabled={personalizationPreview === null}
-              onClick={() => void commitPersonalizationImport()}
+              disabled={snippetName === "" || snippetBody === ""}
+              onClick={() => void saveSnippet()}
               type="button"
             >
-              {messages.commitPersonalizationImport}
-            </button>
-            <button
-              disabled={exportPersonalization.pending}
-              onClick={() => {
-                // The file name is the success message, as it was -- but only
-                // when there is one. `.then(setPersonalizationAction)` with no
-                // rejection handler meant a refused export left whatever the
-                // last action had said standing, beside a button that appeared
-                // to have done nothing.
-                void exportPersonalization.run(
-                  () => invoke<string>("personalization_export"),
-                  (fileName) => fileName,
-                );
-              }}
-              type="button"
-            >
-              {exportPersonalization.pending ? messages.working : messages.exportPersonalization}
-            </button>
-            <button
-              className="destructive"
-              disabled={personalizationWrite.pending}
-              onClick={() => void resetPersonalization()}
-              type="button"
-            >
-              {personalizationWrite.pending ? messages.working : messages.resetPersonalization}
+              {messages.saveSnippet}
             </button>
           </div>
-          {personalizationPreview !== null && (
-            <p>
-              {messages.personalizationImportSummary(
-                personalizationPreview.dictionary_count,
-                personalizationPreview.snippet_count,
-                personalizationPreview.conflicts,
-              )}
-            </p>
-          )}
-          <output aria-live="polite">
-            {exportPersonalization.error ??
-              personalizationWrite.error ??
-              exportPersonalization.message ??
-              personalizationWrite.message ??
-              personalizationAction}
-          </output>
-        </fieldset>
-      </section>
+        </SettingExpander>
+
+        <SettingExpander detail={messages.vocabularyBackupDetail} title={messages.vocabularyBackup}>
+          <div className="stacked-fields">
+            <label>
+              <span>{messages.personalizationJson}</span>
+              <textarea
+                onChange={(event) => setPersonalizationJson(event.target.value)}
+                value={personalizationJson}
+              />
+            </label>
+            {personalizationPreview !== null && (
+              <p>
+                {messages.personalizationImportSummary(
+                  personalizationPreview.dictionary_count,
+                  personalizationPreview.snippet_count,
+                  personalizationPreview.conflicts,
+                )}
+              </p>
+            )}
+            <div className="actions">
+              <button
+                disabled={personalizationJson === ""}
+                onClick={() => void previewPersonalizationImport()}
+                type="button"
+              >
+                {messages.previewPersonalizationImport}
+              </button>
+              <button
+                disabled={personalizationPreview === null}
+                onClick={() => void commitPersonalizationImport()}
+                type="button"
+              >
+                {messages.commitPersonalizationImport}
+              </button>
+              <button
+                disabled={exportPersonalization.pending}
+                onClick={() => {
+                  void exportPersonalization.run(
+                    () => invoke<string>("personalization_export"),
+                    (fileName) => fileName,
+                  );
+                }}
+                type="button"
+              >
+                {exportPersonalization.pending ? messages.working : messages.exportPersonalization}
+              </button>
+              <button
+                className="destructive"
+                disabled={personalizationWrite.pending}
+                onClick={() => void resetPersonalization()}
+                type="button"
+              >
+                {personalizationWrite.pending ? messages.working : messages.resetPersonalization}
+              </button>
+            </div>
+          </div>
+        </SettingExpander>
+      </SettingGroup>
+      {vocabularyMessage !== "" && (
+        <output aria-live="polite" className="page-note">
+          {vocabularyMessage}
+        </output>
+      )}
     </>
   );
 }

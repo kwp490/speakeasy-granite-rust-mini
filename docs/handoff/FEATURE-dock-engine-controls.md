@@ -17,10 +17,10 @@ starts a fresh warm, and reports success only once the engine reports `ready`.
 
 - `runtime_recover` and `restart_granite_engine` in
   `apps/desktop/src-tauri/src/commands/dictation.rs`
-- Already surfaced as **Restart transcription engine** in
+- Already surfaced as **Restart engine** in
   `apps/desktop/src/settings/Advanced.tsx`, with the `awaitEngineReady` poll
-- Contract written up in `docs/UI-GUIDE.md`, "Restart transcription engine
-  claims nothing until the engine is ready"
+- Contract written up in `docs/UI-GUIDE.md`, "Restart engine claims
+  nothing until the engine is ready"
 
 Reuse it. Do not write a second recovery path.
 

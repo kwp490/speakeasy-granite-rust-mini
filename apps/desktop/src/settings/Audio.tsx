@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { messages } from "../catalog";
 import { formatError, formatState } from "./format";
+import { SettingGroup, SettingRow, StatusText } from "./Rows";
 import type { CaptureAudioSnapshot, CaptureDevice } from "./types";
 
 /**
@@ -16,7 +17,7 @@ import type { CaptureAudioSnapshot, CaptureDevice } from "./types";
 const SAMPLE_GAP_MS = 100;
 
 /**
- * Audio: device selection, input level, microphone status, refresh.
+ * Microphone: device selection, input level, microphone status, refresh.
  *
  * There are **no capture controls** here. Settings never starts, stops or
  * cancels a dictation — that is the transcriber's job and the shortcut's, and
@@ -146,85 +147,91 @@ export function Audio({ preferredId }: { preferredId: string }) {
     }
   }
 
+  const failed = audio?.error_code != null;
+
   return (
     <>
-      <section aria-labelledby="audio-device">
-        <h3 id="audio-device">{messages.audioDeviceSection}</h3>
-        <p className="setting-detail">{messages.audioDeviceDetail}</p>
-        {devices.length === 0 ? (
-          <p className="warning" role="alert">
-            {messages.noDevices}
-          </p>
-        ) : (
-          <label className="setting-field">
-            <span>{messages.microphone}</span>
-            <select
-              onChange={(event) => void chooseDevice(event.target.value)}
-              value={selected}
-            >
-              <option value="">{messages.selectMicrophone}</option>
-              {devices.map((device) => (
-                <option disabled={!device.supported} key={device.id} value={device.id}>
-                  {device.name}
-                  {device.is_default ? messages.defaultDeviceSuffix : ""}
-                  {device.supported ? "" : messages.unsupportedDeviceSuffix}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <div className="actions">
-          <button onClick={loadDevices} type="button">
-            {messages.refreshDevices}
-          </button>
-          <output aria-live="polite">{action}</output>
+      {audio?.error_code != null && (
+        <div className="infobar" data-tone="bad" role="alert">
+          <span aria-hidden="true" className="infobar-icon">
+            !
+          </span>
+          <div className="infobar-body">
+            <strong>{messages.captureFailed}</strong>
+            <span>{formatError(audio.error_code)}</span>
+          </div>
         </div>
-      </section>
-
-      <section aria-labelledby="audio-recording-behavior">
-        <h3 id="audio-recording-behavior">{messages.recordingBehaviorSection}</h3>
-        <p className="setting-detail">{messages.recordingBehaviorDetail}</p>
-      </section>
-
-      <section aria-labelledby="audio-level">
-        <h3 id="audio-level">{messages.inputLevelSection}</h3>
-        <label className="setting-field">
-          <span>{messages.inputLevel}</span>
-          <meter
-            className="input-level"
-            data-testid="settings-input-level"
-            high={0.85}
-            low={0.05}
-            max={1}
-            optimum={0.6}
-            value={audio?.level ?? 0}
-          />
-        </label>
-        {audio?.active !== true && (
-          <p className="setting-detail">{messages.inputLevelWhileDictating}</p>
-        )}
-      </section>
-
-      <section aria-labelledby="audio-health">
-        <h3 id="audio-health">{messages.deviceHealthSection}</h3>
-        <dl className="fact-grid">
-          <div>
-            <dt>{messages.captureStateLabel}</dt>
-            <dd>{formatState(audio?.state ?? "starting")}</dd>
-          </div>
-          <div>
-            <dt>{messages.deviceStatus}</dt>
-            <dd>
-              <bdi>{audio?.device_name ?? messages.unknown}</bdi>
-            </dd>
-          </div>
-        </dl>
-        {audio?.error_code != null && (
-          <p role="alert">
-            {messages.captureFailed} {formatError(audio.error_code)}
-          </p>
-        )}
-      </section>
+      )}
+      {devices.length === 0 && enumeration !== "pending" && (
+        <p className="warning" role="alert">
+          {messages.noDevices}
+        </p>
+      )}
+      <SettingGroup>
+        <SettingRow
+          control={
+            <>
+              <select
+                disabled={devices.length === 0}
+                id="audio-microphone"
+                onChange={(event) => void chooseDevice(event.target.value)}
+                value={selected}
+              >
+                <option value="">{messages.selectMicrophone}</option>
+                {devices.map((device) => (
+                  <option disabled={!device.supported} key={device.id} value={device.id}>
+                    {device.name}
+                    {device.is_default ? messages.defaultDeviceSuffix : ""}
+                    {device.supported ? "" : messages.unsupportedDeviceSuffix}
+                  </option>
+                ))}
+              </select>
+              <button
+                aria-label={messages.refreshDevicesLabel}
+                onClick={loadDevices}
+                type="button"
+              >
+                {messages.refreshDevices}
+              </button>
+            </>
+          }
+          detail={
+            <StatusText tone={failed ? "bad" : audio === null ? "neutral" : "ok"}>
+              {formatState(audio?.state ?? "starting")}
+              {audio?.device_name != null && (
+                <>
+                  {" · "}
+                  <bdi>{audio.device_name}</bdi>
+                </>
+              )}
+            </StatusText>
+          }
+          labelFor="audio-microphone"
+          title={messages.microphone}
+        >
+          {action !== "" && (
+            <output aria-live="polite" className="row-note">
+              {action}
+            </output>
+          )}
+        </SettingRow>
+        <SettingRow
+          control={
+            <meter
+              aria-label={messages.inputLevel}
+              className="input-level"
+              data-testid="settings-input-level"
+              high={0.85}
+              low={0.05}
+              max={1}
+              optimum={0.6}
+              value={audio?.level ?? 0}
+            />
+          }
+          detail={audio?.active === true ? undefined : messages.inputLevelWhileDictating}
+          title={messages.inputLevel}
+        />
+      </SettingGroup>
     </>
   );
 }

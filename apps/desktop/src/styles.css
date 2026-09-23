@@ -1,26 +1,33 @@
 :root {
   color-scheme: light dark;
-  --surface: #f5f7f2;
+  /* The settings palette: neutral greys with no tint and one accent, in the
+     manner of Windows 11 Settings. Measured against --surface-raised (#fff):
+     --text 17.4:1, --text-muted 6.7:1, --accent 5.4:1 (and white on it),
+     --warning 6.3:1, --danger 5.7:1, --border-strong 3.45:1. The dark block
+     below clears the same thresholds against #2b2b2b. */
+  --surface: #f3f3f3;
   --surface-raised: #ffffff;
-  --text: #17201c;
-  --text-muted: #4c5c52;
-  /* Red carried four unrelated meanings — brand emphasis, eyebrows, the
+  --surface-hover: #f6f6f6;
+  --text: #1a1a1a;
+  --text-muted: #5c5c5c;
+  /* Red carried four unrelated meanings once — brand emphasis, eyebrows, the
      active tab and warnings — so none of them meant anything operationally.
-     It is split here: --accent is interactive/brand, --recording is active
-     capture, and --warning and --danger keep their own meanings. */
-  --accent: #8d3524;
+     It is split: --accent is interactive emphasis and is blue, --recording is
+     active capture, and --warning and --danger keep their own meanings. */
+  --accent: #0f6cbd;
+  --accent-text: #ffffff;
   --recording: #c2442c;
-  --success: #216e3a;
-  --warning: #8a4d00;
-  --danger: #a21f2d;
-  --border: #9ca79f;
+  --success: #0e700e;
+  --warning: #8a5300;
+  --warning-soft: #fff8e6;
+  --danger: #c42b1c;
+  --danger-soft: #fdf3f4;
   /* Dividers and control boundaries are different jobs. `--border` separates
      regions; `--border-strong` outlines things a user operates, which WCAG 1.4.11
-     holds to 3:1 because it is how a control is identified at all. Measured:
-     `--border` is 2.31:1 on the light surface, which is fine for a divider and
-     was not fine for every button in the workspace. */
-  --border-strong: #5d6b62;
-  --focus: #005fcc;
+     holds to 3:1 because it is how a control is identified at all. */
+  --border: #e3e3e3;
+  --border-strong: #8a8a8a;
+  --focus: #1a1a1a;
   /* ── The transcriber's own palette ───────────────────────────────────────
      Deliberately theme-independent. The transcriber is an always-on-top overlay
      that has to stay legible over whatever window happens to be behind it, so it
@@ -1207,16 +1214,6 @@ main {
   width: min(1200px, calc(100% - var(--space-6)));
 }
 
-/* Interface type is the sans-serif set on `:root`. Three separate rules used to
-   opt eyebrows, term labels and buttons into Trebuchet MS, which was the last of
-   the old identity left in the workspace. */
-.eyebrow {
-  color: var(--accent);
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-/* 3rem was a landing-page heading. This is a settings workspace 880 px wide. */
 h1 {
   font-size: 1.75rem;
   letter-spacing: 0;
@@ -1225,20 +1222,20 @@ h1 {
 
 dt {
   color: var(--text-muted);
-  font-size: 1rem;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 dd {
-  margin: var(--space-2) 0 0;
+  margin: 0;
 }
 
+/* Transcript text: one of the two surfaces that opt back into a serif. */
 .result-text {
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 1.1rem;
-  line-height: 1.6;
-  margin: var(--space-4) 0;
-  max-height: 280px;
+  font-size: 1.02rem;
+  line-height: 1.55;
+  margin: 0;
+  max-height: 240px;
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1248,80 +1245,18 @@ dd {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3);
-}
-
-.section-heading {
-  align-items: baseline;
-  display: flex;
-  gap: var(--space-4);
-  justify-content: space-between;
-}
-
-.section-heading h2,
-.model-row h3 {
-  margin: 0;
-}
-
-/* Deliberately no `text-transform: capitalize`. It was applied when this only
-   ever held a single state word, and it title-cased the session-log's
-   "1 transcript this session" into "1 Transcript This Session". Catalog strings
-   arrive correctly cased; re-casing them can only make them wrong. */
-.section-heading output {
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  text-align: right;
+  gap: var(--space-2);
 }
 
 .warning {
   color: var(--warning);
 }
 
-.model-row {
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  display: grid;
-  gap: var(--space-4);
-  margin: var(--space-3) 0;
-  padding: var(--space-4);
-}
-
-.model-row p {
-  line-height: 1.5;
-  margin: var(--space-2) 0 0;
-}
-
-.confirmation {
-  align-items: flex-start;
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  display: flex;
-  gap: var(--space-3);
-  line-height: 1.5;
-  min-height: 48px;
-  padding: var(--space-3);
-}
-
-.confirmation input {
-  flex: 0 0 auto;
-  height: 20px;
-  margin-top: 2px;
-  width: 20px;
-}
-
-.confirmation strong,
-.confirmation small {
-  display: block;
-}
-
-.confirmation small {
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  margin-top: 2px;
-}
-
+/* ── Controls ──────────────────────────────────────────────────────────────
+   One button, one select and one text field for the whole workspace. The
+   outline is `--border-strong`, which WCAG 1.4.11 holds to 3:1 because it is
+   how a control is identified at all. 40px tall: the input target minimum in
+   UI-GUIDE "Components". */
 button {
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
@@ -1329,148 +1264,119 @@ button {
   color: var(--text);
   cursor: pointer;
   font: inherit;
+  font-size: 0.94rem;
   min-height: 40px;
-  padding: var(--space-2) var(--space-4);
+  padding: 0 var(--space-4);
 }
 
 button:hover:not(:disabled) {
-  border-color: var(--accent);
+  background: var(--surface-hover);
 }
 
-/* Destructive actions name their scope in the label; the border carries the
-   warning without relying on colour alone to convey it. */
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+
+/* Destructive actions name their scope in the label; the colour repeats it and
+   is never the only signal. */
 button.destructive {
   border-color: var(--danger);
   color: var(--danger);
 }
 
-button:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 3px;
+/* A text-weight action inside a list row: Remove beside a correction. */
+button.link {
+  background: none;
+  border-color: transparent;
+  color: var(--accent);
+  min-height: 32px;
+  padding: 0 var(--space-2);
 }
 
-/* ── First-run setup ───────────────────────────────────────────────────────
-   A compact vertical stepper, shown only while setup is unfinished or the user
-   asks to walk it again. It replaces a seven-column progress grid that used to
-   sit above every settings page permanently — scaffolding for a one-time task,
-   which at 720 px wide gave each of seven columns barely 90 px. */
-.setup {
+button.link.destructive {
+  color: var(--danger);
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.settings select,
+.settings input:not([type="checkbox"]),
+.settings textarea {
   background: var(--surface-raised);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  margin-bottom: var(--space-6);
-  padding: var(--space-5);
-}
-
-.setup-steps {
-  display: grid;
-  gap: var(--space-2);
-  list-style: none;
-  margin: var(--space-4) 0;
-  padding: 0;
-}
-
-.setup-steps li {
-  border-left: 4px solid var(--border);
-  color: var(--text-muted);
-  padding: var(--space-1) 0 var(--space-1) var(--space-3);
-}
-
-.setup-step-label {
-  align-items: baseline;
-  display: flex;
-  gap: var(--space-2);
-}
-
-.setup-steps li[data-state="done"] {
-  border-left-color: var(--success);
-}
-
-.setup-steps li[data-state="current"] {
-  border-left-color: var(--accent);
+  box-sizing: border-box;
   color: var(--text);
-  font-weight: 700;
+  font: inherit;
+  font-size: 0.94rem;
+  max-width: 100%;
+  min-height: 40px;
+  padding: 0 var(--space-2);
 }
 
-.setup-step-note {
-  color: var(--success);
-  font-size: 0.78rem;
-  font-weight: 400;
+/* A `select` sizes itself to its longest option and does not shrink below that
+   on its own, which once pushed the content column past the window. Bounded
+   here, and long option text truncates. */
+.settings select {
+  max-width: 280px;
+  text-overflow: ellipsis;
 }
 
-/* Only the current step is expanded; its body carries normal-weight prose. */
-.setup-step-body {
-  font-weight: 400;
-  margin-top: var(--space-2);
-}
-
-.setup-step-body p {
-  line-height: 1.5;
-  margin: 0 0 var(--space-2);
-  max-width: 60ch;
-}
-
-/* ── The settings workspace ────────────────────────────────────────────────
-   A compact product header, a stable rail and one readable content column.
-   The page remains the only scroll region: the rail is sticky but never owns
-   overflow, and the narrow tab grid never scrolls sideways. */
-.settings {
-  margin: 0;
-  padding: 0 0 calc(var(--space-6) * 2);
+.settings textarea {
+  min-height: 88px;
+  padding: var(--space-2);
+  resize: vertical;
   width: 100%;
 }
 
-.settings-header {
-  align-items: center;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  gap: var(--space-3);
-  min-height: 72px;
-  padding: var(--space-3) clamp(var(--space-4), 4vw, 48px);
+.settings select:disabled {
+  opacity: 0.55;
 }
 
-.settings-mark {
-  align-items: center;
-  background: var(--hud-accent);
-  border-radius: 10px;
-  color: var(--hud-accent-text);
-  display: flex;
-  flex: 0 0 38px;
-  font-weight: 800;
-  height: 38px;
-  justify-content: center;
-}
-
-.settings-title {
-  flex: 1;
-  min-width: 0;
-}
-
-.settings-title h1 {
-  font-size: clamp(1.35rem, 2.5vw, 1.7rem);
-  font-weight: 750;
-  letter-spacing: -0.015em;
+/* `pre` does not wrap by default, so an untrusted snippet body on one long line
+   would scroll the page sideways. UI-GUIDE requires `<pre>` with wrapping. */
+.settings pre {
+  font: inherit;
   margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
-.settings-title p,
-.settings-version {
-  color: var(--text-muted);
-  font-size: 0.88rem;
+/* ── The settings workspace ────────────────────────────────────────────────
+   A nav rail and one content column. The content column is the only scroll
+   region; the rail is sticky and never owns overflow. */
+.settings {
   margin: 0;
-}
-
-.settings-version {
-  text-align: right;
+  padding: 0;
+  width: 100%;
 }
 
 .settings-body {
   display: grid;
-  gap: clamp(var(--space-6), 6vw, 80px);
-  grid-template-columns: 224px minmax(0, 1fr);
+  gap: var(--space-5);
+  grid-template-columns: 220px minmax(0, 1fr);
   margin: 0 auto;
-  max-width: 1240px;
-  padding: var(--space-6) clamp(var(--space-4), 4vw, 48px) 0;
+  max-width: 1120px;
+  padding: var(--space-4) var(--space-5) var(--space-6) var(--space-3);
 }
 
 .settings-rail {
@@ -1478,243 +1384,518 @@ button:focus-visible {
   display: grid;
   gap: 2px;
   position: sticky;
-  top: var(--space-5);
+  top: var(--space-4);
 }
 
 .settings-rail button {
   background: transparent;
   border: 0;
-  border-left: 3px solid transparent;
   border-radius: var(--radius);
-  color: var(--text-muted);
-  min-height: 44px;
-  padding: 10px 14px;
+  color: var(--text);
+  font-size: 0.94rem;
+  min-height: 40px;
+  padding: 0 var(--space-3) 0 var(--space-4);
+  position: relative;
   text-align: left;
 }
 
 .settings-rail button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--surface-raised) 58%, var(--surface));
-  border-color: transparent;
-  color: var(--text);
+  background: var(--surface-hover);
 }
 
 .settings-rail button[aria-selected="true"] {
-  background: color-mix(in srgb, var(--surface-raised) 58%, var(--surface));
-  border-left-color: var(--accent);
-  color: var(--text);
-  font-weight: 700;
+  background: var(--surface-raised);
+  font-weight: 600;
 }
 
-/* Content is bounded for readable line length regardless of window width. */
+/* The selected page's pill. A shape as well as a fill, so the current page is
+   marked by more than a tint. */
+.settings-rail button[aria-selected="true"]::before {
+  background: var(--accent);
+  border-radius: 3px;
+  bottom: 11px;
+  content: "";
+  left: 0;
+  position: absolute;
+  top: 11px;
+  width: 3px;
+}
+
 .settings-content {
   max-width: 760px;
   min-width: 0;
+}
+
+.settings-page-title {
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  margin: var(--space-1) 0 var(--space-4);
 }
 
 [role="tabpanel"] {
   padding-bottom: var(--space-6);
 }
 
-.settings-page-header {
-  padding-bottom: var(--space-5);
-}
-
-.settings-page-header .eyebrow {
-  font-size: 0.8rem;
-  letter-spacing: 0.08em;
-  margin: 0 0 var(--space-1);
-}
-
-.settings-page-header h2 {
-  font-size: clamp(1.65rem, 3vw, 2.1rem);
-  letter-spacing: -0.025em;
-  line-height: 1.2;
-  margin: 0;
-}
-
-.settings-page-header > p:last-child {
-  color: var(--text-muted);
-  line-height: 1.5;
-  margin: var(--space-2) 0 0;
-  max-width: 60ch;
-}
-
-[role="tabpanel"] > section {
-  border-top: 1px solid var(--border);
-  margin-top: 0;
-  padding: var(--space-5) 0;
-}
-
-[role="tabpanel"] h3 {
-  font-size: 1rem;
+/* Page-level notices: a refused profile write, an unreadable read. */
+.settings-content > p.warning,
+[role="tabpanel"] > p.warning {
+  background: var(--warning-soft);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
+  color: var(--text);
   margin: 0 0 var(--space-3);
-}
-
-.setting-detail,
-.setting-status {
-  line-height: 1.5;
-  margin: 0 0 var(--space-3);
-  max-width: 60ch;
-}
-
-.setting-status {
-  align-items: center;
-  background: color-mix(in srgb, var(--surface-raised) 58%, var(--surface));
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  display: inline-flex;
-  gap: var(--space-2);
-  font-weight: 700;
-  padding: var(--space-1) var(--space-2);
-}
-
-.setting-status::before {
-  background: var(--success);
-  border-radius: 50%;
-  content: "";
-  height: 7px;
-  width: 7px;
-}
-
-.settings section > .actions {
-  margin-top: var(--space-3);
-}
-
-.settings section > .confirmation + .confirmation {
-  margin-top: var(--space-2);
-}
-
-.settings p.warning {
-  background: color-mix(in srgb, var(--warning) 7%, var(--surface));
-  border-left: 3px solid var(--warning);
-  border-radius: 0 var(--radius) var(--radius) 0;
   padding: var(--space-2) var(--space-3);
 }
 
-.setting-fields {
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  display: grid;
+.page-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  margin: var(--space-3) 0;
-  padding: var(--space-4);
+  margin-bottom: var(--space-2);
 }
 
-.setting-fields label,
-.setting-field {
+.page-note,
+.page-actions output {
+  color: var(--text-muted);
+  display: block;
+  font-size: 0.88rem;
+  margin-top: var(--space-2);
+}
+
+.page-footer {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: var(--space-5) 0 0;
+}
+
+/* ── Groups and rows ───────────────────────────────────────────────────────
+   A group is a small label over one card; a card holds rows separated by a
+   hairline. Every setting on every page is one of these. */
+.setting-group {
+  margin-top: var(--space-4);
+}
+
+.setting-group-heading {
+  align-items: baseline;
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+}
+
+.setting-group-heading output {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.setting-group-label {
+  font-size: 0.94rem;
+  font-weight: 600;
+  margin: 0 0 var(--space-2);
+}
+
+.setting-group-detail {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  margin: 0 0 var(--space-2);
+}
+
+.setting-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.setting-row + .setting-row,
+.setting-row + .setting-expander,
+.setting-expander + .setting-row,
+.setting-expander + .setting-expander {
+  border-top: 1px solid var(--border);
+}
+
+.setting-row-main {
+  align-items: center;
+  display: flex;
+  gap: var(--space-4);
+  min-height: 64px;
+  padding: var(--space-2) var(--space-4);
+}
+
+.setting-row-label {
   display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  max-width: 360px;
+  flex: 1 1 auto;
+  gap: 2px;
   min-width: 0;
 }
 
-.settings section > .setting-field {
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  margin: var(--space-3) 0;
-  max-width: none;
-  padding: var(--space-4);
+.setting-row-title {
+  font-size: 0.97rem;
 }
 
-/* A `select` sizes itself to its longest option, and it does not shrink below
-   that on its own. One option here reads "Hands-free (press to start, automatic
-   stop is not implemented; use Stop)", which was wide enough to push the content
-   column past the window and produce a horizontal scrollbar — banned outright by
-   UI-GUIDE's responsive rules. Every control is bounded by its container
-   instead, and long option text truncates. */
-.settings select,
-.settings input,
-.settings textarea,
-.settings progress,
-.settings meter {
-  box-sizing: border-box;
-  max-width: 100%;
+.setting-row-detail {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
 }
 
-.settings select,
-.settings input,
-.settings textarea {
+.setting-row-control {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.setting-row-value {
+  color: var(--text-muted);
+  font-size: 0.94rem;
+  text-align: right;
+}
+
+/* A note belonging to one row: a save result, a refusal, a warning. */
+.row-note {
+  color: var(--text-muted);
+  display: block;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.row-note.warning,
+p.warning.row-note {
+  color: var(--warning);
+}
+
+.setting-row > p.warning:not(.row-note) {
+  color: var(--warning);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+/* A status word with a mark. The mark and the word both carry it. */
+.status-text {
+  font-size: 0.84rem;
+}
+
+.status-text[data-tone="ok"] {
+  color: var(--success);
+}
+
+.status-text[data-tone="bad"] {
+  color: var(--danger);
+}
+
+.status-text[data-tone="warn"] {
+  color: var(--warning);
+}
+
+.status-text[data-tone="neutral"] {
+  color: var(--text-muted);
+}
+
+.keycap {
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 0.84rem;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.shortcut-recorder {
+  border-color: var(--accent);
+  border-style: dashed;
+  color: var(--accent);
+}
+
+/* ── Switch ────────────────────────────────────────────────────────────────
+   A native checkbox with `role="switch"`, drawn as a track. The input stays in
+   the layout, transparent over the track, so it keeps its own hit target and
+   keyboard behaviour. The word beside it says On or Off. */
+.switch {
+  align-items: center;
+  cursor: pointer;
+  display: inline-flex;
+  gap: var(--space-2);
+  min-height: 40px;
+  position: relative;
+}
+
+.switch-word {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  min-width: 2em;
+  text-align: right;
+}
+
+.switch input {
+  cursor: pointer;
+  height: 40px;
+  margin: 0;
+  opacity: 0;
+  position: absolute;
+  right: -2px;
+  width: 48px;
+}
+
+.switch-track {
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  color: var(--text);
-  font: inherit;
-  min-height: 40px;
-  padding: var(--space-2);
+  border-radius: 10px;
+  box-sizing: border-box;
+  height: 20px;
+  position: relative;
+  transition: background 0.12s;
+  width: 40px;
 }
 
-.settings select {
-  text-overflow: ellipsis;
-  width: 100%;
+.switch-track::after {
+  background: var(--text-muted);
+  border-radius: 50%;
+  content: "";
+  height: 12px;
+  left: 3px;
+  position: absolute;
+  top: 3px;
+  transition: left 0.12s;
+  width: 12px;
 }
 
-.settings textarea {
-  min-height: 96px;
-  width: 100%;
+.switch input:checked + .switch-track {
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
-/* Checkbox and radio inputs are sized by the `.confirmation` row, not stretched. */
-.settings .confirmation input {
+.switch input:checked + .switch-track::after {
+  background: var(--accent-text);
+  left: 23px;
+}
+
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.switch input:disabled,
+.switch input:disabled + .switch-track {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* ── Infobar ───────────────────────────────────────────────────────────────
+   The one page-level status surface: why the last dictation produced nothing,
+   or why the microphone stopped. Bordered and lightly tinted rather than
+   filled, so body text stays on a surface whose contrast is measured. The
+   icon and the bold title say the severity in words. */
+.infobar {
+  align-items: flex-start;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+
+.infobar-icon {
+  background: var(--danger);
+  border-radius: 50%;
+  color: var(--surface-raised);
+  display: grid;
+  flex: none;
+  font-size: 0.8rem;
+  font-weight: 700;
+  height: 20px;
+  place-items: center;
   width: 20px;
 }
 
-/* `pre` does not wrap by default, so an untrusted snippet body or transcript on
-   one long line would scroll the page sideways. UI-GUIDE requires `<pre>` *with
-   wrapping* for exactly this reason. */
-.settings pre {
-  margin: var(--space-2) 0;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+.infobar-body {
+  display: grid;
+  flex: 1;
+  font-size: 0.92rem;
+  gap: 2px;
+  line-height: 1.45;
+  min-width: 0;
 }
 
-.input-level {
-  height: 14px;
+.infobar-muted {
+  color: var(--text-muted);
+}
+
+/* A confirmation opened inside a row, before something is written or deleted. */
+.confirm-panel {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 var(--space-4) var(--space-3);
+  padding: var(--space-3);
+}
+
+.confirm-panel[data-tone="bad"] {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+
+.confirm-panel p {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* ── Expander rows ─────────────────────────────────────────────────────── */
+.setting-expander > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.setting-expander > summary::-webkit-details-marker {
+  display: none;
+}
+
+.setting-expander > summary:hover {
+  background: var(--surface-hover);
+}
+
+.setting-expander-chevron {
+  color: var(--text-muted);
+  display: inline-block;
+  font-size: 1.2rem;
+  transition: transform 0.12s;
+}
+
+.setting-expander[open] .setting-expander-chevron {
+  transform: rotate(90deg);
+}
+
+.setting-expander > summary .setting-row-control {
+  align-items: center;
+  display: flex;
+  gap: var(--space-3);
+}
+
+.setting-expander-body {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+.setting-expander-body .row-note {
+  padding: 0;
+}
+
+.pairs {
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  width: 100%;
+}
+
+.pairs th,
+.pairs td {
+  border-top: 1px solid var(--border);
+  padding: var(--space-1) var(--space-2) var(--space-1) 0;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.pairs th {
+  border-top: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.pairs td:last-child,
+.pairs th:last-child {
+  text-align: right;
+  width: 1%;
+}
+
+.pairs input {
   width: 100%;
 }
 
 .plain-list {
   display: grid;
-  gap: var(--space-2);
+  gap: 0;
   list-style: none;
-  margin: var(--space-3) 0 0;
+  margin: 0;
   padding: 0;
 }
 
-/* ── Disclosure panels ──────────────────────────────────────────────────── */
-.disclosure {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  margin: var(--space-3) 0;
-  padding: var(--space-2) var(--space-3);
+.snippet {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  padding: var(--space-2) 0;
 }
 
-.disclosure > summary {
-  cursor: pointer;
-  font-weight: 700;
-  min-height: 32px;
-  padding: var(--space-1) 0;
+.snippet-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 
-.disclosure > summary:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
+.stacked-fields {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
 }
 
-.disclosure-hint {
-  color: var(--text-muted);
-  line-height: 1.5;
-  margin: var(--space-1) 0 var(--space-3);
+.stacked-fields label {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
 }
 
-/* Exact identifiers: truncated so a long revision cannot stretch the column, a
-   full-value tooltip on hover, and one click selects the whole value so Ctrl+C
-   copies it. There is no Copy button by design — that would need a command that
-   writes arbitrary frontend text to the clipboard, which is broader authority
-   than anything this app grants. */
+.stacked-fields label > span {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.input-level {
+  height: 10px;
+  width: 200px;
+}
+
+/* Exact identifiers, one per line. Truncated so a long revision cannot stretch
+   the column, with the full value on hover; one click selects the whole value
+   so Ctrl+C copies it. There is no Copy button by design -- that would need a
+   command that writes arbitrary frontend text to the clipboard. */
+.raw-values {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.raw-values div {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: 180px minmax(0, 1fr);
+}
+
+.raw-values dt {
+  font-size: 0.86rem;
+  font-weight: 400;
+}
+
+.raw-values dd {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 0.82rem;
+}
+
 .exact-value {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1722,180 +1903,72 @@ button:focus-visible {
   white-space: nowrap;
 }
 
-/* ── The session transcript log ─────────────────────────────────────────── */
+/* ── The transcript list ───────────────────────────────────────────────────
+   Shared by the History page and the pinned log window. */
+.session-log {
+  margin-top: var(--space-2);
+}
+
+.session-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
 .session-log-entry {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: var(--space-3);
-}
-
-.session-log-meta {
-  align-items: center;
-  color: var(--text-muted);
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  margin-bottom: var(--space-2);
-}
-
-.session-log-entry .result-text {
-  margin: 0;
-  max-height: 160px;
-}
-
-.warning-panel {
-  border: 1px solid var(--warning);
-  border-radius: var(--radius);
+  align-items: flex-start;
   display: grid;
   gap: var(--space-3);
-  margin: var(--space-3) 0;
-  padding: var(--space-3);
-}
-
-/* The last dictation's failure, at the top of Transcription.
-
-   Bordered in --danger rather than filled with it: this panel carries two
-   paragraphs of prose, and body text on a saturated fill is where the contrast
-   proof has caught this design before. The border and the heading colour carry
-   the severity; the text stays on the page surface where it is measured
-   readable.
-
-   Colour is never the only signal here — the heading says the dictation
-   produced no text in words, which is what a forced-colors or monochrome
-   reader gets. */
-.status-panel {
-  border: 1px solid var(--danger);
-  border-radius: var(--radius);
-  display: grid;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-4);
-  padding: var(--space-3);
-}
-
-.status-panel h3 {
-  color: var(--danger);
-  margin: 0;
-}
-
-.status-panel p {
-  margin: 0;
-}
-
-
-fieldset {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  display: grid;
-  gap: var(--space-3);
-  margin: var(--space-4) 0;
-  min-width: 0;
-  padding: var(--space-4);
-}
-
-fieldset > label:not(.confirmation) {
-  display: grid;
-  gap: var(--space-2);
-  max-width: 320px;
-}
-
-/* A `fieldset` is a grid here, so a button would otherwise stretch the full
-   content width and read as a banner rather than an action. */
-.settings fieldset > button,
-.settings section > button {
-  justify-self: start;
-}
-
-.fact-grid {
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  display: block;
-  margin: var(--space-4) 0 0;
-  overflow: hidden;
-}
-
-.fact-grid div {
-  align-items: start;
-  display: grid;
-  gap: var(--space-4);
-  grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1.4fr);
-  min-width: 0;
-  padding: 13px var(--space-4);
-}
-
-.fact-grid div + div {
-  border-top: 1px solid var(--border);
-}
-
-.fact-grid dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-  text-align: right;
-}
-
-.settings-danger-zone,
-.settings-maintenance {
-  border-top-color: color-mix(in srgb, var(--danger) 55%, var(--border)) !important;
-}
-
-.settings-danger-zone .actions,
-.settings-maintenance .warning-panel {
-  background: color-mix(in srgb, var(--danger) 4%, var(--surface-raised));
-  border: 1px solid color-mix(in srgb, var(--danger) 60%, var(--border));
-  border-radius: 10px;
-  padding: var(--space-4);
-}
-
-.settings-action-list,
-.settings-danger-card {
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.settings-action-list > .actions {
-  margin: 0;
-  min-height: 64px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   padding: var(--space-3) var(--space-4);
 }
 
-.settings-action-list > .actions + .actions {
+.session-log-entry + .session-log-entry {
   border-top: 1px solid var(--border);
 }
 
-.settings-danger-card {
-  background: color-mix(in srgb, var(--danger) 4%, var(--surface-raised));
-  border-color: color-mix(in srgb, var(--danger) 60%, var(--border));
-  margin-top: var(--space-4);
+.session-log-time {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  padding-top: 3px;
+  white-space: nowrap;
+}
+
+.session-log-copy {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-log-copy output {
+  color: var(--success);
+  font-size: 0.78rem;
+}
+
+.session-log-empty {
+  color: var(--text-muted);
+  margin: 0;
   padding: var(--space-4);
-}
-
-.settings-danger-card .setting-detail {
-  margin-bottom: var(--space-3);
-}
-
-.tag {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  display: inline-block;
-  margin: 2px var(--space-1) 2px 0;
-  padding: 2px var(--space-2);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --surface: #121915;
-    --surface-raised: #1b2520;
-    --text: #f2f4ee;
-    --text-muted: #becabf;
-    --accent: #ff9a7f;
-    --success: #8ee0ab;
-    --warning: #ffd08a;
-    --danger: #ff9aa6;
-    --border: #66736b;
-    --border-strong: #8b9a90;
-    --focus: #8bc4ff;
+    --surface: #202020;
+    --surface-raised: #2b2b2b;
+    --surface-hover: #323232;
+    --text: #ffffff;
+    --text-muted: #c5c5c5;
+    --accent: #60cdff;
+    --accent-text: #000000;
+    --success: #6ccb5f;
+    --warning: #fce100;
+    --warning-soft: #3a331a;
+    --danger: #ff99a4;
+    --danger-soft: #3b2426;
+    --border: #3d3d3d;
+    --border-strong: #9a9a9a;
+    --focus: #ffffff;
     /* The transcriber's own tokens are deliberately absent here. Its surface does
        not follow the system theme, so flipping its palette is what produced the
        1.9:1 primary button in the first place. */
@@ -1907,21 +1980,19 @@ fieldset > label:not(.confirmation) {
     forced-color-adjust: auto;
   }
 
-  /* Both the rail's selected page and the stepper's current step are marked by a
-     border colour, which forced-colors would otherwise flatten away — leaving no
-     indication of where the user is. */
-  .settings-rail button[aria-selected="true"],
-  .setup-steps li[data-state="current"] {
-    border-bottom-color: Highlight;
-    border-left-color: Highlight;
+  /* The selected page is marked by a pill and a fill, both of which
+     forced-colors flattens; a system-coloured outline keeps it findable. */
+  .settings-rail button[aria-selected="true"] {
+    outline: 2px solid Highlight;
   }
 
-  .setting-status::before {
+  .switch-track,
+  .switch input:checked + .switch-track {
+    border-color: ButtonText;
+  }
+
+  .switch input:checked + .switch-track::after {
     background: Highlight;
-  }
-
-  .setup-steps li[data-state="done"] {
-    border-left-color: GrayText;
   }
 }
 
@@ -1934,11 +2005,6 @@ fieldset > label:not(.confirmation) {
   }
 }
 
-button:disabled {
-  cursor: wait;
-  opacity: 0.6;
-}
-
 @media (max-width: 560px) {
   /* Not the dock. It is a 62px window, so it always matches this query, and
      this selector outranks `.hud-dock` — which silently gave the card 24px of
@@ -1946,57 +2012,21 @@ button:disabled {
   main:not(.settings, .hud-dock) {
     padding: var(--space-5) 0;
   }
-
-  .section-heading {
-    align-items: start;
-    flex-direction: column;
-  }
 }
 
-/* Below 760 px the rail becomes a fixed 3x2 grid above the content. All six
-   pages stay visible and the same tablist keyboard pattern remains; unlike a
-   horizontally scrolling strip, it adds no second scroll region. */
+/* The window's minimum is 720px, so below 760 the rail narrows rather than
+   moving: every page stays one click away and no second scroll region appears. */
 @media (max-width: 760px) {
   .settings-body {
+    gap: var(--space-4);
+    grid-template-columns: 168px minmax(0, 1fr);
+    padding-left: var(--space-2);
+    padding-right: var(--space-3);
+  }
+
+  .raw-values div {
     grid-template-columns: minmax(0, 1fr);
-    padding-top: var(--space-4);
-  }
-
-  .settings-rail {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    position: static;
-  }
-
-  .settings-rail button {
-    border-bottom: 4px solid transparent;
-    border-left: 0;
-    min-width: 0;
-    padding-inline: var(--space-2);
-    text-align: center;
-  }
-
-  .settings-rail button[aria-selected="true"] {
-    border-bottom-color: var(--accent);
-    border-left-color: transparent;
-  }
-}
-
-@media (max-width: 520px) {
-  .settings-rail {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .fact-grid div {
-    gap: 2px;
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .fact-grid dd {
-    text-align: left;
-  }
-
-  .settings-version {
-    display: none;
+    gap: 0;
   }
 }
 
