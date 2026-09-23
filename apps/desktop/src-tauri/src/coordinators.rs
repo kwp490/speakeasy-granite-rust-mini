@@ -1353,6 +1353,81 @@ impl HistoryCoordinator {
     /// transcript went, and is not known until then. The bool is returned rather
     /// than dropped because "refused by policy" and "stored" are different
     /// outcomes the diagnostic log has to tell apart.
+    /// Applies a history setting to the repository, the profile file and the
+    /// cached profile together, or to none of them.
+    ///
+    /// A failure at any step restores the repository policy and leaves the file
+    /// and cache as they were, so the error the caller reports describes the
+    /// state it will keep observing. Retention runs before the file is written
+    /// because it is the step most likely to fail; the rows it removes are the
+    /// ones the new policy asked to remove, and they stay removed if the save
+    /// then fails.
+    fn configure(
+        &self,
+        profile: &ProfileCoordinator,
+        settings: Settings,
+        policy: HistoryPolicy,
+        now_unix_ms: i64,
+    ) -> Result<(), &'static str> {
+        let mut slot = self
+            .repository
+            .lock()
+            .map_err(|_| "history_state_unavailable")?;
+        if let Some(repository) = slot.as_mut() {
+            let previous = repository.policy().clone();
+            repository
+                .set_policy(policy)
+                .map_err(|_| "history_policy_invalid")?;
+            let committed = repository
+                .apply_retention(now_unix_ms)
+                .map_err(|_| "history_retention_failed")
+                .and_then(|_| profile.save(&settings));
+            if let Err(error) = committed {
+                // `previous` was accepted when it was set, so it validates again.
+                let _ = repository.set_policy(previous);
+                return Err(error);
+            }
+        } else {
+            profile.save(&settings)?;
+        }
+        drop(slot);
+        *profile
+            .settings
+            .lock()
+            .map_err(|_| "profile_state_unavailable")? = settings;
+        Ok(())
+    }
+
+    /// Deletes every persisted row, then reopens the database.
+    ///
+    /// `HistoryRepository::delete_all` consumes the repository, so the slot is
+    /// refilled on every outcome: an empty slot makes each later dictation skip
+    /// history without an error anywhere. The outer error is the delete's; the
+    /// inner one is a reopen failure after a successful delete, which the caller
+    /// reports only once it has dropped what the deleted rows seeded.
+    fn delete_all(&self) -> Result<Result<(), &'static str>, &'static str> {
+        let mut slot = self
+            .repository
+            .lock()
+            .map_err(|_| "history_state_unavailable")?;
+        let repository = slot.take().ok_or("history_unavailable")?;
+        let policy = repository.policy().clone();
+        let deleted = repository.delete_all();
+        *slot = HistoryRepository::open(&self.database_path, policy).ok();
+        let reopened = if slot.is_some() {
+            Ok(())
+        } else {
+            *self
+                .initialization_error
+                .lock()
+                .map_err(|_| "history_state_unavailable")? = Some("history_recovery_required");
+            Err("history_recovery_required")
+        };
+        drop(slot);
+        deleted.map_err(|_| "history_delete_failed")?;
+        Ok(reopened)
+    }
+
     fn persist(&self, result: &TranscriptResult) -> Result<HistoryWrite, &'static str> {
         let mut slot = self
             .repository

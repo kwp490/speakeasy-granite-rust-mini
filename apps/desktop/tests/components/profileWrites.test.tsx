@@ -197,3 +197,39 @@ test("a second profile write is refused while the first is still in flight", asy
     expect(checked(explicitCopy())).toBe(true);
   });
 });
+
+/**
+ * A failed Retry is reported even when the status re-read after it fails too.
+ *
+ * The re-read retries for seconds before it gives up, and the failure message
+ * used to be set only after it returned -- so when both failed, the handler
+ * rejected and the message was never shown.
+ */
+test("a failed retry is reported when the status re-read also fails", async () => {
+  const double = install(
+    invokeDouble({
+      profile_status: profileStatus(),
+      result_status: {
+        state: "failed",
+        text: null,
+        provenance: null,
+        input_samples: null,
+        final_segments: null,
+        draft_revisions: null,
+        error_code: null,
+        retry_available: true,
+      },
+    }),
+  );
+  render(<Page />);
+
+  const retry = await screen.findByRole("button", { name: messages.retryTranscription });
+  await waitFor(() => {
+    expect((retry as HTMLButtonElement).disabled).toBe(false);
+  });
+  double.reject("dictation_retry", "retry_unavailable");
+  double.reject("result_status", "result_state_unavailable");
+  fireEvent.click(retry);
+
+  expect(await screen.findByText(messages.retryFailed)).toBeDefined();
+});

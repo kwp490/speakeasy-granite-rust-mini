@@ -707,6 +707,13 @@ export const messages = {
       "Keeping transcripts on disk needs the plaintext acknowledgement above. Tick it, then save again.",
     history_export_disclosure_required:
       "Exporting transcripts writes them in plain text, which needs the acknowledgement above.",
+    // A history setting changes the database policy, the settings file and the
+    // cached profile together, so either failure leaves the previous setting in
+    // force -- which is what these say.
+    history_retention_failed:
+      "The history setting was not changed, because older transcripts could not be removed. Close any other copy of SpeakEasy Mini and try again.",
+    profile_save_failed:
+      "The settings file could not be written, so the change was not saved. Check free space and permission on your profile folder, then try again.",
     history_policy_invalid:
       "That retention period is outside the allowed range. Choose between 1 and 365 days.",
     history_delete_failed:

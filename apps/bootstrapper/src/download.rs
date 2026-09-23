@@ -779,14 +779,17 @@ fn execute(plan: &Plan, progress: &Progress, cancel: &CancelToken) -> Result<(),
             progress
                 .verifying
                 .store(is_already_complete(request), Ordering::Relaxed);
-            download_to_file(request, &policy, cancel)
-                .map_err(|error| catalog::download_failed(item.label, &error.to_string()))?;
+            let fetched = download_to_file(request, &policy, cancel)
+                .map_err(|error| catalog::download_failed(item.label, &error.to_string()))?
+                .fetched_bytes;
             progress.verifying.store(false, Ordering::Relaxed);
             completed = completed.saturating_add(request.expected_bytes);
             progress.completed_bytes.store(completed, Ordering::Relaxed);
+            // What the network delivered, not what the manifest expects: a
+            // cached file that verified fetched nothing.
             progress
                 .transferred_bytes
-                .fetch_add(request.expected_bytes, Ordering::Relaxed);
+                .fetch_add(fetched, Ordering::Relaxed);
         }
         if let Ok(mut slot) = progress.partial.lock() {
             *slot = None;

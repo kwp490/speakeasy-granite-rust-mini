@@ -2,14 +2,6 @@
 
 #![allow(clippy::must_use_candidate)]
 
-mod live;
-
-pub use live::{
-    CONTROLLED_APPEND_ADAPTER_ID, CapabilityDecision, CapabilityEvidence, CapabilityRequest,
-    InsertionLedger, LedgerBatch, LiveDeliveryAdapter, LiveDeliveryOutcome, LiveDeliveryPolicy,
-    LiveDeliveryTransaction, OwnedRange, Reconciliation, reconcile_final,
-};
-
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::thread::{self, JoinHandle};
 

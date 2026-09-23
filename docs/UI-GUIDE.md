@@ -1391,7 +1391,8 @@ it fires more often on Granite's fluent output than on a transducer's. They were
 already disabled whenever Granite produced the transcript; Granite produces every
 transcript now, so the switches could only ever have been decorative.
 
-Cloud polish is not currently wired into the desktop app (see
-[ARCHITECTURE.md](ARCHITECTURE.md)); if it's connected later, credential
-values must never enter the WebView, and provider/model text, imported
+There is no cloud polish. Its settings fields were retired; a `cloud_polish`
+object in an older profile is kept on save but nothing reads it. If a cloud
+step is ever added, credential values must never enter the WebView, and
+provider/model text, imported
 prompts, transcript output, and suggestions must render only as inert text.

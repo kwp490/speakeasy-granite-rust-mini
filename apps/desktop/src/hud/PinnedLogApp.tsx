@@ -51,7 +51,7 @@ export function PinnedLogApp() {
 
   return (
     <main className="pinned-log" data-testid="pinned-log" onContextMenu={onContextMenu}>
-      <div className="pinned-log-chrome" data-drag-region>
+      <div className="pinned-log-chrome" data-tauri-drag-region>
         <span className="pinned-log-title">{messages.settingsGroups.log}</span>
         <button
           aria-label={messages.transcriptLogUnpin}

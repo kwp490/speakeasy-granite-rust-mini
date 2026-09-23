@@ -1680,7 +1680,7 @@ mod tests {
     /// `a_write_can_fail_after_the_repository_opened_successfully` in
     /// `speakeasy-storage` proves that shape is reachable; here it is driven
     /// through an oversized transcript, which is the one way to make `record`
-    /// return `Err` from this crate without a `rusqlite` dependency.
+    /// return `Err` from this crate without reaching into `SQLite` itself.
     ///
     /// The state asserted is the state production actually reads: the session
     /// transcript log the pinned window renders, the recoverable result, and
@@ -2565,6 +2565,146 @@ mod tests {
 
     /// A history coordinator with persistence switched on and the plaintext
     /// disclosure accepted, over a temporary root.
+    fn history_policy(retention_days: u16) -> HistoryPolicy {
+        HistoryPolicy {
+            enabled: true,
+            retention_days,
+            plaintext_disclosure_accepted: true,
+        }
+    }
+
+    fn with_retention(profile: &ProfileCoordinator, retention_days: u16) -> Settings {
+        let mut settings = profile.settings.lock().expect("settings").clone();
+        settings.privacy.persisted_history_enabled = true;
+        settings.privacy.history_plaintext_disclosure_accepted = true;
+        settings.privacy.history_retention_days = retention_days;
+        settings
+    }
+
+    fn repository_retention(history: &HistoryCoordinator) -> u16 {
+        history
+            .repository
+            .lock()
+            .expect("repository")
+            .as_ref()
+            .expect("repository open")
+            .policy()
+            .retention_days
+    }
+
+    /// A history setting that fails part-way leaves the repository, the file
+    /// and the cached profile all where they were. The retention step is made
+    /// to fail by holding the database's write lock from a second connection.
+    #[test]
+    fn a_failed_history_retention_changes_neither_the_policy_nor_the_profile() {
+        let root = tempfile::tempdir().expect("root");
+        let profile = ProfileCoordinator::new(root.path().to_path_buf());
+        let history = history_with_persistence(root.path());
+        let settled = with_retention(&profile, 30);
+        history
+            .configure(&profile, settled, history_policy(30), 0)
+            .expect("baseline configure");
+
+        let blocker = rusqlite::Connection::open(&history.database_path).expect("second connection");
+        blocker
+            .execute_batch("BEGIN IMMEDIATE;")
+            .expect("hold the write lock");
+        let result = history.configure(
+            &profile,
+            with_retention(&profile, 7),
+            history_policy(7),
+            i64::MAX,
+        );
+        blocker.execute_batch("ROLLBACK;").expect("release");
+
+        assert_eq!(result, Err("history_retention_failed"));
+        assert_eq!(repository_retention(&history), 30);
+        assert_eq!(
+            profile.settings.lock().expect("settings").privacy.history_retention_days,
+            30
+        );
+        let (on_disk, _) = profile.store.load().expect("profile on disk");
+        assert_eq!(on_disk.privacy.history_retention_days, 30);
+    }
+
+    #[test]
+    fn a_failed_profile_save_restores_the_history_policy() {
+        let root = tempfile::tempdir().expect("root");
+        let profile = ProfileCoordinator::new(root.path().to_path_buf());
+        let history = history_with_persistence(root.path());
+        // A directory where the save's temporary file belongs makes the save fail.
+        std::fs::create_dir_all(root.path().join("config/settings.json.tmp")).expect("blocker");
+
+        let result = history.configure(
+            &profile,
+            with_retention(&profile, 7),
+            history_policy(7),
+            0,
+        );
+
+        assert_eq!(result, Err("profile_save_failed"));
+        assert_eq!(repository_retention(&history), 30);
+        assert_eq!(
+            profile.settings.lock().expect("settings").privacy.history_retention_days,
+            30
+        );
+    }
+
+    /// A delete that fails still leaves an open repository, so the next
+    /// dictation is recorded rather than skipped. The delete is made to fail by
+    /// holding the WAL sidecar open without delete sharing, which lets `SQLite`
+    /// keep working but refuses the sidecar's removal.
+    #[test]
+    fn a_failed_history_delete_keeps_history_recording() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let root = tempfile::tempdir().expect("root");
+        let history = history_with_persistence(root.path());
+        assert_eq!(
+            history.persist(&transcript_row("before")),
+            Ok(HistoryWrite::Inserted)
+        );
+        let wal = PathBuf::from(format!("{}-wal", history.database_path.display()));
+        let holder = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x1 | 0x2) // FILE_SHARE_READ | FILE_SHARE_WRITE, no delete
+            .open(&wal)
+            .expect("hold the sidecar");
+
+        let result = history.delete_all();
+        drop(holder);
+
+        assert_eq!(result, Err("history_delete_failed"));
+        assert_eq!(
+            history.persist(&transcript_row("after")),
+            Ok(HistoryWrite::Inserted),
+            "a failed delete must not leave history silently off"
+        );
+    }
+
+    #[test]
+    fn a_reopen_failure_after_a_delete_is_reported_not_silent() {
+        let root = tempfile::tempdir().expect("root");
+        let opened = history_with_persistence(root.path());
+        let repository = opened.repository.lock().expect("repository").take();
+        assert!(repository.is_some(), "the database must open");
+        // The reopen path sits under a file, so reopening cannot succeed.
+        let file = root.path().join("not-a-directory");
+        std::fs::write(&file, b"x").expect("file");
+        let history = HistoryCoordinator {
+            database_path: file.join("speakeasy.sqlite3"),
+            export_root: root.path().join("exports"),
+            repository: Mutex::new(repository),
+            initialization_error: Mutex::new(None),
+        };
+
+        assert_eq!(history.delete_all(), Ok(Err("history_recovery_required")));
+        assert_eq!(
+            *history.initialization_error.lock().expect("error"),
+            Some("history_recovery_required")
+        );
+    }
+
     fn history_with_persistence(root: &Path) -> HistoryCoordinator {
         let mut settings = Settings::default();
         settings.privacy.persisted_history_enabled = true;

@@ -244,34 +244,22 @@ fn history_configure(
     settings.privacy.history_retention_days = retention_days;
     settings.privacy.history_plaintext_disclosure_accepted =
         enabled && plaintext_disclosure_accepted;
-    profile.save(&settings)?;
-    if let Some(repository) = history
-        .repository
-        .lock()
-        .map_err(|_| "history_state_unavailable")?
-        .as_mut()
-    {
-        repository
-            .set_policy(HistoryPolicy {
-                enabled,
-                retention_days,
-                plaintext_disclosure_accepted,
-            })
-            .map_err(|_| "history_policy_invalid")?;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-            .try_into()
-            .unwrap_or(i64::MAX);
-        repository
-            .apply_retention(now)
-            .map_err(|_| "history_retention_failed")?;
-    }
-    *profile
-        .settings
-        .lock()
-        .map_err(|_| "profile_state_unavailable")? = settings;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(i64::MAX);
+    history.configure(
+        &profile,
+        settings,
+        HistoryPolicy {
+            enabled,
+            retention_days,
+            plaintext_disclosure_accepted,
+        },
+        now,
+    )?;
     profile.view()
 }
 
@@ -411,16 +399,7 @@ fn history_delete_all(
     if !confirmed {
         return Err("history_delete_confirmation_required");
     }
-    let mut slot = history
-        .repository
-        .lock()
-        .map_err(|_| "history_state_unavailable")?;
-    let repository = slot.take().ok_or("history_unavailable")?;
-    let policy = repository.policy().clone();
-    repository
-        .delete_all()
-        .map_err(|_| "history_delete_failed")?;
-    *slot = HistoryRepository::open(&history.database_path, policy).ok();
+    let reopened = history.delete_all()?;
     // The entries seeded from this database go with the rows; the ones this run
     // produced stay. Leaving a seeded entry listed would say a deleted
     // transcript still exists, and it would still be copyable from the window
@@ -432,7 +411,7 @@ fn history_delete_all(
     // still on disk.
     session_log.clear_seeded_history();
     notify_transcript_log_changed(&app);
-    Ok(())
+    reopened
 }
 
 #[tauri::command]

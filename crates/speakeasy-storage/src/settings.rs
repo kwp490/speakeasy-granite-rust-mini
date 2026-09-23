@@ -37,8 +37,14 @@ pub struct PrivacyPreferences {
     pub history_plaintext_disclosure_accepted: bool,
     #[serde(default)]
     pub disk_logging_enabled: bool,
-    #[serde(default)]
-    pub cloud_polish: CloudPolishPreferences,
+    /// Keys this build does not read, kept so `save` writes them back.
+    ///
+    /// A profile written before cloud polish was retired carries a
+    /// `cloud_polish` object here. Nothing reads or validates it; it is
+    /// preserved rather than dropped so an older build opening the same profile
+    /// finds what it wrote.
+    #[serde(default, flatten)]
+    pub extensions: BTreeMap<String, Value>,
 }
 
 const fn default_retention_days() -> u16 {
@@ -52,80 +58,8 @@ impl Default for PrivacyPreferences {
             history_retention_days: default_retention_days(),
             history_plaintext_disclosure_accepted: false,
             disk_logging_enabled: true,
-            cloud_polish: CloudPolishPreferences::default(),
+            extensions: BTreeMap::new(),
         }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct CloudPolishPreferences {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub provider_id: Option<String>,
-    #[serde(default)]
-    pub model_id: Option<String>,
-    #[serde(default)]
-    pub active_profile_id: Option<String>,
-    #[serde(default = "default_polish_before_commit")]
-    pub before_commit: bool,
-    #[serde(default)]
-    pub consent: Option<CloudPolishConsent>,
-    #[serde(default)]
-    pub per_app_profiles: BTreeMap<String, String>,
-}
-
-impl Default for CloudPolishPreferences {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            provider_id: None,
-            model_id: None,
-            active_profile_id: None,
-            before_commit: true,
-            consent: None,
-            per_app_profiles: BTreeMap::new(),
-        }
-    }
-}
-
-const fn default_polish_before_commit() -> bool {
-    true
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct CloudPolishConsent {
-    pub provider_id: String,
-    pub endpoint: String,
-    pub privacy_policy_version: String,
-    pub prompt_behavior_version: u16,
-    pub credential_generation: u64,
-    pub granted_unix_ms: u64,
-}
-
-impl CloudPolishPreferences {
-    #[must_use]
-    pub fn consent_is_current(
-        &self,
-        provider_id: &str,
-        endpoint: &str,
-        privacy_policy_version: &str,
-        prompt_behavior_version: u16,
-        credential_generation: u64,
-    ) -> bool {
-        self.enabled
-            && self.consent.as_ref().is_some_and(|receipt| {
-                receipt.provider_id == provider_id
-                    && receipt.endpoint == endpoint
-                    && receipt.privacy_policy_version == privacy_policy_version
-                    && receipt.prompt_behavior_version == prompt_behavior_version
-                    && receipt.credential_generation == credential_generation
-            })
-    }
-
-    pub fn reset_consent(&mut self) {
-        self.consent = None;
-        self.enabled = false;
     }
 }
 
@@ -422,7 +356,14 @@ impl SettingsStore {
     /// Returns an I/O, corruption, validation, or too-new-schema error when neither
     /// the primary file nor an eligible backup can be loaded.
     pub fn load(&self) -> Result<(Settings, LoadOutcome), SettingsError> {
+        // A missing primary beside a backup means a save did not finish, or the
+        // file was removed. Either way the backup is the user's profile and
+        // defaults would silently replace it.
         if !self.path.exists() {
+            if self.backup_path.exists() {
+                return read_settings(&self.backup_path)
+                    .map(|settings| (settings, LoadOutcome::RecoveredFromBackup));
+            }
             return Ok((Settings::default(), LoadOutcome::DefaultedMissing));
         }
 
@@ -461,8 +402,10 @@ impl SettingsStore {
                 .write(true)
                 .open(&self.backup_path)?
                 .sync_all()?;
-            fs::remove_file(&self.path)?;
         }
+        // `fs::rename` replaces an existing destination on Windows
+        // (`MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`). Removing the primary
+        // first would open a window in which no primary exists.
         fs::rename(&temporary, &self.path)?;
         Ok(())
     }
@@ -506,39 +449,6 @@ fn validate(settings: &Settings) -> Result<(), SettingsError> {
             return Err(SettingsError::Invalid);
         }
     }
-    let polish = &settings.privacy.cloud_polish;
-    if polish.enabled
-        && (polish.provider_id.as_deref().is_none_or(str::is_empty)
-            || polish.model_id.as_deref().is_none_or(str::is_empty)
-            || polish
-                .active_profile_id
-                .as_deref()
-                .is_none_or(str::is_empty)
-            || polish.consent.is_none())
-    {
-        return Err(SettingsError::Invalid);
-    }
-    if polish
-        .provider_id
-        .as_ref()
-        .is_some_and(|value| value.len() > 128)
-        || polish
-            .model_id
-            .as_ref()
-            .is_some_and(|value| value.len() > 128)
-        || polish
-            .active_profile_id
-            .as_ref()
-            .is_some_and(|value| value.len() > 128)
-        || polish.per_app_profiles.iter().any(|(executable, profile)| {
-            executable.is_empty()
-                || executable.len() > 32_768
-                || profile.is_empty()
-                || profile.len() > 128
-        })
-    {
-        return Err(SettingsError::Invalid);
-    }
     Ok(())
 }
 
@@ -570,6 +480,48 @@ mod tests {
         let (recovered, outcome) = store.load().expect("backup recovery");
         assert_eq!(outcome, LoadOutcome::RecoveredFromBackup);
         assert_eq!(recovered.extensions.get("future"), Some(&Value::Bool(true)));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn a_missing_primary_recovers_from_the_backup_instead_of_defaulting() {
+        let root = temp_path("missing-primary");
+        let store = SettingsStore::new(root.join("settings.json"));
+        let first = Settings {
+            locale: "fr-FR".to_owned(),
+            ..Settings::default()
+        };
+        store.save(&first).expect("first save");
+        store.save(&first).expect("second save writes the backup");
+        fs::remove_file(&store.path).expect("remove primary");
+
+        let (recovered, outcome) = store.load().expect("backup recovery");
+        assert_eq!(outcome, LoadOutcome::RecoveredFromBackup);
+        assert_eq!(recovered.locale, "fr-FR");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn save_replaces_an_existing_primary_and_refreshes_the_backup() {
+        let root = temp_path("replace");
+        let store = SettingsStore::new(root.join("settings.json"));
+        let first = Settings {
+            locale: "fr-FR".to_owned(),
+            ..Settings::default()
+        };
+        store.save(&first).expect("first save");
+        let second = Settings {
+            locale: "de-DE".to_owned(),
+            ..Settings::default()
+        };
+        store.save(&second).expect("replacing save");
+
+        assert_eq!(store.load().expect("load").0.locale, "de-DE");
+        assert_eq!(
+            read_settings(&store.backup_path).expect("backup").locale,
+            "fr-FR"
+        );
+        assert!(!store.path.with_extension("json.tmp").exists());
         fs::remove_dir_all(root).expect("cleanup");
     }
 
@@ -747,40 +699,32 @@ mod tests {
     }
 
     #[test]
-    fn cloud_polish_is_off_before_commit_by_default_and_consent_resets() {
-        let mut settings = Settings::default();
-        let polish = &mut settings.privacy.cloud_polish;
-        assert!(!polish.enabled);
-        assert!(polish.before_commit);
-        polish.enabled = true;
-        polish.provider_id = Some("openai".to_owned());
-        polish.model_id = Some("legacy-model".to_owned());
-        polish.active_profile_id = Some("technical".to_owned());
-        polish.consent = Some(CloudPolishConsent {
-            provider_id: "openai".to_owned(),
-            endpoint: "https://api.openai.com/v1/responses".to_owned(),
-            privacy_policy_version: "2026-07".to_owned(),
-            prompt_behavior_version: 1,
-            credential_generation: 1,
-            granted_unix_ms: 1,
-        });
-        assert!(polish.consent_is_current(
-            "openai",
-            "https://api.openai.com/v1/responses",
-            "2026-07",
-            1,
-            1
-        ));
-        assert!(!polish.consent_is_current(
-            "openai",
-            "https://api.openai.com/v1/responses",
-            "2026-07",
-            1,
-            2
-        ));
-        polish.reset_consent();
-        assert!(!polish.enabled);
-        assert!(polish.consent.is_none());
-        assert!(validate(&settings).is_ok());
+    fn a_retired_cloud_polish_object_loads_and_survives_a_save() {
+        let root = temp_path("retired-polish");
+        let store = SettingsStore::new(root.join("settings.json"));
+        fs::create_dir_all(&root).expect("root");
+        // Enabled with no provider or consent: the retired validation refused
+        // this, and a profile holding it must still open now that nothing reads it.
+        fs::write(
+            &store.path,
+            br#"{"schema_version":1,"locale":"en-US","queue_capacity":8,
+                "privacy":{"persisted_history_enabled":true,"history_retention_days":14,
+                "cloud_polish":{"enabled":true,"per_app_profiles":{"a.exe":"x"}}}}"#,
+        )
+        .expect("write");
+
+        let (loaded, outcome) = store.load().expect("load");
+        assert_eq!(outcome, LoadOutcome::Loaded);
+        assert!(loaded.privacy.persisted_history_enabled);
+        assert_eq!(loaded.privacy.history_retention_days, 14);
+        store.save(&loaded).expect("save");
+
+        let written: Value =
+            serde_json::from_slice(&fs::read(&store.path).expect("read")).expect("json");
+        assert_eq!(
+            written["privacy"]["cloud_polish"]["per_app_profiles"]["a.exe"],
+            Value::String("x".to_owned())
+        );
+        fs::remove_dir_all(root).expect("cleanup");
     }
 }

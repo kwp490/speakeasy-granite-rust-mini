@@ -94,7 +94,7 @@ $allowedDependencies = @{
         'sha2', 'speakeasy-domain', 'sysinfo', 'tar', 'tempfile', 'unicode-normalization',
         'winreg', 'zip'
     )
-    'speakeasy-delivery' = @('speakeasy-domain', 'unicode-segmentation')
+    'speakeasy-delivery' = @('speakeasy-domain')
     'speakeasy-transforms' = @('serde', 'serde_json', 'sha2', 'unicode-normalization', 'unicode-segmentation')
     'speakeasy-storage' = @('serde', 'serde_json', 'sha2', 'rusqlite', 'speakeasy-domain', 'speakeasy-transforms', 'tempfile')
     # `speakeasy-worker` for the framed protocol `worker_process` speaks, and
@@ -124,8 +124,13 @@ $allowedDependencies = @{
     # a domain type. Already pinned at the workspace root and already recorded
     # in `dependency-policy/build-scripts.json`, so it adds no package to the
     # graph -- the `Cargo.lock` change is one line.
+    #
+    # `rusqlite` is a dev-dependency only. The history tests hold the database's
+    # write lock from a second connection to make a retention step fail on a
+    # repository that opened normally; production code reaches SQLite only
+    # through `speakeasy-storage`. Already in the graph through that crate.
     'speakeasy-desktop' = @(
-        'getrandom',
+        'getrandom', 'rusqlite',
         'serde', 'serde_json',
         'speakeasy-domain', 'speakeasy-audio', 'speakeasy-worker', 'speakeasy-models',
         'speakeasy-delivery', 'speakeasy-storage', 'speakeasy-transforms',

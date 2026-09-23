@@ -30,7 +30,18 @@ pub struct DownloadResult {
     pub bytes: u64,
     pub etag: Option<String>,
     pub resumed: bool,
+    /// Bytes this call read from the network. Zero when a complete destination
+    /// was verified and reused, and less than `bytes` after a resume.
+    pub fetched_bytes: u64,
 }
+
+/// How far the partial file may run ahead of its resume metadata.
+///
+/// Each checkpoint flushes the partial and rewrites the metadata, so writing one
+/// per 16 KiB read cost about 140,000 file syncs on the 2.30 GB model. A
+/// download killed outright re-fetches at most this much; one that stops on an
+/// error or a cancellation checkpoints first and re-fetches nothing.
+const RESUME_CHECKPOINT_BYTES: u64 = 8 * 1024 * 1024;
 
 struct DownloadPaths {
     partial: PathBuf,
@@ -118,6 +129,7 @@ pub fn download_to_file(
             bytes: request.expected_bytes,
             etag: None,
             resumed: true,
+            fetched_bytes: 0,
         });
     }
     remove_if_exists(&request.destination)?;
@@ -211,25 +223,33 @@ fn download_attempt(
         0
     };
     let etag = header_string(&response, ETAG);
+    let resume_etag = etag.as_deref().filter(|value| !value.trim().is_empty());
+    // The partial is flushed before the metadata names its length, so the
+    // metadata never claims bytes a crash could still lose.
+    let checkpoint = |output: &File, received: u64| -> Result<(), DownloadError> {
+        if let Some(etag) = resume_etag {
+            output.sync_data()?;
+            persist_resume(metadata_path, request.expected_bytes, received, etag)?;
+        }
+        Ok(())
+    };
     let mut received = initial;
+    let mut checkpointed = initial;
     let mut buffer = [0_u8; 16 * 1024];
     loop {
-        check_control(cancel, control.started, control.overall)?;
-        let count = response.read(&mut buffer).map_err(|error| {
-            let wrapped_timeout = error
-                .get_ref()
-                .and_then(|source| source.downcast_ref::<reqwest::Error>())
-                .is_some_and(reqwest::Error::is_timeout);
-            if matches!(
-                error.kind(),
-                io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
-            ) || wrapped_timeout
-            {
-                DownloadError::DeadlineExceeded
-            } else {
-                DownloadError::Io(error)
+        // A stop on an error or a cancellation checkpoints first, so a resume
+        // re-fetches nothing already written.
+        let step = check_control(cancel, control.started, control.overall)
+            .and_then(|()| response.read(&mut buffer).map_err(read_error));
+        let count = match step {
+            Ok(count) => count,
+            Err(error) => {
+                if received > checkpointed {
+                    let _ = checkpoint(&output, received);
+                }
+                return Err(error);
             }
-        })?;
+        };
         if count == 0 {
             break;
         }
@@ -246,8 +266,9 @@ fn download_attempt(
             });
         }
         output.write_all(&buffer[..count])?;
-        if let Some(etag) = etag.as_ref().filter(|value| !value.trim().is_empty()) {
-            persist_resume(metadata_path, request.expected_bytes, received, etag)?;
+        if received - checkpointed >= RESUME_CHECKPOINT_BYTES {
+            checkpoint(&output, received)?;
+            checkpointed = received;
         }
     }
     output.sync_all()?;
@@ -265,7 +286,24 @@ fn download_attempt(
         bytes: received,
         etag,
         resumed,
+        fetched_bytes: received - initial,
     })
+}
+
+fn read_error(error: io::Error) -> DownloadError {
+    let wrapped_timeout = error
+        .get_ref()
+        .and_then(|source| source.downcast_ref::<reqwest::Error>())
+        .is_some_and(reqwest::Error::is_timeout);
+    if matches!(
+        error.kind(),
+        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+    ) || wrapped_timeout
+    {
+        DownloadError::DeadlineExceeded
+    } else {
+        DownloadError::Io(error)
+    }
 }
 
 fn client(policy: &DownloadPolicy) -> Result<Client, DownloadError> {
@@ -419,6 +457,8 @@ fn persist_resume(
     file.write_all(&bytes)?;
     file.sync_all()?;
     fs::rename(temporary, path)?;
+    #[cfg(test)]
+    tests::RESUME_WRITES.with(|count| count.set(count.get() + 1));
     Ok(())
 }
 
@@ -628,6 +668,68 @@ mod tests {
 
     fn test_client(policy: &DownloadPolicy) -> Client {
         client(policy).expect("test client")
+    }
+
+    thread_local! {
+        /// Resume-metadata writes made on this thread, which is the one the
+        /// download runs on.
+        pub(super) static RESUME_WRITES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    #[test]
+    fn a_transfer_checkpoints_by_volume_not_per_read() {
+        let body = vec![7_u8; 1024 * 1024];
+        let length = body.len().to_string();
+        let server = serve(vec![(
+            response(
+                "200 OK",
+                &[("Content-Length", length.as_str()), ("ETag", "\"v1\"")],
+                &body,
+            ),
+            Duration::ZERO,
+        )]);
+        let temp = tempfile::tempdir().unwrap();
+        let download_policy = policy();
+        RESUME_WRITES.with(|count| count.set(0));
+        let result = test_download(
+            server.url.clone(),
+            temp.path().join("artifact.bin"),
+            body.len() as u64,
+            digest_bytes(&body),
+            &download_policy,
+            &test_client(&download_policy),
+            &CancelToken::default(),
+        )
+        .expect("download succeeds");
+        server.thread.join().unwrap();
+
+        assert_eq!(result.fetched_bytes, body.len() as u64);
+        assert_eq!(
+            RESUME_WRITES.with(std::cell::Cell::get),
+            0,
+            "a 1 MiB transfer is below one checkpoint and must not rewrite its metadata per read"
+        );
+    }
+
+    #[test]
+    fn a_verified_destination_reports_nothing_fetched() {
+        let body = b"trusted";
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("artifact.bin");
+        fs::write(&destination, body).unwrap();
+        let result = download_to_file(
+            &DownloadRequest {
+                url: "https://127.0.0.1/unreachable".to_owned(),
+                destination,
+                expected_bytes: body.len() as u64,
+                expected_sha256: digest_bytes(body),
+            },
+            &policy(),
+            &CancelToken::default(),
+        )
+        .expect("verified reuse");
+        assert_eq!(result.bytes, body.len() as u64);
+        assert_eq!(result.fetched_bytes, 0);
     }
 
     #[test]

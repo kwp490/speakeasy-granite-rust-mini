@@ -27,8 +27,8 @@ pub use repository::{
 };
 pub use settings::{
     APP_CAPABILITY_EVIDENCE_SCHEMA_VERSION, ActivationHotkeyMode, AppCapabilityEvidence,
-    AppDeliveryCapability, CloudPolishConsent, CloudPolishPreferences, DEFAULT_ACTIVATION_HOTKEY,
-    DeliveryPreferences, EngineProvider, HotkeyPreferences, HudDockEdge, HudDockPlacement,
-    LiveDeliveryChoice, LoadOutcome, PrivacyPreferences, SafeDeliveryPreference, Settings,
-    SettingsError, SettingsStore, ThemePreference, WritingRulePreferences,
+    AppDeliveryCapability, DEFAULT_ACTIVATION_HOTKEY, DeliveryPreferences, EngineProvider,
+    HotkeyPreferences, HudDockEdge, HudDockPlacement, LiveDeliveryChoice, LoadOutcome,
+    PrivacyPreferences, SafeDeliveryPreference, Settings, SettingsError, SettingsStore,
+    ThemePreference, WritingRulePreferences,
 };

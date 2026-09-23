@@ -59,8 +59,14 @@ export function OutputPrivacy({ profile }: { profile: ProfileController }) {
       setResult(await readWithRetry<RecoverableResult>("result_status"));
       setRetryAction("");
     } catch {
-      setResult(await readWithRetry<RecoverableResult>("result_status"));
+      // The failure is reported before the status re-read, which can fail too;
+      // a rejection there must not swallow the message the user needs.
       setRetryAction(messages.retryFailed);
+      try {
+        setResult(await readWithRetry<RecoverableResult>("result_status"));
+      } catch {
+        // The result view keeps what it last read.
+      }
     }
   }
 
