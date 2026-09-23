@@ -9,8 +9,9 @@ so even the widest level bars stay clear of it.
 ## 1.11.0 — 2026-09-23
 
 The dock's level meter is larger and easier to read while you dictate. It now
-uses space that used to be empty: a spacing rule meant for the settings window was also adding empty space at the top and bottom of the
-dock, and a row that was usually empty sat above the button. The bars are fewer
+uses space that used to be empty: a spacing rule meant for the settings
+window was also adding empty space at the top and bottom of the dock, and a
+row that was usually empty sat above the button. The bars are fewer
 and much thicker, and they adjust to your microphone, so ordinary speech fills
 the dock whether the microphone is quiet or loud. A quiet room still shows
 only the resting line.

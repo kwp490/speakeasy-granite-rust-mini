@@ -28,17 +28,18 @@ git log --oneline origin/main..HEAD
 git log --oneline $(git describe --tags --abbrev=0)..main
 ```
 
-### What v1.11.0 carries, not yet released (2026-09-23)
+### What v1.11.1 carries, not yet released (2026-09-23)
 
 The dock redesign: the narrow-width `main` padding rule no longer reaches the
-dock, the engine chip is under the chrome, the status row folded into the
-button, and the meter is 182px of normalised, full-height bars. See
-`docs/UI-GUIDE.md` "The dock's geometry". No tag, no GitHub release and no
-`SHA256SUMS` exist for it; publishing is step 5 of "Before the next release".
+dock, the status row folded into the button, the meter is 178px of normalised,
+full-height bars, and the engine chip sits directly above the button. See
+`docs/UI-GUIDE.md` "The dock's geometry". `v1.11.0` was built and installed on
+the owner's machine only; neither version has a tag, a GitHub release or
+`SHA256SUMS`. Publishing is step 5 of "Before the next release".
 
-Local artifact `target\local-development\1.11.0\SpeakEasyMiniSetup.exe`,
+Local artifact `target\local-development\1.11.1\SpeakEasyMiniSetup.exe`,
 38,231,267 bytes, SHA-256
-`dc27e2d84072479b222c38294236293e8acf1f038778e9aa58221c08eded6de9`, from
+`ec0571443a9315e7f1b26fc37cc4ec5035b6271fc4b419887d0a4efed52b8d29`, from
 `Build-LocalInstaller.ps1`'s fresh build. The gate, `Test-InstallerLifecycle.ps1`
 and `Test-SetupWizard.ps1` passed against it, the wizard on the graphics card
 (RTX 5090 host) with the config restored byte-identical. It was then installed
